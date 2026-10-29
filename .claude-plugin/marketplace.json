@@ -1,0 +1,6 @@
+{
+  "name": "keavi",
+  "owner": { "name": "Keavi LLC" },
+  "description": "Claude Code plugins from Keavi LLC.",
+  "plugins": [{ "name": "stu", "source": "./" }]
+}

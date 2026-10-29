@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fail closed: block the push if any tracked file hits the private deny list
+# (or the list is missing).
+root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$root" || exit 1
+git ls-files -z | tools/deny-scan.sh -0 || { echo "pre-push: deny-scan failed; push blocked" >&2; exit 1; }

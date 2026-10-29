@@ -1,0 +1,10 @@
+{
+  "name": "stu",
+  "version": "0.1.0",
+  "description": "Let it stew. A blind supervisor that runs long autonomous Claude Code sessions: fail-closed returns, SHA-bound independent review, a separate merge gate, and /settle.",
+  "author": { "name": "Keavi LLC", "url": "https://keavi.app" },
+  "homepage": "https://keavi.app",
+  "repository": "https://github.com/keavi-app/stu-claude",
+  "license": "Apache-2.0",
+  "keywords": ["autonomous", "orchestration", "supervisor", "code-review", "merge-gate", "agents"]
+}

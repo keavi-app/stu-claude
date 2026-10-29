@@ -1,0 +1,24 @@
+# Changelog
+
+## 0.1.0
+
+- First release as a Claude Code plugin: install with `claude plugin install stu@keavi`.
+- Skills `/stu:run`, `/stu:settle` and `/stu:fix-campaign`, and six agents namespaced `stu:`.
+- `/stu:init` writes a per-repo config, kept in the repo or in `~/.stu/<project>/`, in place of
+  hand-edited `PROJECT-SPECIFIC` blocks.
+- The turn guard ships as a plugin hook, with a native `maxTurns` backstop on the
+  orchestrator (190) and implementer (220).
+- Helper commands on the plugin `PATH`: `stu-env`, `stu-claims`, `stu-ctx`, `stu-ci-wait`,
+  `stu-approve`, `stu-forge`, `stu-pre-push`, `stu-run-check`, `stu-verify`.
+- `stu-verify --retry` re-runs a failed commit's verification once; the merge gate uses it for a
+  suspected flake and treats a second failure as final.
+- In a headless session the supervisor relays a nested agent's completion to the orchestrator
+  that dispatched it, without reading the agent's result.
+- Multi-repo families: a `## repos` table with `### <name>` rows and `## <id> @<name>` sections,
+  and merge modes `direct`, `label-handoff`, `report-only` and `direct-push` per row.
+- New config keys: `host`, `initial_version`, `merge_method`, `ci_timeout`, `ci_triage_command`,
+  `ci_triage_wait`, `ci_no_rerun_branch_prefix`, `ci_gate_source` and `ci_skipped_is_success`.
+- The publish guard: a git `pre-push` hook on public and before-push repos (its approval rule
+  applies to Claude Code pushes only; the leak scan applies to every push), and a `PreToolUse`
+  hook that protects the approvals file.
+- Minimum Claude Code version 2.1.310; macOS, Linux and WSL.

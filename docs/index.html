@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stu · long unattended Claude Code runs</title>
+<meta property="og:title" content="stu">
+<meta property="og:description" content="Go to bed. Wake up to reviewed PRs and a short list of questions.">
+<meta property="og:url" content="https://stu.keavi.app">
+<meta name="description" content="stu is a Claude Code plugin for long unattended runs: go to bed, wake up to reviewed PRs and a short list of questions.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column; the command tiles, terminal and diagrams use the wide measure. Diagrams are HTML flows that run across on desktop and stack on phones. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #e7ebf1;
+  --fg: #020d1a;
+  --muted: #536880;
+  --line: #cbd4e0;
+  --accent: #2f45c9;
+  --accent-soft: #e2e6fb;
+  --stop: #b3261e;
+  --term-bg: #061424;
+  --term-fg: #d7dee8;
+  --term-dim: #7f91a8;
+  --term-accent: #9aaaff;
+  --term-warn: #f0c36b;
+  --term-line: #1c2b3d;
+
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.6rem;
+  --step-3: clamp(2.3rem, 4vw + 1rem, 3.4rem);
+  --col: 40rem;
+  --wide: 58rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #020d1a; --surface: #0b1a2c; --fg: #e7ebf1; --muted: #94a4b8; --line: #1c2b3d;
+    --accent: #8d9dff; --accent-soft: #141f42; --stop: #ff8a80;
+    --term-bg: #0b1a2c; --term-line: #22344a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #020d1a; --surface: #0b1a2c; --fg: #e7ebf1; --muted: #94a4b8; --line: #1c2b3d;
+  --accent: #8d9dff; --accent-soft: #141f42; --stop: #ff8a80;
+  --term-bg: #0b1a2c; --term-line: #22344a; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+img, svg { max-width: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  margin: 0;
+  font: 400 var(--step-0)/1.6 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-font-smoothing: antialiased;
+}
+header.top, main, footer { max-width: var(--wide); margin-inline: auto; }
+main > * { min-width: 0; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h3 { font-size: var(--step-1); font-weight: 700; letter-spacing: -0.02em; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 0.2em; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+code { font-family: var(--mono); font-size: 0.9em; }
+.eyebrow { font: 700 0.75rem/1 var(--sans); text-transform: uppercase; letter-spacing: 0.18em; color: var(--muted); }
+
+section { padding-block: 3.5rem; border-top: 1px solid var(--line); display: grid; gap: 1.5rem; }
+section > * { min-width: 0; }
+
+/* Header row */
+header.top {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem 1.25rem; padding-block: 1.75rem 0;
+}
+.wordmark { font: 800 2.75rem/1 var(--sans); letter-spacing: -0.06em; margin: 0; }
+.wordmark span { color: var(--accent); }
+.stew { font: 500 1.1rem/1 var(--sans); color: var(--muted); letter-spacing: -0.01em; }
+header.top nav { margin-left: auto; display: flex; gap: 1.25rem; font-size: 0.9rem; }
+header.top nav a { color: var(--muted); text-decoration: none; }
+header.top nav a:hover { color: var(--fg); }
+@media (max-width: 520px) { header.top nav a:first-child { display: none; } }
+
+/* Hero */
+.hero { padding-block: 4rem; display: grid; gap: 1.5rem; }
+.hero h1 { font: 700 var(--step-3)/1.06 var(--sans); letter-spacing: -0.035em; max-width: 26ch; }
+.hero h1 .l1 { display: block; color: var(--accent); }
+.hero .sub { font-size: var(--step-1); color: var(--muted); max-width: var(--col); line-height: 1.5; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+.tile {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  padding: 0.9rem 1rem 1rem; display: grid; gap: 0.5rem; align-content: start; min-width: 0;
+}
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.tile-head .eyebrow { font-size: 0.7rem; }
+.tile pre { margin: 0; font: 500 1.08rem/1.35 var(--mono); color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tile p { font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
+.copy {
+  font: 500 0.72rem/1 var(--mono); color: var(--accent); background: transparent;
+  border: 1px solid var(--line); border-radius: 999px; padding: 0.4rem 0.75rem; cursor: pointer; flex: none;
+}
+.copy:hover { background: var(--accent-soft); }
+.cmd {
+  display: flex; align-items: center; gap: 0.75rem; min-width: 0;
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.6rem 0.55rem 1rem;
+  font-family: var(--mono); font-size: 0.85rem;
+}
+.cmd .lbl { font: 700 0.7rem/1 var(--sans); text-transform: uppercase; letter-spacing: 0.18em; color: var(--muted); flex: none; }
+.cmd pre { margin: 0; flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.cmd.shell pre::before { content: "$ "; color: var(--muted); }
+@media (max-width: 700px) {
+  .tiles { grid-template-columns: minmax(0, 1fr); }
+  .cmd { flex-wrap: wrap; }
+  .cmd pre { flex-basis: 100%; order: 3; }
+  .cmd .copy { margin-left: auto; }
+}
+
+/* Problem */
+.hero + section { border-top: 0; padding-top: 1rem; }
+.failures { list-style: none; margin: 0; padding: 0; max-width: var(--col); }
+.failures li {
+  display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; padding-block: 0.7rem;
+  border-bottom: 1px solid var(--line); align-items: baseline;
+}
+.failures li:last-child { border-bottom: 0; }
+.failures b { font-weight: 700; letter-spacing: -0.01em; }
+.failures span { color: var(--muted); }
+@media (max-width: 560px) { .failures li { grid-template-columns: 1fr; gap: 0.15rem; } }
+
+/* Terminal */
+.run { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: 1.5rem; align-items: start; }
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; border: 1px solid var(--term-line); min-width: 0; }
+.term-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--term-line); font: 500 0.75rem/1 var(--mono); color: var(--term-dim); }
+.term pre { margin: 0; padding: 1.1rem 1.1rem 1.3rem 0.4rem; font: 400 0.84rem/1.75 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.term .ln { display: block; padding-left: 1.8rem; text-indent: -1.8rem; min-height: 1.75em; }
+.term .mk { display: inline-block; width: 1.8rem; text-indent: 0; text-align: center; color: var(--term-accent); font-weight: 600; }
+.term .d { color: var(--term-dim); }
+.term .a { color: var(--term-accent); }
+.term .b { font-weight: 600; color: #fff; }
+.term .w { color: var(--term-warn); font-weight: 600; }
+.callouts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.1rem; }
+.callouts li { display: grid; grid-template-columns: 1.6rem 1fr; gap: 0.5rem; font-size: 0.92rem; line-height: 1.45; }
+.callouts .n { font: 600 0.84rem/1.6 var(--mono); color: var(--accent); }
+.callouts b { display: block; font-weight: 700; }
+.callouts span:not(.n) { color: var(--muted); }
+@media (max-width: 820px) { .run { grid-template-columns: minmax(0, 1fr); } }
+
+/* How it works */
+.idea { display: grid; gap: 1rem; padding-block: 1.75rem; }
+.idea + .idea { border-top: 1px dashed var(--line); }
+.idea-head { display: grid; gap: 0.35rem; max-width: var(--col); }
+.idea-head p { color: var(--muted); }
+.note { font-size: 0.88rem; color: var(--muted); max-width: var(--col); }
+
+/* Flow diagrams: a row of nodes joined by arrows; stacks on phones. */
+.lanes { display: grid; gap: 1.5rem; }
+.lane { display: grid; gap: 0.5rem; }
+.lane-label { font: 500 0.7rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.flow { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 2.25rem; }
+.flow > li { position: relative; min-width: 0; }
+.flow > li + li::before {
+  content: ""; position: absolute; left: -1.95rem; top: 50%; width: 1.6rem; border-top: 1.25px solid var(--muted);
+}
+.flow > li + li::after {
+  content: ""; position: absolute; left: -0.62rem; top: calc(50% - 3.6px); width: 7px; height: 7px;
+  border-top: 1.25px solid var(--muted); border-right: 1.25px solid var(--muted); transform: rotate(45deg);
+}
+.flow > li.to-acc::before, .flow > li.to-acc::after { border-color: var(--accent); }
+.node {
+  border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.8rem; background: var(--bg);
+  font: 400 0.82rem/1.45 var(--mono);
+}
+.node b { font-weight: 500; }
+.node small { display: block; color: var(--muted); font-size: 0.72rem; line-height: 1.45; }
+.node.acc { background: var(--accent-soft); border-color: var(--accent); }
+.node.acc > b:first-child { color: var(--accent); }
+.node.stop { border-color: var(--stop); }
+.node.stop b { color: var(--stop); font-weight: 600; }
+.node.list { padding: 0; }
+.node.list > div { padding: 0.45rem 0.8rem; display: flex; justify-content: space-between; align-items: baseline; gap: 1.25rem; }
+.node.list > div + div { border-top: 1px solid var(--line); }
+.node.list small { display: inline; }
+.node.checks { padding: 0.75rem 0.9rem; display: grid; gap: 0.5rem; }
+.node.checks ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.node.checks li { display: grid; grid-template-columns: 1.1rem auto 1fr; gap: 0.6rem; align-items: baseline; }
+.node.checks li small { text-align: right; }
+.node.checks .i { color: var(--accent); }
+.outs { display: grid; gap: 0.75rem; }
+.grow { flex: 1; }
+@media (max-width: 820px) {
+  .flow { flex-direction: column; align-items: stretch; gap: 1.75rem; }
+  .flow > li + li::before { left: 1.4rem; top: -1.55rem; width: 0; height: 1.25rem; border-top: 0; border-left: 1.25px solid var(--muted); }
+  .flow > li.to-acc::before { border-left-color: var(--accent); }
+  .flow > li + li::after { left: calc(1.4rem - 3.5px); top: -0.62rem; transform: rotate(135deg); }
+  .node.checks li { grid-template-columns: 1.1rem 1fr; gap: 0 0.6rem; }
+  .node.checks li small { grid-column: 2; text-align: left; }
+}
+
+/* Budgets */
+.budgets { overflow-x: auto; }
+.budgets table { border-collapse: collapse; font: 400 0.82rem/1.4 var(--mono); min-width: 30rem; }
+.budgets th { font: 700 0.68rem/1 var(--sans); text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); text-align: left; padding: 0 1.75rem 0.6rem 0; }
+.budgets td { padding: 0.45rem 1.75rem 0.45rem 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.budgets td + td { color: var(--muted); }
+
+/* Proof */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.5rem; }
+.stat { display: grid; gap: 0.35rem; align-content: start; }
+.stat b { font: 800 2.2rem/1 var(--sans); letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.88rem; line-height: 1.4; }
+@media (max-width: 700px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.trust { font-size: 0.92rem; color: var(--muted); max-width: var(--col); }
+
+.start { display: grid; gap: 0.75rem; max-width: var(--col); }
+
+footer {
+  border-top: 1px solid var(--line); padding-block: 2rem 3rem;
+  display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: space-between; align-items: baseline;
+  color: var(--muted); font-size: 0.9rem;
+}
+footer nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+footer .wm { font: 800 1.25rem/1 var(--sans); color: var(--fg); letter-spacing: -0.05em; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <p class="wordmark" aria-label="stu">stu<span>.</span></p>
+  <span class="stew">Let it stew.</span>
+  <nav aria-label="Site">
+    <a href="#how">How it works</a>
+    <a href="https://github.com/keavi-app/stu-claude">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <div class="hero">
+    <h1><span class="l1">Go to bed.</span> Wake up to reviewed PRs and a short list of questions.</h1>
+    <p class="sub">stu turns your Claude Code session into a blind supervisor. It hands out the work, checks every return mechanically, and stops rather than guess.</p>
+    <div class="tiles">
+      <div class="tile">
+        <div class="tile-head"><span class="eyebrow">Once</span><button class="copy" type="button" data-copy>Copy</button></div>
+        <pre>/stu:init</pre>
+        <p>Answer a few questions about your repo.</p>
+      </div>
+      <div class="tile">
+        <div class="tile-head"><span class="eyebrow">Start</span><button class="copy" type="button" data-copy>Copy</button></div>
+        <pre>/stu:run "&lt;objective&gt;"</pre>
+        <p>Name the work. Walk away.</p>
+      </div>
+      <div class="tile">
+        <div class="tile-head"><span class="eyebrow">After</span><button class="copy" type="button" data-copy>Copy</button></div>
+        <pre>/stu:settle</pre>
+        <p>Answer what it parked, one at a time.</p>
+      </div>
+    </div>
+    <div class="cmd"><span class="lbl">Install</span><pre>/plugin install stu --marketplace keavi-app/stu-claude</pre><button class="copy" type="button" data-copy>Copy</button></div>
+  </div>
+
+  <section aria-labelledby="problem">
+    <p class="eyebrow" id="problem">Why long runs go wrong</p>
+    <ul class="failures">
+      <li><b>Runs drift.</b><span>Three hours in, the session is busy with work nobody asked for.</span></li>
+      <li><b>Agents self-certify.</b><span>"Done" is a word the agent typed.</span></li>
+      <li><b>Checks lie.</b><span>A check that never ran looks the same as one that passed.</span></li>
+      <li><b>Questions get guessed.</b><span>Calls you would have made differently, made at 3 a.m.</span></li>
+      <li><b>Pushes go unseen.</b><span>The agent that wrote the change also ships it.</span></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="practice">
+    <p class="eyebrow" id="practice">What a run looks like</p>
+    <div class="run">
+      <div class="term">
+        <div class="term-bar">claude &middot; parleq-speech</div>
+<pre><span class="ln"><span class="mk"></span><span class="d">&gt;</span> <span class="b">/stu:run</span> parleq 0.45.1 bug fixes</span><span class="ln"><span class="mk"></span><span class="d">objective written · 3 units · cycle cap 4</span></span><span class="ln"></span><span class="ln"><span class="mk"></span><span class="a">cycle 1</span>  orchestrator <span class="d">(opus)</span></span><span class="ln"><span class="mk">1</span><span class="d">reviewer finished. Relayed; result not read.</span></span><span class="ln"><span class="mk"></span><span class="b">checked</span>  engine:c0          on main  tag 0.6.2</span><span class="ln"></span><span class="ln"><span class="mk"></span><span class="a">cycle 2</span>  orchestrator <span class="d">(sonnet)</span></span><span class="ln"><span class="mk">2</span><span class="d">interim</span>  "c1 has landed and been tagged." Not counted until the cycle's result passes the checks.</span><span class="ln"><span class="mk"></span><span class="b">checked</span>  engine:c1          on main  tag 0.6.3</span><span class="ln"><span class="mk"></span><span class="b">checked</span>  parleq-speech:p1   reviewed · gated · pin 0.6.3</span><span class="ln"></span><span class="ln"><span class="mk"></span><span class="b">DONE</span>  3 of 3 units closed · 2 of 4 cycles</span><span class="ln"></span><span class="ln"><span class="mk">3</span><span class="w">awaiting your approval to push:</span></span><span class="ln"><span class="mk"></span>parleq-speech:p1  fix/0.45.1-bug-fixes  2754016</span><span class="ln"><span class="mk"></span><span class="b">! stu-approve parleq-speech:p1 2754016f99342736010fd6dc46adf8ec0672fd3b</span></span></pre>
+      </div>
+      <ol class="callouts">
+        <li><span class="n">1</span><div><b>Blind supervisor</b><span>It passes on that a reviewer finished. It never reads what the reviewer said.</span></div></li>
+        <li><span class="n">2</span><div><b>Fail closed</b><span>A claim in prose counts for nothing until the cycle's result passes all five checks.</span></div></li>
+        <li><span class="n">3</span><div><b>Your checkpoint</b><span>This repo is marked, so the push waits for you to approve that exact commit.</span></div></li>
+      </ol>
+    </div>
+    <p class="note">Condensed from the supervisor's own messages during the Parleq trial, with the private engine repo shown as <code>engine</code>.</p>
+  </section>
+
+  <section aria-labelledby="how-label" id="how">
+    <p class="eyebrow" id="how-label">How stu works</p>
+
+    <div class="idea">
+      <div class="idea-head">
+        <h3>A supervisor that stays small</h3>
+        <p>Your session holds only unit IDs and a scoreboard, and never reads the work. Its context is designed to stay flat; if it grows anyway, the run ends at the next cycle.</p>
+      </div>
+      <ol class="flow" aria-label="You start the supervisor, which dispatches a fresh orchestrator each cycle, which dispatches the implementer, reviewer, merge gate, scout and verifier.">
+        <li><div class="node"><b>you</b></div></li>
+        <li><div class="node acc"><b>supervisor</b><small>holds: unit IDs, scoreboard</small><small>reads: nothing</small></div></li>
+        <li class="to-acc"><div class="node"><b>orchestrator</b><small>fresh each cycle</small><small>writes no code</small></div></li>
+        <li class="grow"><div class="node list">
+          <div><b>implementer</b><small>writes</small></div>
+          <div><b>reviewer</b><small>at one SHA</small></div>
+          <div><b>merge gate</b><small>own evidence</small></div>
+          <div><b>scout, verifier</b><small>read-only</small></div>
+        </div></li>
+      </ol>
+    </div>
+
+    <div class="idea">
+      <div class="idea-head">
+        <h3>Checks that stop the run instead of trusting it</h3>
+        <p>Every return is checked against the scoreboard with set operations. A failure gets one repair at most, then the run stops.</p>
+      </div>
+      <ol class="flow" aria-label="A return goes through five checks. If all pass, the scoreboard is updated. If one fails, there is one repair at most; a second failure stops the run.">
+        <li><div class="node"><b>return</b><small>ID sets</small></div></li>
+        <li class="grow"><div class="node acc checks">
+          <b>five checks, every return</b>
+          <ol>
+            <li><span class="i">1</span><span>every ID was issued</span><small>no invented work</small></li>
+            <li><span class="i">2</span><span>no silent new units</span><small>no scope creep</small></li>
+            <li><span class="i">3</span><span>DONE means none left</span><small>no "done" with work open</small></li>
+            <li><span class="i">4</span><span>a premise to verify</span><small>no self-certified claims</small></li>
+            <li><span class="i">5</span><span>progress, not spinning</span><small>no burned night</small></li>
+          </ol>
+        </div></li>
+        <li><div class="outs">
+          <div class="node"><b>all pass</b><small>scoreboard updated; next cycle, or DONE</small></div>
+          <div class="node"><b>a fail</b><small>one repair, at most</small></div>
+          <div class="node stop"><b>fails again: STOP</b><small>fail closed, nothing guessed</small></div>
+        </div></li>
+      </ol>
+    </div>
+
+    <div class="idea">
+      <div class="idea-head">
+        <h3>Questions wait for you; the run keeps going</h3>
+        <p>A question only you can answer parks one unit, with a recommendation. Settle it later in a fresh session.</p>
+      </div>
+      <ol class="flow" aria-label="A unit needs you, so it is parked with a recommendation. The run continues on the other units. When it stops you run settle and answer one question at a time, and your answers go back into the run.">
+        <li><div class="node"><b>unit 3 needs you</b><small>your call</small></div></li>
+        <li><div class="node"><b>parked</b><small>with a recommendation</small></div></li>
+        <li><div class="node"><b>others continue</b><small>units 1 and 2</small></div></li>
+        <li class="to-acc"><div class="node acc"><b>/stu:settle</b><small>one at a time</small></div></li>
+        <li><div class="node"><b>resume</b><small>answers go back in</small></div></li>
+      </ol>
+    </div>
+
+    <div class="idea">
+      <div class="idea-head">
+        <h3>Repos you mark wait for your approval</h3>
+        <p>On a marked repo, an agent's push stops at a git hook until you approve that exact commit. Elsewhere, the merge gate merges only the SHA that was reviewed.</p>
+      </div>
+      <div class="lanes">
+        <div class="lane">
+          <span class="lane-label">Marked repo, agent push</span>
+          <ol class="flow">
+            <li><div class="node"><b>git push</b><small>from the agent</small></div></li>
+            <li><div class="node acc"><b>before-push</b><small>refused: not approved</small></div></li>
+            <li class="to-acc"><div class="node acc"><b>stu-approve &lt;unit&gt; &lt;sha&gt;</b><small>you run it, not the agent</small></div></li>
+            <li class="to-acc"><div class="node"><b>push</b><small>that SHA only</small></div></li>
+          </ol>
+        </div>
+        <div class="lane">
+          <span class="lane-label">Your own push</span>
+          <ol class="flow">
+            <li><div class="node"><b>git push</b><small>your terminal</small></div></li>
+            <li><div class="node"><b>push</b><small>straight through; public repos still get the leak scan</small></div></li>
+          </ol>
+        </div>
+        <div class="lane">
+          <span class="lane-label">Unmarked repo</span>
+          <ol class="flow">
+            <li><div class="node"><b>reviewed</b><small>by an agent that did not write it</small></div></li>
+            <li><div class="node"><b>merge gate</b><small>collects its own evidence</small></div></li>
+            <li><div class="node"><b>merged at the reviewed SHA</b><small>or reported for you to merge</small></div></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="idea">
+      <div class="idea-head">
+        <h3>A budget on every agent</h3>
+        <p>Turn and context budgets, enforced live by a hook, with a native <code>maxTurns</code> backstop. Each role gets the cheapest model that does the job.</p>
+      </div>
+      <div class="budgets">
+        <table>
+          <thead><tr><th>Role</th><th>Model</th><th>Turn budget</th></tr></thead>
+          <tbody>
+            <tr><td>supervisor</td><td>your session</td><td>4 cycles (8 overnight)</td></tr>
+            <tr><td>orchestrator</td><td>opus on cycle 1, then sonnet</td><td>120 · backstop 190</td></tr>
+            <tr><td>implementer</td><td>sonnet</td><td>140 · backstop 220</td></tr>
+            <tr><td>reviewer, merge gate, verifier</td><td>sonnet</td><td></td></tr>
+            <tr><td>scout</td><td>haiku</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="proof">
+    <p class="eyebrow" id="proof">Proof: the Parleq trial</p>
+    <div class="stats">
+      <div class="stat"><b>3 of 3</b><span>units closed, across two repos</span></div>
+      <div class="stat"><b>2 of 4</b><span>cycles used</span></div>
+      <div class="stat"><b>1 PR</b><span>opened by stu, merged by the maintainer</span></div>
+      <div class="stat"><b>1 push</b><span>to Parleq, after approval of its exact SHA</span></div>
+    </div>
+    <div class="lanes">
+      <div class="lane">
+        <span class="lane-label">Engine · private</span>
+        <ol class="flow">
+          <li><div class="node"><b>c0</b></div></li>
+          <li><div class="node"><b>tag 0.6.2</b></div></li>
+          <li><div class="node"><b>c1</b></div></li>
+          <li><div class="node"><b>tag 0.6.3</b></div></li>
+        </ol>
+      </div>
+      <div class="lane">
+        <span class="lane-label">Parleq · public</span>
+        <ol class="flow">
+          <li><div class="node"><b>waits for 0.6.3</b></div></li>
+          <li><div class="node"><b>p1 · pin 0.6.3</b></div></li>
+          <li><div class="node"><b>approved</b></div></li>
+          <li class="to-acc"><div class="node acc"><b>v0.45.1</b></div></li>
+        </ol>
+      </div>
+    </div>
+    <p class="trust">Check it: the <a href="https://github.com/parleq/parleq-speech/releases/tag/v0.45.1">v0.45.1 release</a> and <a href="https://github.com/parleq/parleq-speech/pull/131">PR #131</a>. Every rule in stu is backed by a measured failure, written up in the <a href="https://github.com/keavi-app/stu-claude/blob/main/docs/design-rationale.md">design rationale</a>, and its <a href="https://github.com/keavi-app/stu-claude#publishing-safely">known limits</a> are listed too.</p>
+  </section>
+
+  <section aria-labelledby="start">
+    <p class="eyebrow" id="start">Prefer the shell?</p>
+    <div class="start">
+      <div class="cmd shell"><pre>claude plugin marketplace add keavi-app/stu-claude</pre><button class="copy" type="button" data-copy>Copy</button></div>
+      <div class="cmd shell"><pre>claude plugin install stu@keavi --scope user</pre><button class="copy" type="button" data-copy>Copy</button></div>
+      <p class="note">Needs Claude Code 2.1.310 or later, an authenticated <code>gh</code>, git 2.31+ and Python 3.9+. macOS, Linux or WSL.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span><span class="wm">stu</span> &nbsp;Made by <a href="https://keavi.app">Keavi</a> · <a href="https://github.com/keavi-app/stu-claude/blob/main/LICENSE">Apache-2.0 License</a></span>
+  <nav aria-label="Project links">
+    <a href="https://github.com/keavi-app/stu-claude#readme">README</a>
+    <a href="https://github.com/keavi-app/stu-claude/blob/main/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/keavi-app/stu-claude">GitHub</a>
+  </nav>
+</footer>
+
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var pre = btn.closest(".tile, .cmd").querySelector("pre");
+    var text = pre.textContent;
+    function done(label) { btn.textContent = label; setTimeout(function () { btn.textContent = "Copy"; }, 1500); }
+    function select() {
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      done("Selected");
+    }
+    try {
+      navigator.clipboard.writeText(text).then(function () { done("Copied"); }, select);
+    } catch (e) { select(); }
+  });
+});
+</script>
+</body>
+</html>

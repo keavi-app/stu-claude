@@ -1,0 +1,4 @@
+#!/bin/sh
+command -v python3 >/dev/null 2>&1 || { echo "stu-pre-push: python3 not found; install Python 3.9 or newer" >&2; exit 1; }
+self="$0"; while [ -L "$self" ]; do l=$(readlink "$self"); case "$l" in /*) self="$l";; *) self="$(dirname "$self")/$l";; esac; done
+exec python3 "$(dirname "$self")/../scripts/stu_pre_push.py" "$@"
