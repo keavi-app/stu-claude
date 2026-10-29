@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+- `stu-run-check` blocks a return that lists an ID in `REMAINING_IDS` or `PARKED_IDS` and also in
+  `CLOSED_IDS` or its row's closing field (`BLOCKED closed-but-remaining`), so a passed unit is
+  closed in the cycle that passed it rather than one cycle later.
+- The orchestrator puts an ID whose closing field it relays in `CLOSED_IDS`, never in
+  `REMAINING_IDS`.
+- A gate return saved in an earlier cycle may be relayed only when the unit's head is verified
+  unchanged at the gate's sha in the current cycle.
+
 ## 0.1.0
 
 - First release as a Claude Code plugin: install with `claude plugin install stu@keavi`.

@@ -100,7 +100,10 @@ Closing, by the unit's row (field = the gate field that closes it):
   not hold a unit open. A unit whose row is `mode: park` that appears in ANY ID-bearing field
   of the return (the affected fields, REMAINING_IDS, PARKED_IDS, INTEGRATING_IDS, the children
   of UNITS_CHANGED / UNITS_ADDED) is `BLOCKED park-row`. Otherwise REMAINING_IDS / PARKED_IDS
-  entries print no line.
+  entries print no line, except that an ID in REMAINING_IDS, PARKED_IDS or INTEGRATING_IDS that
+  is also in CLOSED_IDS or in its row's closing field is `BLOCKED closed-but-remaining`: a unit
+  closed this return is not outstanding. An AFTER_PASS_FAILED entry for the ID exempts its
+  closing field (that entry keeps the unit outstanding) but never a CLOSED_IDS entry.
   Leg 2 of a before-push unit: a PASSED_IDS entry on a before-push row needs an approvals
   record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A MERGED_IDS or
   READY_IDS entry for a before-push row is `BLOCKED wrong-field-for-mode`. A before-push row
@@ -118,7 +121,7 @@ closed-without-gate-field, passed-needs-pr-and-sha, passed-other-slug, passed-wr
 passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, ready-pr-closed,
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
-predecessor-unverified, predecessor-moved-head.
+predecessor-unverified, predecessor-moved-head, closed-but-remaining.
 
 Evidence (what each check proves):
   MERGED_IDS     after `git fetch <remote> <base>`, the sha is an ancestor of
@@ -753,7 +756,7 @@ def check_waiting(chk, u, ident, got, en):
         u.waiting.append(m.group(1))
 
 
-def evaluate(chk, ident, got, issued, awaiting):
+def evaluate(chk, ident, got, issued, awaiting, held):
     u = Unit()
     if ident not in issued:
         u.block("not-issued", "%s is not in this run's issued set" % ident)
@@ -850,6 +853,15 @@ def evaluate(chk, ident, got, issued, awaiting):
                     "APPROVAL_IDS or its PASSED_IDS leg-2 field" % ident)
         else:
             u.add_closed("no-pr")
+    # A failed after-pass step keeps a landed unit outstanding, so its closing field may sit
+    # beside REMAINING_IDS; a CLOSED_IDS entry never may, since such a unit is never closed.
+    closing = [] if ident in got.get("AFTER_PASS_FAILED", {}) else [
+        f for f in gate_present if f in allowed]
+    if ident in got.get("CLOSED_IDS", {}):
+        closing.append("CLOSED_IDS")
+    if ident in held and closing:
+        u.block("closed-but-remaining", "%s is in %s and also in %s; a unit its closing field "
+                "closes is not outstanding" % (ident, "/".join(closing), held[ident]))
     entry = chk.table.get(ident)
     if entry and entry["after"] and (set(present) & (set(GATE_FIELDS) | set(
             ["CLOSED_IDS", "MOVED_IDS", "TAGGED_IDS"]))):
@@ -933,9 +945,13 @@ def run_returns(chk, fields):
         parts = raw.split("@")
         if len(parts) >= 3:
             awaiting.add((parts[0], parts[-1]))
+    held = {}
+    for f in ("REMAINING_IDS", "PARKED_IDS", "INTEGRATING_IDS"):
+        for i in items(fields.get(f, "")):
+            held.setdefault(i.partition("@")[0], f)
     lines, any_blocked = [], False
     for ident in order:
-        line, blocked = evaluate(chk, ident, got, issued, awaiting).line(ident)
+        line, blocked = evaluate(chk, ident, got, issued, awaiting, held).line(ident)
         lines.append(line)
         any_blocked = any_blocked or blocked
     seen = set(order)

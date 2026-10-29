@@ -187,7 +187,9 @@ mode", below). `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `AFTER_PAS
 `APPROVAL_IDS` are the gate's output alone: an integration merge into the epic branch is not a
 gate dispatch and lands in none of them. They are relayed only from the gate's `LANDED:`,
 `READY:`, `HUMAN_MERGE:`, `TAG:`, `AFTER_PASS: <step>: failed` (never `failed-optional`) and
-`HUMAN_PUSH:` fields. `WAITING_IDS` is the exception: it is the orchestrator's own claim, and
+`HUMAN_PUSH:` fields of a `stu:merge-gate` return; a return saved in an earlier cycle
+(`<run-dir>/gate/<id>@<full sha>.txt`) counts only when the orchestrator verified this cycle that
+the unit's head is still exactly that sha. `WAITING_IDS` is the exception: it is the orchestrator's own claim, and
 `stu-run-check` judges it. An ID in `AFTER_PASS_FAILED` is not added to the accumulated
 `Merged:`/`Passed:` lines on that return.
 
@@ -257,7 +259,10 @@ in `MERGED_IDS`. A failed `required: false` step is never relayed, so it does no
 A unit whose row is `mode: park` that appears in ANY ID-bearing field of the return (the
 affected fields, `REMAINING_IDS`, `PARKED_IDS`, `INTEGRATING_IDS`, the children of
 `UNITS_CHANGED` / `UNITS_ADDED`) is `BLOCKED park-row`. Otherwise `REMAINING_IDS` / `PARKED_IDS`
-entries print no line. Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
+entries print no line. An ID in `REMAINING_IDS`, `PARKED_IDS` or `INTEGRATING_IDS` that
+is also in `CLOSED_IDS` or in its row's closing field is `BLOCKED closed-but-remaining`: a unit
+closed this return is not outstanding. An `AFTER_PASS_FAILED` entry for the ID exempts its closing
+field (that entry keeps the unit outstanding) but never a `CLOSED_IDS` entry. Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
 approvals record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A `MERGED_IDS` or
 `READY_IDS` entry for a before-push row is `BLOCKED wrong-field-for-mode`.
 
@@ -269,7 +274,7 @@ closed-without-gate-field, passed-needs-pr-and-sha, passed-other-slug, passed-wr
 passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, ready-pr-closed,
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
-predecessor-unverified, predecessor-moved-head.
+predecessor-unverified, predecessor-moved-head, closed-but-remaining.
 
 `READY_IDS` can be non-empty only when the merge gate runs in **label-handoff** mode
 (`agents/merge-gate.md`, "Merge mode"): on PASS the gate applies the merge label at the exact
@@ -420,8 +425,9 @@ closing table above:
   `MERGED_IDS`, whose `LANDED: <sha>` on the row's base branch it cannot satisfy.
 
 An ID reaching its terminal state via the gate belongs in `CLOSED_IDS` **and** in the gate field
-that produced it: `CLOSED_IDS` is the uniform "no more attention" signal, the gate fields are the
-evidence. **An ID with an `AFTER_PASS_FAILED` entry is never closed** on that return, even when
+that produced it, and never in `REMAINING_IDS` or `PARKED_IDS` (`stu-run-check` blocks that as
+`closed-but-remaining`): `CLOSED_IDS` is the uniform "no more attention" signal, the gate fields
+are the evidence. **An ID with an `AFTER_PASS_FAILED` entry is never closed** on that return, even when
 the gate landed it: it stays outstanding, and is not added to the accumulated `Merged:` or
 `Passed:` lines.
 

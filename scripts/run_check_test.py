@@ -877,12 +877,121 @@ def test_park_anywhere():
               (1, True))
 
 
+def test_closed_but_remaining():
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp)
+        sha = "b" * 40
+        units = [("lib#2", "lib", "-"), ("lib#3", "lib", "-")]
+        entry = "lib#2@acme/lib#5@" + sha
+        w.set_gh(pr_at(w, 5, sha=sha))
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="NONE", REMAINING_IDS="lib#2",
+                                         PASSED_IDS=entry))
+        check("passed_and_remaining_blocked",
+              (rc, blocked_with(out, "lib#2", "closed-but-remaining"), term(out)),
+              (1, True, "BLOCKED"))
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="lib#2", PARKED_IDS="lib#2",
+                                         PASSED_IDS=entry))
+        check("passed_and_parked_blocked",
+              (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="lib#2", REMAINING_IDS="NONE",
+                                         PASSED_IDS=entry))
+        check("passed_and_closed_accepted", (rc, status(out, "lib#2"), term(out)),
+              (0, ["CLOSED", "passed:acme/lib#5@" + sha[:12]], "OK"))
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="lib#2", REMAINING_IDS="lib#3",
+                                         PASSED_IDS=entry))
+        check("an unrelated remaining id beside a passed, closed one",
+              (rc, status(out, "lib#2"), status(out, "lib#3"), term(out)),
+              (0, ["CLOSED", "passed:acme/lib#5@" + sha[:12]], None, "OK"))
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp)
+        sha = w.landed("app")
+        rows = [("app#1", "app", "-")]
+        rc, out, err = w.check_files(objective(rows),
+                                     ret(REMAINING_IDS="app#1", MERGED_IDS="app#1@" + sha))
+        check("merged_and_remaining_blocked (direct row)",
+              (rc, blocked_with(out, "app#1", "closed-but-remaining")), (1, True))
+        # A failed after-pass step keeps a landed unit outstanding: remaining is right there.
+        rc, out, err = w.check_files(objective(rows),
+                                     ret(REMAINING_IDS="app#1", MERGED_IDS="app#1@" + sha,
+                                         AFTER_PASS_FAILED="app#1 tag"))
+        check("after_pass_failed_may_stay_remaining",
+              (rc, status(out, "app#1")), (0, ["OPEN", "after-pass-failed:tag"]))
+        # ...but never a CLOSED_IDS entry: a unit with a failed after-pass step is not closed.
+        rc, out, err = w.check_files(objective(rows),
+                                     ret(CLOSED_IDS="app#1", REMAINING_IDS="app#1",
+                                         MERGED_IDS="app#1@" + sha,
+                                         AFTER_PASS_FAILED="app#1 tag"))
+        check("after_pass_failed_does_not_excuse_closed_and_remaining",
+              (rc, blocked_with(out, "app#1", "closed-but-remaining")), (1, True))
+    # before-push leg 1: APPROVAL_IDS closes the unit.
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp, {"app": {}, "lib": {"merge_mode": "report-only",
+                                           "human_checkpoints": "before-push"}})
+        branch, sha = w.local_only("lib")
+        unit = [("lib#3", "lib", "-")]
+        rc, out, err = w.check_files(
+            objective(unit), ret(REMAINING_IDS="lib#3",
+                                 APPROVAL_IDS="lib#3@%s@%s" % (branch, sha)))
+        check("approval_and_remaining_blocked",
+              (rc, blocked_with(out, "lib#3", "closed-but-remaining")), (1, True))
+    # completion: integrated: INTEGRATED_IDS closes; INTEGRATING_IDS counts as outstanding.
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp)
+        repo = w.path["app"]
+        w.g(repo, "checkout", "-q", "-b", "epic")
+        sha = w.commit(repo, "unit.txt", "unit")
+        w.g(repo, "push", "-q", "origin", "epic")
+        w.g(repo, "checkout", "-q", "main")
+        rows = [("app#1", "app", "-")]
+        obj = objective(rows, extra="Base branch: origin/epic\ncompletion: integrated")
+        for name, extra in (("integrated_and_remaining_blocked",
+                             {"REMAINING_IDS": "app#1"}),
+                            ("integrated_and_integrating_blocked",
+                             {"INTEGRATING_IDS": "app#1"}),
+                            ("closed_integrated_and_integrating_blocked",
+                             {"CLOSED_IDS": "app#1", "INTEGRATING_IDS": "app#1"})):
+            rc, out, err = w.check_files(obj, ret(INTEGRATED_IDS="app#1@" + sha, **extra))
+            check(name, (rc, blocked_with(out, "app#1", "closed-but-remaining")), (1, True))
+        rc, out, err = w.check_files(obj, ret(CLOSED_IDS="app#1", INTEGRATED_IDS="app#1@" + sha,
+                                              REMAINING_IDS="NONE", INTEGRATING_IDS="NONE"))
+        check("integrated_and_closed_accepted", (rc, status(out, "app#1")),
+              (0, ["CLOSED", "integrated"]))
+        rc, out, err = w.check_files(obj, ret(CLOSED_IDS="NONE", INTEGRATING_IDS="app#1",
+                                              REMAINING_IDS="app#1"))
+        check("integrating_and_remaining_alone_is_silent", (rc, out), (0, ["OK"]))
+    # label-handoff: READY_IDS closes under completion: ready, not under merged.
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp, {"app": {}, "lib": {"merge_mode": "label-handoff",
+                                           "ci_merge_label": "go"}})
+        sha = "d" * 40
+        unit = [("lib#2", "lib", "-")]
+        entry = "lib#2@acme/lib#5@" + sha
+        w.set_gh(pr_at(w, 5, sha=sha, labels=("go",)))
+        rc, out, err = w.check_files(objective(unit, extra="completion: ready"),
+                                     ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        check("ready_and_remaining_blocked_under_ready",
+              (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
+        # Under merged READY_IDS is not the closing field: the checker already blocks it as
+        # wrong-field-for-mode, and REMAINING_IDS adds nothing (the output is the same with
+        # and without it).
+        rc, out, err = w.check_files(objective(unit), ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        rc0, out0, err0 = w.check_files(objective(unit), ret(READY_IDS=entry))
+        check("ready_and_remaining_under_merged_is_only_wrong_field",
+              (rc, blocked_with(out, "lib#2", "wrong-field-for-mode"),
+               any("closed-but-remaining" in l for l in out), out == out0),
+              (1, True, False, True))
+
+
 for t in (test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,
           test_waiting_and_after,
-          test_close_paths, test_park_anywhere):
+          test_close_paths, test_park_anywhere, test_closed_but_remaining):
     t()
 
 if FAILURES:

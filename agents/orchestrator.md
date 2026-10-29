@@ -476,6 +476,20 @@ run-dir slug's directory under `RUN_HOME/runs/`; the `/stu:settle` skill reads t
 `mkdir -p` when writing. Never overwrite: if the file exists, append a line `---` and then the new
 return.
 
+**A relayed closing field closes the unit in the same return.** When a field you relay is the
+closing field for that unit's row (the closing table in the run skill's `SKILL.md`, "`CLOSED_IDS`,
+defined"), the ID goes in `CLOSED_IDS` and NOT in `REMAINING_IDS`, `PARKED_IDS` or
+`INTEGRATING_IDS`. A report-only
+`PASSED_IDS` entry left in `REMAINING_IDS` costs the run a whole cycle to close it, and
+`stu-run-check` blocks it as `closed-but-remaining`. The one exception is an `AFTER_PASS_FAILED`
+entry for the same ID: it keeps the unit outstanding, so the ID stays in `REMAINING_IDS` beside its
+gate field and is not in `CLOSED_IDS`.
+
+**Relaying a saved gate file.** Relay from `<run-dir>/gate/<id>@<full sha>.txt` instead of a fresh
+dispatch only when you have verified, this cycle, that the unit's head is still exactly that
+`<full sha>` (`git rev-parse` on the branch, or the forge's PR head). A head that moved, or a
+file for any other sha, is stale: dispatch the gate again.
+
 ## A unit re-issued from an approval
 
 A before-push row's implementer returns a branch and SHA, the gate returns `HUMAN_PUSH:`, and the
@@ -586,7 +600,11 @@ run (read as `BLOCKED`). Hold these exactly:
 - `HANDOFF` is always an absolute path to a handoff you wrote this cycle — on `DONE` too.
 - `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `AFTER_PASS_FAILED` and `APPROVAL_IDS`
   come only from a `stu:merge-gate` return, relayed by the rules in "Relaying a gate return"
-  above, never from your own forge or `git` check. Under objective
+  above, never from your own forge or `git` check. A gate return saved in an earlier cycle
+  counts only when the unit's head is verified unchanged at its sha this cycle ("Relaying a
+  saved gate file", above). An ID whose closing field you relay goes in `CLOSED_IDS`, never in
+  `REMAINING_IDS`, `PARKED_IDS` or `INTEGRATING_IDS`, unless it also has an `AFTER_PASS_FAILED`
+  entry, which keeps it outstanding (and out of `CLOSED_IDS`). Under objective
   `completion: integrated` `MERGED_IDS` and `READY_IDS` hold the FINAL unit only (its PR targets
   the epic's base, the row's `<remote>/<base>`). `WAITING_IDS` is your own claim, only as
   "Cross-repo order" allows.
