@@ -986,12 +986,40 @@ def test_closed_but_remaining():
               (1, True, False, True))
 
 
+def test_closed_and_moved():
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp)
+        sha = "b" * 40
+        moved = "lib#2@" + sha
+        units = [("lib#2", "lib", "-")]
+        entry = "lib#2@acme/lib#5@" + sha
+        w.set_gh(pr_at(w, 5, sha=sha))
+        # (a) a closed unit that also moved this cycle is CLOSED, not OPEN moved.
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="lib#2", PASSED_IDS=entry, MOVED_IDS=moved))
+        check("closed_and_moved_is_closed",
+              (rc, term(out), any("lib#2 CLOSED" in l for l in out),
+               any("lib#2 OPEN" in l for l in out)), (0, "OK", True, False))
+        # (b) a not-closed unit with a MOVED entry is still OPEN.
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="NONE", REMAINING_IDS="lib#2",
+                                         MOVED_IDS=moved))
+        check("not_closed_and_moved_stays_open",
+              any("lib#2 OPEN moved" in l for l in out), True)
+        # (c) closed + moved + remaining is still closed-but-remaining.
+        rc, out, err = w.check_files(objective(units),
+                                     ret(CLOSED_IDS="lib#2", REMAINING_IDS="lib#2",
+                                         PASSED_IDS=entry, MOVED_IDS=moved))
+        check("closed_moved_and_remaining_blocked",
+              (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
+
+
 for t in (test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,
           test_waiting_and_after,
-          test_close_paths, test_park_anywhere, test_closed_but_remaining):
+          test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved):
     t()
 
 if FAILURES:

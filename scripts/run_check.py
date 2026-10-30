@@ -841,7 +841,8 @@ def evaluate(chk, ident, got, issued, awaiting, held):
     for en in got.get("MOVED_IDS", {}).get(ident, []):
         if en["sha"] is None or not full(en["sha"]):
             u.block("non-full-sha", "MOVED_IDS entry for %s needs a full @<sha>" % ident)
-        else:
+        elif ident not in got.get("CLOSED_IDS", {}):
+            # A unit closed this return legitimately moved this cycle; CLOSED wins.
             u.open.append("moved")
     for en in got.get("WAITING_IDS", {}).get(ident, []):
         check_waiting(chk, u, ident, got, en)

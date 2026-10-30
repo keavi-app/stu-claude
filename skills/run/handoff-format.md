@@ -8,6 +8,9 @@ a campaign handoff lives under `<run-dir>` (`RUN_HOME/runs/<slug>/`, defined in
 after that session's temp directory is gone (a reboot, a `/tmp` cleanup) must still find the
 handoff, the briefs, and the ledger.
 
+Run folders hold reports, briefs, logs and handoffs, never build products, derived data or source
+copies.
+
 ---
 
 ## 1. The objective file — written once, at startup, before any work

@@ -26,6 +26,9 @@ none "no unprefixed /settle" '(^|[^a-z])/settle([^/]|$)' skills agents scripts b
 none "no unprefixed /fix-campaign" '(^|[^a-z])/fix-campaign([^/]|$)' skills agents scripts bin
 none "no python3 run_claims/ctx invocation" 'python3 .*(run_claims|ctx)\.py' skills agents
 none "no PROJECT-SPECIFIC blocks (answers live in the stu config)" 'PROJECT-SPECIFIC' skills agents
+if grep -q 'No pre-gate CI wait where the merge label also gates CI' agents/orchestrator.md
+then echo "ok   orchestrator states the label-gates-CI exception"
+else echo "FAIL orchestrator states the label-gates-CI exception"; fails=$((fails + 1)); fi
 
 # Config sections: every `stu-env section <id>` in skills/agents has a `## <id>` in the
 # template, and every template section is referenced. The template is the closed registry.

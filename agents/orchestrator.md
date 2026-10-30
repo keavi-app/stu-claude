@@ -194,6 +194,14 @@ CI: PASS | FAIL | FLAKY_RERUN_PASSED | UNKNOWN | TIMEOUT | SHA_MOVED | BLOCKED_C
 `NONE` is a row whose `ci` is `none`: there is no CI to wait on. `stu-ci-wait` is PR-only: a
 direct-push or before-push unit has no PR and no CI wait; its CI is the gate's `stu-verify` row.
 
+**No pre-gate CI wait where the merge label also gates CI.** On a `label-handoff` row whose
+`merge-mode` section (`stu-env section merge-mode --repo <name>`) says the merge label
+(`ci_merge_label`) also gates CI, do not run `stu-ci-wait` before the gate: no run exists for the
+SHA until the label is applied, so the wait would only poll to its timeout and report
+`verdict=none`. Once review is clean, dispatch the gate. It labels at the verified SHA, the
+auto-merge actor owns CI, and the CI evidence is read at the gate's "Confirming a landed merge"
+dispatch. Every other row keeps the wait above.
+
 On `CI: BLOCKED_CONFLICT` / `SHA_MOVED` (or `REVOKE_FIRST`), run the revoke sequence in the
 project's delivery guide (take the PR off auto-merge) before any conflict round or push. Revoking is allowed;
 you still never label or merge.

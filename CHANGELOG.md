@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- The handoff format says run folders hold reports, briefs, logs and handoffs, never build products,
+  derived data or source copies.
+- The orchestrator no longer waits for CI before the gate on a label-handoff row where the merge
+  label also gates CI; the CI evidence is read at the gate's confirm dispatch.
+- `stu-run-check` reads a unit in both `CLOSED_IDS` and `MOVED_IDS` as CLOSED, not `OPEN moved`.
+
 ## 0.1.1
 
 - `stu-run-check` blocks a return that lists an ID in `REMAINING_IDS` or `PARKED_IDS` and also in
