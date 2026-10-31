@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- `stu:orchestrator` writes its prompt cache with a 1-hour TTL (`experimental: cacheTtl: 1h`
+  in its frontmatter), so a wait of 5 to 60 minutes on its children reads its context instead
+  of rebuilding it. Every other role keeps the 5-minute default, and the content lint fails if
+  another agent takes the key. Rationale, measurements and limits: `docs/design-rationale.md`,
+  "Cache TTL".
+
 ## 0.1.3
 
 - `stu-run-check` accepts `READY_IDS` for a unit still in `REMAINING_IDS` on a label-handoff row

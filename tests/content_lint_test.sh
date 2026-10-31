@@ -109,4 +109,15 @@ check_set "the base-branch reading rule is in the verifier and the scout" "$(pri
 missing=$(need skills/run/SKILL.md 'Relay: your background agent' 'never count the relay as the cycle'
   need agents/orchestrator.md 'Relay: your background agent')
 check_set "nested completions are relayed to the orchestrator" "$missing"
+# Cache TTL: only the orchestrator waits long enough to win back 1-hour writes (rationale,
+# "Cache TTL"). The key must be in its frontmatter and in no other agent's.
+fm() { awk 'NR==1&&/^---$/{f=1;next} f&&/^---$/{exit} f' "$1"; }
+ttl=""
+for f in agents/*.md; do
+  if [ "$f" = agents/orchestrator.md ]; then
+    fm "$f" | grep -qxE 'experimental:[[:space:]]*' && fm "$f" | grep -qxE '[[:space:]]+cacheTtl: 1h[[:space:]]*' \
+      || ttl="$ttl$f: missing experimental: cacheTtl: 1h"$'\n'
+  elif fm "$f" | grep -q 'cacheTtl'; then ttl="$ttl$f: carries cacheTtl"$'\n'; fi
+done
+check_set "only the orchestrator carries a 1-hour cache TTL" "$ttl"
 exit $((fails > 0))

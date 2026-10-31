@@ -205,6 +205,10 @@ Cost is roughly context size times number of turns, so stu bounds both.
 - **Models per role** follow the table above. The orchestrator's model is a lookup, not a
   judgment: opus for cycle 1, sonnet once briefs are groomed, and opus again only with a
   literal `ESCALATION:` line naming one of its enumerated conditions.
+- **Cache TTL:** `stu:orchestrator` alone writes its prompt cache with a 1-hour TTL
+  (`experimental: cacheTtl: 1h` in its frontmatter), so a long wait on its children is a
+  cache read rather than a rebuild. Every other role keeps the 5-minute default; see
+  `docs/design-rationale.md`, "Cache TTL".
 
 ## Coming from a copied install
 

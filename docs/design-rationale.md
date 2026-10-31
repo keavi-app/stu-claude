@@ -293,7 +293,9 @@ the least information to judge complexity with: pick the row, do not weigh the i
 
 ## What this design deliberately does not do
 
-- **Does not chase the cache hit rate.** It is ~98%. Any rule aimed at it is waste.
+- **Does not chase the cache hit rate.** It is ~98%. Any rule aimed at it is waste. The
+  orchestrator's 1-hour TTL is not such a rule: it targets the dollar cost of rebuilding after
+  a long wait, not the hit rate ("Cache TTL").
 - **Does not push more work onto the cheaper model to hit a ratio.** The mix is near its
   useful limit; further shift trades correctness for a small win.
 - **Does not add a compaction hook.** Writing the objective and handoff up front makes
@@ -493,6 +495,37 @@ reliable than the notification. An orchestrator once declared an implementer "fi
 silence alone while that implementer's transcript showed it still running; it did not stop until
 eleven minutes later. A `gh` watcher's exit code has been wrong in both directions. Waiting on a
 human: one measured run stalled 70 minutes until they asked what was needed.
+
+### Cache TTL
+
+An orchestrator spends most of its wall clock waiting on its children, and on a subscription a
+subagent writes its prompt cache with a 5-minute TTL (the main session writes 1 hour). Any wait
+past 5 minutes makes the orchestrator's next request rebuild its whole context as a cache write
+instead of reading it. Measured over one day of runs on project A (43 orchestrators, 75 waits
+over 5 minutes), those rebuilds were 27.6% of orchestrator spend at list prices. Other roles
+almost never wait that long: implementers had 9 such waits, the verifier, reviewer, merge gate
+and scout none.
+
+So only `stu:orchestrator` carries `experimental: cacheTtl: 1h` in its frontmatter. A 1-hour
+write costs 2x base against 1.25x for 5 minutes, so the role pays more on every write and wins
+back the rebuilds: modeled net about +14% of orchestrator spend over that set. Giving every
+subagent 1 hour (`subagentPromptCacheTtl`, `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`,
+`ENABLE_PROMPT_CACHING_1H`) lost money on the same data, because roles that never wait pay the
+dearer writes for nothing; the content lint fails if a second agent takes the key. Probes showed
+the frontmatter writes 1-hour cache for a plugin agent (haiku, and a background-dispatched
+sonnet agent) while a sibling without it in the same session stays at 5 minutes.
+
+Alternatives measured and rejected: batching waits (most waits are pipeline stages that depend
+on the previous one, and most already dispatch two or more children), returning to the
+supervisor for a fresh orchestrator (a cold start costs about what the rebuild does), and moving
+the coordinator into the main session (the same TTL saving, but it gives up the bounded
+supervisor context). A keep-warm ping models higher but needs the orchestrator to poll, which
+"Waiting" above forbids.
+
+Limits: the key sits under `experimental` and may change between Claude Code versions; it is
+ignored while the subscription is in overage (silently 5 minutes); and a subagent-scoped env or
+settings TTL overrides it. Re-read `cache_creation.ephemeral_1h_input_tokens` in an orchestrator
+transcript after a Claude Code upgrade.
 
 ### Concurrent writers
 

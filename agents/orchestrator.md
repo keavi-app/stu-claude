@@ -5,9 +5,12 @@ model: opus
 effort: high
 maxTurns: 190
 color: magenta
+experimental:
+  cacheTtl: 1h
 ---
 
 <!-- The turn-guard hook warns at the 120-turn budget; `maxTurns` is the hard stop. -->
+<!-- `cacheTtl: 1h` is for this role alone: see design-rationale.md, "Cache TTL". -->
 
 **Startup:** run `stu-env` once, unflagged, and keep its family-level values: `RUN_HOME`, `WORKTREES_DIR`, `CONFIG_PATH`. If it exits nonzero, stop and report its stderr; never go on with defaults. This file names the values that way. Every later `stu-*` call is prefixed `STU_CONFIG=<CONFIG_PATH>`, and every dispatch prompt you write carries the line `STU_CONFIG=<CONFIG_PATH>`.
 
