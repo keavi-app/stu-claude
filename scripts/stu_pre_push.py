@@ -169,9 +169,12 @@ def leak_refusals(row, remote, lref, lsha, rref, rsha, ctx):
 
 
 def agent_push():
-    """True when the pusher is a Claude Code process (CLAUDECODE set and non-empty). The
-    before-push approval rule gates agents only; an unmarked push is the human's."""
-    return bool(os.environ.get("CLAUDECODE"))
+    """Recognize Claude Code and Codex runtime markers for the approval guardrail.
+    Environment markers are a convenience guardrail, not an identity/security boundary.
+    The before-push approval rule gates marked agents; an unmarked push is the human's.
+    """
+    return any(os.environ.get(key) for key in
+               ("CLAUDECODE", "CODEX_THREAD_ID", "CODEX_SHELL"))
 
 
 def enforce(row, lines, remote=""):
@@ -211,8 +214,8 @@ def enforce(row, lines, remote=""):
                 ctx = scan_context(row)
             refusals.extend(leak_refusals(row, remote, lref, lsha, rref, rsha, ctx))
     if skipped and not refusals:
-        say("the before-push approval check applies to Claude Code pushes only and was "
-            "skipped for this push")
+        say("the before-push approval check applies to Claude Code and Codex pushes only "
+            "and was skipped for this push")
     return refusals
 
 
@@ -230,7 +233,11 @@ def hook(args):
     try:
         try:
             row = stu_env.resolve(cwd=os.getcwd(), forge_lookup=False)
-        except stu_env.NoConfig:
+        except stu_env.NoConfig as e:
+            if os.environ.get("STU_RUNTIME") == "codex" and os.environ.get("STU_CONFIG"):
+                say("push refused: the bound stu config cannot be read (%s); reinstall "
+                    "the hook after fixing the config" % e)
+                return 1
             return 0  # no stu config: not a strict row, nothing to enforce
         if not push_policy.strict(row):
             return 0
@@ -279,21 +286,35 @@ exit $rc
 """
 
 
-def hook_text():
+def hook_text(config=None):
     q = shlex.quote(os.path.join(ROOT, "bin", "stu-pre-push"))
-    return HOOK_TEXT % (MARKER, q, q, q)
+    command = q
+    if config:
+        # Scope the binding to Stu's invocation; the chained local hook sees the
+        # caller's original environment. Human pushes must use the installed policy.
+        command = "STU_RUNTIME=codex STU_CONFIG=%s %s" % (shlex.quote(config), q)
+    return HOOK_TEXT % (MARKER, q, q, command)
 
 
-def hook_target(text):
-    """-> the stu-pre-push path the hook text runs, or "" when it cannot be read."""
+def hook_command(text):
+    """-> (helper path, environment bindings), or ("", {}) for unreadable text."""
     for ln in text.splitlines():
         if ln.endswith('"$@" < "$tmp"') and not ln.startswith(('"$dir', ' ')):
             try:
                 words = shlex.split(ln)
             except ValueError:
-                return ""
-            return words[0] if words else ""
-    return ""
+                return "", {}
+            bindings = {}
+            while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+                key, value = words.pop(0).split("=", 1)
+                bindings[key] = value
+            return (words[0], bindings) if words else ("", {})
+    return "", {}
+
+
+def hook_target(text):
+    """-> the stu-pre-push path the hook text runs, or "" when it cannot be read."""
+    return hook_command(text)[0]
 
 
 def read_hook(p):
@@ -305,6 +326,12 @@ def read_hook(p):
 
 
 def install(path):
+    config = None
+    if os.environ.get("STU_RUNTIME") == "codex":
+        try:
+            config = stu_env.resolve(cwd=path, forge_lookup=False)["CONFIG_PATH"]
+        except (stu_env.NoConfig, stu_env.ConfigError, stu_env.NotInRepo, stu_env.UsageError) as e:
+            raise RuntimeError("cannot bind the Codex pre-push hook to its stu config: %s" % e)
     d = hooks_dir(path)
     os.makedirs(d, exist_ok=True)
     target, local = os.path.join(d, "pre-push"), os.path.join(d, "pre-push.local")
@@ -315,7 +342,7 @@ def install(path):
                                "into pre-push.local first" % d)
         os.replace(target, local)
     with open(target, "w") as f:
-        f.write(hook_text())
+        f.write(hook_text(config))
     os.chmod(target, os.stat(target).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     print("installed: " + target)
     return 0
@@ -331,12 +358,41 @@ def check(path):
     ok = (text is not None and MARKER in text and os.access(target, os.X_OK)
           and os.path.isfile(os.path.join(ROOT, "bin", "stu-pre-push")))
     if ok:
-        tgt = hook_target(text)
+        tgt, bindings = hook_command(text)
         if not (tgt and os.path.isfile(tgt) and os.access(tgt, os.X_OK)):
             say("the installed hook runs %s, which is gone; rerun: %s --install --path %s"
                 % (tgt or "an unreadable path", os.path.join(ROOT, "bin", "stu-pre-push"),
                    path))
             ok = False
+        config = bindings.get("STU_CONFIG")
+        if config:
+            if (bindings.get("STU_RUNTIME") != "codex" or not os.path.isabs(config)
+                    or not os.path.isfile(config)):
+                say("the installed hook's bound config cannot be read; fix the config "
+                    "and rerun stu-pre-push --install")
+                ok = False
+            if os.environ.get("STU_RUNTIME") == "codex":
+                try:
+                    selected = stu_env.resolve(cwd=path, forge_lookup=False)["CONFIG_PATH"]
+                except (stu_env.NoConfig, stu_env.ConfigError, stu_env.NotInRepo,
+                        stu_env.UsageError):
+                    selected = None
+                if selected != config:
+                    say("the installed hook is not bound to the selected stu config; "
+                        "rerun STU_RUNTIME=codex stu-pre-push --install")
+                    ok = False
+        else:
+            try:
+                _top, main = stu_env._locate(path)
+                neutral = os.path.join(main, ".stu", "stu.md")
+                legacy = os.path.join(main, ".claude", "stu.md")
+                if (os.environ.get("STU_RUNTIME") == "codex"
+                        or (os.path.lexists(neutral) and not os.path.isfile(legacy))):
+                    say("the installed hook has no binding for the Codex stu config; "
+                        "rerun STU_RUNTIME=codex stu-pre-push --install")
+                    ok = False
+            except stu_env.NotInRepo:
+                pass
     print("INSTALLED" if ok else "MISSING")
     return 0 if ok else 1
 

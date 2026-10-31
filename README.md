@@ -4,7 +4,7 @@ Made by [Keavi](https://keavi.app)
 
 **Let it stew.**
 
-stu is a Claude Code plugin for long autonomous runs. Your main session becomes a blind
+stu is a plugin for long autonomous runs in Claude Code and local Codex. Your main session becomes a blind
 supervisor: it dispatches disposable orchestrators, never reads the work itself, and checks
 every return against a unit-ID scoreboard, failing closed when a check does not pass. Each
 change is reviewed by an agent that did not write it, bound to an exact commit SHA, and
@@ -29,6 +29,9 @@ parked, and settled later in a fresh session with `/stu:settle`.
   a native `maxTurns` backstop, and a model per role.
 
 ## Install
+
+For Codex installation, runtime differences and hook setup, see [Stu on Codex](docs/codex.md).
+The commands below install the Claude Code package.
 
 ```bash
 claude plugin marketplace add keavi-app/stu-claude
@@ -82,6 +85,8 @@ Requirements:
 | `/stu:run` | The supervisor contract: objective, scoreboard, fail-closed checks, cycle cap. |
 | `/stu:settle` | Answer a stopped run's parked questions in a fresh session. |
 | `/stu:fix-campaign` | Triage open issues and drive fixes to merge; what an orchestrator runs. |
+
+Claude Code agents (Codex uses the runtime binding described in [Stu on Codex](docs/codex.md)):
 
 | Agent | Model | Role |
 |---|---|---|
@@ -145,8 +150,8 @@ command. A repo is strict when its row is `public`, or has a `before-push` check
 
 - **The git `pre-push` hook does the enforcement.** `stu-pre-push --install` writes it
   (chaining any hook already there). On a before-push row it refuses a push whose tip commit the
-  owner has not approved, but only when the push comes from a Claude Code process (the
-  `CLAUDECODE` environment variable is set); the owner's own terminal push passes, with one
+  owner has not approved, but only when the push comes from a Claude Code or Codex process (a
+  nonempty `CLAUDECODE`, `CODEX_THREAD_ID` or `CODEX_SHELL` marker); the owner's own terminal push passes, with one
   stderr line saying the approval check was skipped. On a public row, for every push, agent or
   human, it scans the pushed commits' messages and added lines,
   the ref name and an annotated tag's message for the names of the family's private rows. A run
@@ -159,8 +164,8 @@ command. A repo is strict when its row is `public`, or has a `before-push` check
 
 Known limits:
 
-- The approval rule keys on an environment variable. An agent process that strips `CLAUDECODE`
-  from its environment is treated as a human push. A human push of an unapproved tip passes by
+- The approval rule keys on runtime environment markers. An agent process that strips all
+  of those markers from its environment is treated as a human push. A human push of an unapproved tip passes by
   design; the leak scan still runs on it.
 - A push from a clone outside the row (not a worktree of its checkout) has no hook.
 - When a push has no base the hook can resolve (a URL remote, or no tracking ref for the base),

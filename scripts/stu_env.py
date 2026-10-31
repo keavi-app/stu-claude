@@ -400,6 +400,15 @@ def _claimants(main, github):
             found.append(c)
 
     local = os.path.join(main, ".claude", "stu.md")
+    # Codex shares existing configurations, but may create a neutral one. Keep
+    # Claude's lookup unchanged; two distinct local configs require a choice.
+    if os.environ.get("STU_RUNTIME") == "codex":
+        neutral = os.path.join(main, ".stu", "stu.md")
+        if os.path.isfile(neutral):
+            if os.path.isfile(local) and os.path.realpath(local) != os.path.realpath(neutral):
+                raise ConfigError("stu: both .stu/stu.md and .claude/stu.md exist; "
+                                  "set STU_CONFIG to the one shared configuration to use")
+            local = neutral
     if os.path.isfile(local):
         add(_load(local))
     else:
@@ -438,6 +447,8 @@ def families():
         try:
             _, main = _locate(os.getcwd())
             paths.append(os.path.join(main, ".claude", "stu.md"))
+            if os.environ.get("STU_RUNTIME") == "codex":
+                paths.append(os.path.join(main, ".stu", "stu.md"))
         except NotInRepo:
             pass
         paths.extend(sorted(glob.glob(os.path.join(_ex("~/.stu"), "*", "stu.md"))))
@@ -682,6 +693,8 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
         return r.get(k) or (fm.get(k, "") if home else "")
 
     guide = homeget("guide") or (
+        "AGENTS.md" if os.environ.get("STU_RUNTIME") == "codex"
+        and os.path.exists(os.path.join(row_path, "AGENTS.md")) else
         "CLAUDE.md" if os.path.exists(os.path.join(row_path, "CLAUDE.md")) else "AGENTS.md")
     wt = homeget("worktrees_dir")
     belongs = bool(main) and os.path.realpath(main) == os.path.realpath(row_path)

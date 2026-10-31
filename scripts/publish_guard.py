@@ -6,6 +6,8 @@ make, and parses no shell commands.
   1. Approval file, in any repo, from any seat: deny a Write/Edit/MultiEdit/NotebookEdit
      whose resolved path has the basename approvals.tsv, and a Bash command whose text
      contains approvals.tsv or a word whose basename is stu-approve or stu_approve.py.
+     Codex apply_patch targets (including Move to destinations) use the same path check;
+     exec_command is normalized to Bash. Nested code-mode calls are hooked individually.
   2. Hook bypass on a strict row: deny a Bash command with `--no-verify` beside `git` and
      `push`, or with core.hooksPath, when the payload cwd is inside a strict row (or its
      worktrees dir) or the text names a strict row's path, worktrees dir or slug.
@@ -48,9 +50,30 @@ GH_BODY_FILE = re.compile(r"(?:^|\s)(?:--body-file|--notes-file|-F)(?:=|\s+)[\"'
 WORD = re.compile(r"[^\s;&|()<>\"'`=$]+")
 
 
+def _normalize(payload):
+    """Codex hooks normally use Bash/command; accept direct runtime tool aliases too.
+    Code-mode nested calls receive their own PreToolUse event, so JS is not parsed.
+    """
+    tool = payload.get("tool_name", "")
+    name = tool.removeprefix("functions.") if isinstance(tool, str) else ""
+    if name == "exec_command":
+        ti = payload.get("tool_input")
+        ti = dict(ti) if isinstance(ti, dict) else {}
+        ti["command"] = ti.get("command", ti.get("cmd", ""))
+        cwd = payload.get("cwd") or os.getcwd()
+        workdir = ti.get("workdir")
+        if isinstance(workdir, str) and workdir:
+            cwd = workdir if os.path.isabs(workdir) else os.path.join(cwd, workdir)
+        return dict(payload, tool_name="Bash", tool_input=ti, cwd=cwd)
+    if name == "apply_patch":
+        return dict(payload, tool_name="apply_patch")
+    return payload
+
+
 def _text(payload):
     ti = payload.get("tool_input")
-    return ti.get("command", "") if isinstance(ti, dict) else ""
+    text = ti.get("command", "") if isinstance(ti, dict) else ""
+    return text if isinstance(text, str) else ""
 
 
 # ---- check 1: the approval file ---------------------------------------------------------
@@ -79,11 +102,17 @@ def check_approval_file(payload):
     tool = payload.get("tool_name", "")
     if tool == "Bash":
         return _approval_text(_text(payload))
+    paths = []
     if tool in WRITE_TOOLS:
-        path = _file_target(payload)
+        paths = [_file_target(payload)]
+    elif tool == "apply_patch":
+        # These are apply_patch's file-operation headers, not lines added as content.
+        paths = re.findall(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$",
+                           "\n".join(_text(payload).splitlines()), flags=re.MULTILINE)
+    cwd = payload.get("cwd") or os.getcwd()
+    for path in paths:
         if not path:
-            return ""
-        cwd = payload.get("cwd") or os.getcwd()
+            continue
         full = path if os.path.isabs(path) else os.path.join(cwd, path)
         names = (os.path.basename(full), os.path.basename(os.path.realpath(full)))
         if any(n.lower() == APPROVAL_FILE for n in names):
@@ -334,6 +363,7 @@ def _check_mcp(payload, tool):
 def evaluate(payload):
     """-> a deny reason, or None. Never raises."""
     try:
+        payload = _normalize(payload)
         return (check_approval_file(payload) or check_bypass(payload)
                 or check_forge(payload) or None)
     except BaseException:  # noqa: BLE001  SystemExit from a resolver included
@@ -347,6 +377,8 @@ def on_error(payload):
         tool = payload.get("tool_name", "")
         if tool in WRITE_TOOLS:
             return _fallback_file(payload) or None
+        if tool == "apply_patch":
+            return check_approval_file(payload) or None
         if tool.startswith("mcp__"):
             if _mcp_writes(tool) and strict_condition(payload, json.dumps(
                     payload.get("tool_input", {}))):

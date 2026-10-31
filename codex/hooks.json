@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STU_RUNTIME=codex sh \"${PLUGIN_ROOT}/hooks/publish-guard.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking publishing policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STU_RUNTIME=codex python3 \"${PLUGIN_ROOT}/scripts/codex_turn_guard.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking Stu budget"
+          }
+        ]
+      }
+    ]
+  }
+}

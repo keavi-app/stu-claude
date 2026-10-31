@@ -1,0 +1,11 @@
+{
+  "name": "stu",
+  "version": "0.2.0",
+  "description": "Let it stew. Autonomous Codex runs with a blind supervisor, checked unit scoreboard, exact-commit independent review, a separate merge gate, and parked questions.",
+  "author": { "name": "Keavi LLC", "url": "https://keavi.app" },
+  "homepage": "https://keavi.app",
+  "repository": "https://github.com/keavi-app/stu-claude",
+  "license": "Apache-2.0",
+  "skills": "./codex/skills/",
+  "hooks": "./codex/hooks.json"
+}

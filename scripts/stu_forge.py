@@ -237,6 +237,30 @@ def _rules(slug, base):
     return _gh_list("repos/%s/rules/branches/%s" % (slug, base), ".[]")
 
 
+def _rules_allow_unavailable(slug, base):
+    """The opt-in repo-settings read permits only GitHub's plan restriction.
+    Match one complete error body, never a successful page followed by an error.
+    All other failed reads retain their classification and discard partial output.
+    """
+    rc, out, err = _gh(["api", "--paginate", "repos/%s/rules/branches/%s" % (slug, base),
+                        "--jq", ".[]"])
+    if rc != 0:
+        plan = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+        try:
+            body = json.loads(out)
+        except ValueError:
+            body = None
+        if (isinstance(body, dict) and body.get("message") == plan
+                and str(body.get("status")) == "403"
+                and err.strip() == "gh: %s (HTTP 403)" % plan):
+            return None
+        raise Fail(_classify(rc, out, err, True), err or out)
+    try:
+        return _json_stream(out)
+    except ValueError as e:
+        raise Fail("partial", "unparseable list output: %s" % e)
+
+
 def v_required_checks(a):
     _need(a, "slug", "base")
     rc, out, err = _gh(["api", "--paginate", "repos/%s/rules/branches/%s" % (a["slug"], a["base"]),
@@ -292,12 +316,17 @@ def v_repo_settings(a):
             raise Fail("forge", "repo document lacks %s (push access needed)" % key)
         lines.append("SETTING %s %s" % (name, "on" if doc[key] else "off"))
     if a.get("base"):
-        try:
-            rules = _rules(a["slug"], a["base"])
-        except Fail as e:
-            if e.cls in ("auth", "rate-limit", "partial"):
-                raise
-            rules = None  # not readable: say nothing rather than guess
+        if a.get("allow-unavailable-rules"):
+            rules = _rules_allow_unavailable(a["slug"], a["base"])
+            if rules is None:
+                lines.append("SETTING merge_queue unknown")
+        else:
+            try:
+                rules = _rules(a["slug"], a["base"])
+            except Fail as e:
+                if e.cls in ("auth", "rate-limit", "partial"):
+                    raise
+                rules = None  # not readable: say nothing rather than guess
         if rules is not None:
             queue = any(r.get("type") == "merge_queue" for r in rules)
             lines.append("SETTING merge_queue " + ("on" if queue else "off"))
@@ -668,7 +697,7 @@ VERBS = {
     "checks": (v_checks, ("slug", "sha"), (), True),
     "required-checks": (v_required_checks, ("slug", "base"), (), True),
     "mergeable": (v_mergeable, ("slug", "pr"), (), True),
-    "repo-settings": (v_repo_settings, ("slug", "base"), (), True),
+    "repo-settings": (v_repo_settings, ("slug", "base"), ("allow-unavailable-rules",), True),
     "merge-at": (v_merge_at, ("slug", "pr", "sha", "method"), (), True),
     "arm": (v_arm, ("slug", "pr", "sha", "method", "label"), ("no-auto",), True),
     "disarm": (v_disarm, ("slug", "pr", "label", "workflow"), (), True),
