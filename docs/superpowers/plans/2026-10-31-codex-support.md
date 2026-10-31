@@ -53,4 +53,4 @@ Files: .codex-plugin/plugin.json, codex/hooks.json, scripts/stu_env.py, scripts/
 - [x] Add install, hook trust, approval and capability documentation.
 - [x] Run all suites and both loaders. Exercise native nested delegation in a disposable repo, review whole diff and fix findings.
 - [x] Record actual native-hook and two-issue delivery results in docs/codex-validation.md.
-- [ ] Commit and create one reviewable PR.
+- [x] Commit and create one reviewable PR: https://github.com/keavi-app/stu-claude/pull/4.
