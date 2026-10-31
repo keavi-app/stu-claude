@@ -10,9 +10,15 @@ and its caller is required to treat that as the hard ceiling: not knowing is not
 the same as being under, and "it felt fine" is how every earlier context rule
 failed.
 
-Context is measured as:
+Claude context is measured as:
     input_tokens + cache_creation_input_tokens + cache_read_input_tokens
 for the most recent main-chain assistant message.
+Codex context is the latest request's input_tokens (cached tokens are already
+included). Codex "turns" count distinct model requests, not user turns. Select
+with STU_RUNTIME=claude|codex; otherwise CLAUDE_CODE_SESSION_ID wins, followed by
+CODEX_THREAD_ID. The Codex adapter verifies its own session metadata and never
+chooses a transcript by mtime. STU_TRANSCRIPT_PATH may override its path, but
+never its identity.
 
 Bands (override with RUN_CTX_SOFT / RUN_CTX_HARD):
     < 160k   OK
@@ -54,7 +60,25 @@ def die(msg):
     sys.exit(2)
 
 
+def runtime():
+    """Explicit runtime wins; preserve Claude when Codex's env was inherited."""
+    selected = os.environ.get("STU_RUNTIME")
+    if selected:
+        if selected not in ("claude", "codex"):
+            die("STU_RUNTIME must be claude or codex")
+        return selected
+    if os.environ.get("CLAUDE_CODE_SESSION_ID"):
+        return "claude"
+    return "codex" if os.environ.get("CODEX_THREAD_ID") else "claude"
+
+
 def transcript_path():
+    if runtime() == "codex":
+        import codex_telemetry
+        try:
+            return codex_telemetry.transcript_path()
+        except (OSError, codex_telemetry.TelemetryError) as exc:
+            die(str(exc))
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not sid:
         die("CLAUDE_CODE_SESSION_ID is not set -- cannot identify this session. "
@@ -70,7 +94,13 @@ def transcript_path():
 
 
 def scan(path):
-    """Return (current_ctx, peak_ctx, turns, ctxs) over main-chain assistant turns."""
+    """Return (current_ctx, peak_ctx, turns, ctxs) for the selected runtime."""
+    if runtime() == "codex":
+        import codex_telemetry
+        try:
+            return codex_telemetry.scan(path)
+        except (OSError, codex_telemetry.TelemetryError) as exc:
+            die(str(exc))
     cur = peak = turns = 0
     ctxs = []
     seen = set()

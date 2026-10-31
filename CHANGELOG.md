@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Add a separate Codex package with four skills, native nested-agent runtime bindings, session-specific context telemetry and advisory child budget hooks. Shared safety contracts remain canonical.
+- Recognize Codex agent pushes and protect approval files through Codex patches, moves and aliases. Preserve the existing Claude hook declarations and runtime contracts.
+- Support neutral Codex config paths without changing Claude lookup, and add a shared `make test` entry point.
+
+
 ## 0.1.4
 
 - `stu:orchestrator` writes its prompt cache with a 1-hour TTL (`experimental: cacheTtl: 1h`
