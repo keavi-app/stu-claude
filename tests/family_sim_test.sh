@@ -384,6 +384,12 @@ check "close_paths_by_mode: label-handoff closes on READY_IDS" "$(st app#9 | cut
 retv "CLOSED_IDS: app#9" "MERGED_IDS: app#9@$PIN1"
 STU_CONFIG="$LABEL" runchk
 check "close_paths_by_mode: label-handoff rejects MERGED_IDS" "$(st app#9)" "BLOCKED wrong-field-for-mode"
+# Under completion: merged a labelled, unlanded PR is tracked in READY_IDS beside REMAINING_IDS.
+objv $'| app#9 | app | - |' "" "completion: merged"
+retv "REMAINING_IDS: app#9" "READY_IDS: app#9@acme/app#8@$APP_HEAD"
+STU_CONFIG="$LABEL" runchk
+check "close_paths_by_mode: label-handoff tracks READY_IDS under merged" \
+  "$RC $(st app#9 | cut -d' ' -f1) $(printf '%s\n' "$OUT" | tail -1)" "0 OPEN OK"
 
 # ============================================================================================
 # flat_label_handoff_unchanged: the one-row regression (switchover guard)

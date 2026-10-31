@@ -250,6 +250,15 @@ human_checkpoints before-push     APPROVAL_IDS (leg 1) or PASSED_IDS (leg 2, rep
 completion: integrated, any row   INTEGRATED_IDS
 ```
 
+Under `completion: merged`, a label-handoff row that is not before-push also accepts `READY_IDS`
+as a tracking field: the entry takes the same evidence test as a closing `READY_IDS` entry but
+never closes the unit, which prints `OPEN ready-labelled:<slug>#<pr>,auto-merge-<on|off>` unless a
+`MERGED_IDS` entry closes it in the same return. It is not a closing field for
+`closed-but-remaining`, so the unit stays in `REMAINING_IDS` beside it. A `CLOSED_IDS` entry
+backed by it alone is `BLOCKED tracking-field-does-not-close`, and a tracked unit that is not in
+`REMAINING_IDS` (absent, or in `PARKED_IDS` / `INTEGRATING_IDS`) is `BLOCKED tracked-not-remaining`:
+a parked unit's labelled PR could still auto-merge.
+
 Any other gate field on a row is `BLOCKED wrong-field-for-mode`. A `CLOSED_IDS` entry with no gate
 field is a legal no-PR close in every mode (`CLOSED no-pr`) EXCEPT on a row whose
 `human_checkpoints` contain `before-push`: there it is `BLOCKED closed-without-gate-field`, because
@@ -274,7 +283,8 @@ closed-without-gate-field, passed-needs-pr-and-sha, passed-other-slug, passed-wr
 passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, ready-pr-closed,
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
-predecessor-unverified, predecessor-moved-head, closed-but-remaining.
+predecessor-unverified, predecessor-moved-head, closed-but-remaining,
+tracking-field-does-not-close, tracked-not-remaining.
 
 `READY_IDS` can be non-empty only when the merge gate runs in **label-handoff** mode
 (`agents/merge-gate.md`, "Merge mode"): on PASS the gate applies the merge label at the exact

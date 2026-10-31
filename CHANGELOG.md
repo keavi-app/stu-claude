@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+- `stu-run-check` accepts `READY_IDS` for a unit still in `REMAINING_IDS` on a label-handoff row
+  under `completion: merged`, as the run contract asks: the entry is checked as a labelled PR and
+  the unit prints `OPEN ready-labelled:<slug>#<pr>,auto-merge-<on|off>` until `MERGED_IDS`
+  records its landing. A `CLOSED_IDS` entry backed only by it is `BLOCKED
+  tracking-field-does-not-close`, and a tracked unit outside `REMAINING_IDS` is `BLOCKED
+  tracked-not-remaining`. Before-push, direct and report-only rows still reject it.
+
 ## 0.1.2
 
 - The handoff format says run folders hold reports, briefs, logs and handoffs, never build products,

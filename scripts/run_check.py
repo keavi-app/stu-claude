@@ -91,6 +91,13 @@ Closing, by the unit's row (field = the gate field that closes it):
   human_checkpoints before-push     APPROVAL_IDS (leg 1) or PASSED_IDS (leg 2, report-only
                                     rows only); MERGED_IDS and READY_IDS never close it
   completion: integrated, any row   INTEGRATED_IDS
+  Under completion merged, a label-handoff row that is not before-push also accepts READY_IDS
+  as a tracking field: it takes the READY_IDS evidence test below but never closes the unit,
+  which is `OPEN ready-labelled:<slug>#<pr>,auto-merge-<on|off>` unless a MERGED_IDS entry closes
+  it in the same return. It is not a closing field for closed-but-remaining; a CLOSED_IDS
+  entry backed by it alone is `BLOCKED tracking-field-does-not-close`, and a tracked unit that is
+  not in REMAINING_IDS (absent, or in PARKED_IDS / INTEGRATING_IDS) is `BLOCKED
+  tracked-not-remaining`.
   Any other gate field on a row is `BLOCKED wrong-field-for-mode`. A CLOSED_IDS entry with no
   gate field is a legal no-PR close in every mode (`CLOSED no-pr`) EXCEPT on a row whose
   human_checkpoints contain before-push: there it is `BLOCKED closed-without-gate-field`,
@@ -112,7 +119,8 @@ Closing, by the unit's row (field = the gate field that closes it):
 
 <how> tokens, joined with `,` when several apply: merged-on-base, approval-branch-at-sha,
 integrated, tagged, no-pr, passed:<slug>#<pr>@<sha12>, ready-labelled:<slug>#<pr> (with
-auto-merge-on or auto-merge-off). <why> tokens (OPEN): after-pass-failed:<step>, moved.
+auto-merge-on or auto-merge-off). <why> tokens (OPEN): after-pass-failed:<step>, moved,
+ready-labelled:<slug>#<pr>,auto-merge-<on|off>.
 Reason codes (BLOCKED): non-full-sha, not-issued, park-row, wrong-field-for-mode,
 merged-needs-sha, merged-not-on-base, approval-needs-branch-and-sha, approval-branch-moved,
 approval-repeat, integrated-needs-sha, integrated-not-on-base, tag-malformed,
@@ -121,7 +129,8 @@ closed-without-gate-field, passed-needs-pr-and-sha, passed-other-slug, passed-wr
 passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, ready-pr-closed,
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
-predecessor-unverified, predecessor-moved-head, closed-but-remaining.
+predecessor-unverified, predecessor-moved-head, closed-but-remaining,
+tracking-field-does-not-close, tracked-not-remaining.
 
 Evidence (what each check proves):
   MERGED_IDS     after `git fetch <remote> <base>`, the sha is an ancestor of
@@ -496,6 +505,7 @@ class Check:
 class Unit:
     def __init__(self):
         self.blocked, self.open, self.waiting, self.closed = [], [], [], []
+        self.tracked = []
 
     def block(self, code, detail):
         self.blocked.append("%s: %s" % (code, detail))
@@ -579,6 +589,15 @@ def allowed_fields(chk, e, ident, got):
     if ident in got.get("INTEGRATED_IDS", {}) and chk.completion(e) == "integrated":
         allowed.add("INTEGRATED_IDS")
     return allowed
+
+
+def tracking_fields(chk, e):
+    """Gate fields a row accepts that never close the unit. Under completion: merged a
+    label-handoff row's READY_IDS tracks a labelled PR until MERGED_IDS records its landing."""
+    if (e["MERGE_MODE"] == "label-handoff" and chk.completion(e) == "merged"
+            and not before_push(e)):
+        return set(["READY_IDS"])
+    return set()
 
 
 def before_push(e):
@@ -687,7 +706,7 @@ def pred_status(chk, ident, got):
     return True, "", ""
 
 
-def check_pr_entry(chk, u, e, ident, field, en):
+def check_pr_entry(chk, u, e, ident, field, en, closes=True):
     f = field[:-4].lower()  # passed | ready
     m = PR_ENTRY.match(en.get("raw") or "")
     if not m:
@@ -724,9 +743,12 @@ def check_pr_entry(chk, u, e, ident, field, en):
         if cs.get("LABEL") != "present":
             u.block("ready-label-absent", "PR %s#%s does not carry the label %s" % (
                 slug, pr, label))
-        else:
+        elif closes:
             u.add_closed("ready-labelled:%s#%s" % (slug, pr))
             u.add_closed("auto-merge-%s" % cs.get("AUTO_MERGE", "off"))
+        else:
+            u.tracked.append("ready-labelled:%s#%s,auto-merge-%s" % (
+                slug, pr, cs.get("AUTO_MERGE", "off")))
 
 
 def check_waiting(chk, u, ident, got, en):
@@ -766,11 +788,12 @@ def evaluate(chk, ident, got, issued, awaiting, held):
         return u
     present = [f for f in ORDER if ident in got.get(f, {})]
     gate_present = [f for f in GATE_FIELDS if f in present]
-    allowed = set()
+    allowed, tracking = set(), set()
     if gate_present:
         allowed = allowed_fields(chk, e, ident, got)
+        tracking = tracking_fields(chk, e) - allowed
         for f in gate_present:
-            if f not in allowed:
+            if f not in allowed and f not in tracking:
                 u.block("wrong-field-for-mode", "%s is not a closing field for a %s row%s"
                         % (f, e["MERGE_MODE"], " (before-push)" if before_push(e) else ""))
     path, remote = e["MAIN_CHECKOUT"], e["REMOTE"]
@@ -790,9 +813,9 @@ def evaluate(chk, ident, got, issued, awaiting, held):
                 u.block("merged-not-on-base", "%s is not an ancestor of the base of %s"
                         % (en["sha"], e["REPO_NAME"]))
     for field in ("READY_IDS", "PASSED_IDS"):
-        if field in allowed:
+        if field in allowed or field in tracking:
             for en in got.get(field, {}).get(ident, []):
-                check_pr_entry(chk, u, e, ident, field, en)
+                check_pr_entry(chk, u, e, ident, field, en, closes=field in allowed)
     for en in got.get("APPROVAL_IDS", {}).get(ident, []):
         if "APPROVAL_IDS" not in allowed:
             break
@@ -854,6 +877,18 @@ def evaluate(chk, ident, got, issued, awaiting, held):
                     "APPROVAL_IDS or its PASSED_IDS leg-2 field" % ident)
         else:
             u.add_closed("no-pr")
+    elif ident in got.get("CLOSED_IDS", {}) and all(f in tracking for f in gate_present):
+        u.block("tracking-field-does-not-close", "%s is in CLOSED_IDS with only %s, which does "
+                "not close a unit under completion: merged; it closes on MERGED_IDS"
+                % (ident, "/".join(gate_present)))
+    # A labelled PR that has not landed keeps the unit outstanding, in REMAINING_IDS (a parked
+    # unit's PR could still auto-merge); a landing in this same return (MERGED_IDS) closes it.
+    if u.tracked and not u.closed:
+        if held.get(ident) != "REMAINING_IDS":
+            u.block("tracked-not-remaining", "%s is tracked in READY_IDS but %s; a labelled, "
+                    "unlanded unit stays in REMAINING_IDS" % (
+                        ident, "in " + held[ident] if ident in held else "not in REMAINING_IDS"))
+        u.open.extend(u.tracked)
     # A failed after-pass step keeps a landed unit outstanding, so its closing field may sit
     # beside REMAINING_IDS; a CLOSED_IDS entry never may, since such a unit is never closed.
     closing = [] if ident in got.get("AFTER_PASS_FAILED", {}) else [

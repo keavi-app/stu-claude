@@ -630,10 +630,45 @@ def test_passed_and_ready():
         rc, out, err = w.check_files(obj, ret(READY_IDS=entry))
         check("ready head is not the gated sha", blocked_with(out, "lib#2", "ready-wrong-sha"),
               True)
+    # label-handoff under completion: merged: READY_IDS tracks a labelled PR, never closes it.
+    with tempfile.TemporaryDirectory() as tmp:
+        w = World(tmp, {"app": {}, "lib": {"merge_mode": "label-handoff",
+                                           "ci_merge_label": "go"}})
+        sha = "d" * 40
+        unit = [("lib#2", "lib", "-")]
+        entry = "lib#2@acme/lib#5@" + sha
+        obj = objective(unit)
         w.set_gh(pr_at(w, 5, sha=sha, labels=("go",)))
-        rc, out, err = w.check_files(objective(unit), ret(READY_IDS=entry))
-        check("READY_IDS is the wrong field under completion merged",
-              blocked_with(out, "lib#2", "wrong-field-for-mode"), True)
+        rc, out, err = w.check_files(obj, ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        check("ready_ids_tracks_under_merged", (rc, status(out, "lib#2"), term(out)),
+              (0, ["OPEN", "ready-labelled:acme/lib#5,auto-merge-off"], "OK"))
+        w.set_gh(pr_at(w, 5, sha=sha, labels=("other",)))
+        rc, out, err = w.check_files(obj, ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        check("tracked ready entry still needs the label",
+              (rc, blocked_with(out, "lib#2", "ready-label-absent")), (1, True))
+        w.set_gh(pr_at(w, 5, sha="e" * 40, labels=("go",)))
+        rc, out, err = w.check_files(obj, ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        check("tracked ready entry still needs the gated sha",
+              (rc, blocked_with(out, "lib#2", "ready-wrong-sha")), (1, True))
+        w.set_gh(pr_at(w, 5, sha=sha, state="CLOSED", labels=("go",)))
+        rc, out, err = w.check_files(obj, ret(REMAINING_IDS="lib#2", READY_IDS=entry))
+        check("tracked ready entry on a closed PR",
+              (rc, blocked_with(out, "lib#2", "ready-pr-closed")), (1, True))
+        w.set_gh(pr_at(w, 5, sha=sha, labels=("go",)))
+        rc, out, err = w.check_files(obj, ret(CLOSED_IDS="lib#2", READY_IDS=entry))
+        check("CLOSED_IDS on a tracking field alone is blocked",
+              (rc, blocked_with(out, "lib#2", "tracking-field-does-not-close")), (1, True))
+        rc, out, err = w.check_files(obj, ret(PARKED_IDS="lib#2", READY_IDS=entry))
+        check("a tracked unit cannot be parked",
+              (rc, blocked_with(out, "lib#2", "tracked-not-remaining")), (1, True))
+        rc, out, err = w.check_files(obj, ret(READY_IDS=entry))
+        check("a tracked unit must stay in REMAINING_IDS",
+              (rc, blocked_with(out, "lib#2", "tracked-not-remaining")), (1, True))
+        landed = w.landed("lib")
+        rc, out, err = w.check_files(obj, ret(CLOSED_IDS="lib#2", MERGED_IDS="lib#2@" + landed,
+                                              READY_IDS=entry))
+        check("a landing in the same return closes a tracked unit",
+              (rc, status(out, "lib#2"), term(out)), (0, ["CLOSED", "merged-on-base"], "OK"))
     with tempfile.TemporaryDirectory() as tmp:
         w = World(tmp, {"app": {}, "lib": {"merge_mode": "label-handoff", "ci_merge_label": None}})
         sha = "d" * 40
@@ -697,6 +732,11 @@ def test_before_push_wrong_fields():
         check("before_push_ready_ids_blocked",
               (rc, blocked_with(out, "lib#2", "wrong-field-for-mode"), term(out)),
               (1, True, "BLOCKED"))
+        rc, out, err = w.check_files(
+            objective([("lib#2", "lib", "-")]),
+            ret(REMAINING_IDS="lib#2", READY_IDS="lib#2@acme/lib#5@" + sha))
+        check("before_push_ready_ids_not_tracked_under_merged",
+              (rc, blocked_with(out, "lib#2", "wrong-field-for-mode")), (1, True))
 
 
 def pr_at_slug(pr, head, slug, state, merge=None):
@@ -855,6 +895,12 @@ def test_close_paths():
             rc, out, err = w.check_files(obj, ret(CLOSED_IDS="app#1", **{k: v}))
             check("close_paths_direct_push_label_handoff_pr_only %s rejects %s" % (mode, bad),
                   (rc, blocked_with(out, "app#1", "wrong-field-for-mode")), (1, True))
+            if mode != "label-handoff":
+                # READY_IDS tracks only on a label-handoff row; elsewhere it is the wrong field.
+                k, v = entry("READY")
+                rc, out, err = w.check_files(obj, ret(REMAINING_IDS="app#1", **{k: v}))
+                check("close_paths %s rejects READY_IDS" % mode,
+                      (rc, blocked_with(out, "app#1", "wrong-field-for-mode")), (1, True))
 
 
 def test_park_anywhere():
@@ -975,15 +1021,11 @@ def test_closed_but_remaining():
                                      ret(REMAINING_IDS="lib#2", READY_IDS=entry))
         check("ready_and_remaining_blocked_under_ready",
               (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
-        # Under merged READY_IDS is not the closing field: the checker already blocks it as
-        # wrong-field-for-mode, and REMAINING_IDS adds nothing (the output is the same with
-        # and without it).
+        # Under merged READY_IDS only tracks the unit, so it belongs beside REMAINING_IDS.
         rc, out, err = w.check_files(objective(unit), ret(REMAINING_IDS="lib#2", READY_IDS=entry))
-        rc0, out0, err0 = w.check_files(objective(unit), ret(READY_IDS=entry))
-        check("ready_and_remaining_under_merged_is_only_wrong_field",
-              (rc, blocked_with(out, "lib#2", "wrong-field-for-mode"),
-               any("closed-but-remaining" in l for l in out), out == out0),
-              (1, True, False, True))
+        check("ready_and_remaining_under_merged_stays_outstanding",
+              (rc, status(out, "lib#2")[0], any("closed-but-remaining" in l for l in out),
+               term(out)), (0, "OPEN", False, "OK"))
 
 
 def test_closed_and_moved():

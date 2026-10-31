@@ -491,7 +491,10 @@ defined"), the ID goes in `CLOSED_IDS` and NOT in `REMAINING_IDS`, `PARKED_IDS` 
 `PASSED_IDS` entry left in `REMAINING_IDS` costs the run a whole cycle to close it, and
 `stu-run-check` blocks it as `closed-but-remaining`. The one exception is an `AFTER_PASS_FAILED`
 entry for the same ID: it keeps the unit outstanding, so the ID stays in `REMAINING_IDS` beside its
-gate field and is not in `CLOSED_IDS`.
+gate field and is not in `CLOSED_IDS`. `READY_IDS` on a label-handoff row under
+`completion: merged` is not a closing field at all: it tracks a labelled PR that has not landed,
+so the ID stays in `REMAINING_IDS` (never `CLOSED_IDS` or `PARKED_IDS`) until a `LANDED:` relays
+its `MERGED_IDS`.
 
 **Relaying a saved gate file.** Relay from `<run-dir>/gate/<id>@<full sha>.txt` instead of a fresh
 dispatch only when you have verified, this cycle, that the unit's head is still exactly that
@@ -612,7 +615,8 @@ run (read as `BLOCKED`). Hold these exactly:
   counts only when the unit's head is verified unchanged at its sha this cycle ("Relaying a
   saved gate file", above). An ID whose closing field you relay goes in `CLOSED_IDS`, never in
   `REMAINING_IDS`, `PARKED_IDS` or `INTEGRATING_IDS`, unless it also has an `AFTER_PASS_FAILED`
-  entry, which keeps it outstanding (and out of `CLOSED_IDS`). Under objective
+  entry, which keeps it outstanding (and out of `CLOSED_IDS`). A `READY_IDS` entry under
+  `completion: merged` closes nothing: its ID stays in `REMAINING_IDS` until it lands. Under objective
   `completion: integrated` `MERGED_IDS` and `READY_IDS` hold the FINAL unit only (its PR targets
   the epic's base, the row's `<remote>/<base>`). `WAITING_IDS` is your own claim, only as
   "Cross-repo order" allows.
