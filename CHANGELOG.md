@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- A `fix-when-touched` record's `resolve:` command can use `{pr}` (the unit's PR number, digits
+  only) and `{sha}` (the unit's head commit SHA when resolve runs, full length) next to
+  `{finding}`. Both are optional; a record that omits them is unchanged. If the record uses one
+  and the orchestrator has no value for it (the unit has no PR yet), it does not run the command,
+  reports the finding as unresolved, and never passes the literal placeholder.
+
 ## 0.2.0
 
 - Add a separate Codex package with four skills, native nested-agent runtime bindings, session-specific context telemetry and advisory child budget hooks. Shared safety contracts remain canonical.

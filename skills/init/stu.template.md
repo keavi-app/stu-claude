@@ -491,13 +491,19 @@ folded into a unit's brief. A prose-only answer is read as none: write records.
 One record per finding source, written `### <source name>`, then these keys, one per line:
   match: <command with {paths}>      -- lists the deferred findings on the unit's paths; the
                                         orchestrator puts the unit's paths where {paths} is
-  resolve: <command with {finding}>  -- marks one finding resolved once the unit lands
-Both keys are mandatory.
+  resolve: <command with {finding}, optionally {pr} and {sha}>
+                                     -- marks one finding resolved once the unit lands; the
+                                        orchestrator puts the finding where {finding} is, the
+                                        unit's PR number (digits only) where {pr} is, and the
+                                        unit's head commit SHA (full) where {sha} is
+Both keys are mandatory. {pr} and {sha} are optional: a record that does not use them is
+unchanged. If a record uses one and the unit has no value for it (no PR yet), the orchestrator
+does not run the command and reports the finding unresolved.
 
 For shape (indented so it is not a heading):
   ### deferred-list
   match: scripts/deferred list --paths {paths}
-  resolve: scripts/deferred resolve {finding}
+  resolve: scripts/deferred resolve {finding} --by "#{pr} at {sha}"
 -->
 
 ## id-numbering
