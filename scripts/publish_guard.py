@@ -106,9 +106,21 @@ def check_approval_file(payload):
     if tool in WRITE_TOOLS:
         paths = [_file_target(payload)]
     elif tool == "apply_patch":
-        # These are apply_patch's file-operation headers, not lines added as content.
-        paths = re.findall(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$",
-                           "\n".join(_text(payload).splitlines()), flags=re.MULTILINE)
+        ti = payload.get("tool_input")
+        candidates = ([ti] if isinstance(ti, str) else
+                      [ti.get(key) for key in ("command", "input", "patch")]
+                      if isinstance(ti, dict) else [])
+        texts = [text for text in candidates if isinstance(text, str) and text.strip()]
+        if not texts and APPROVAL_FILE in json.dumps(ti).lower():
+            return "%s is written only by the owner (stu-approve); an agent never edits " \
+                   "it" % APPROVAL_FILE
+        # Check every text field: one harmless field must not mask another patch.
+        # These are file-operation headers, not lines added as content. The native
+        # patch parser trims header paths, so resolve the same trimmed target here.
+        for text in texts:
+            paths.extend(path.strip() for path in re.findall(
+                r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$",
+                "\n".join(text.splitlines()), flags=re.MULTILINE))
     cwd = payload.get("cwd") or os.getcwd()
     for path in paths:
         if not path:

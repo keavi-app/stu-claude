@@ -39,3 +39,33 @@ no persistent hook trust was granted. Overnight duration, other client versions,
 other operating systems, and cost calibration across large campaigns remain
 unverified. Context hooks remain advisory, without Claude's native maxTurns or
 cache-TTL guarantees.
+
+## Review follow-up: 2026-11-01
+
+Codex init now retains the existing `.claude/stu.md` path. Tests verify that the
+same public policy is discovered when STU_RUNTIME is unset; the unused `.stu/`
+repository path is no longer an implicit configuration source. Explicit external
+configuration and pinned git hooks remain supported.
+
+Budget warnings were exercised for bare, numeric, issue, unit, cycle-plus-unit,
+and repeated seat names. Patch regressions exercise raw strings, all three named
+text fields, conflicting fields, unknown-shape fallback and whitespace on each
+file-operation header. A native patch probe confirmed that header whitespace is
+trimmed by the tool itself. Current follow-up coverage includes 22 publishing
+tests, eight shared-config tests, 10 adapter tests and 30 telemetry tests.
+
+A real native Codex shell ran `git push` once against the private sandbox using a
+separate clone with a bound before-push policy. Its chained capture hook observed
+a nonempty CODEX_THREAD_ID, with CODEX_SHELL, CLAUDECODE, STU_RUNTIME and STU_CONFIG
+unset. Stu refused the unapproved push with exit 1; the remote branch remained
+absent. The earlier observation that hook callbacks had no CODEX_THREAD_ID does
+not apply to model-executed shell commands or their git hooks.
+
+The same native session was resumed successfully for a read-only command. Its
+transcript retained one identity record for the same thread; the strict identity
+and usage parsers read it successfully. Identity validation was not relaxed, and
+root-session forks remain unverified. Normal native hooks provide transcript
+paths, so the optional fallback lookup was not given a speculative cache.
+
+The design and plan documents are retained and updated to match the shared-path
+choice. Exact GitHub plan-error matching remains fail-closed as documented.

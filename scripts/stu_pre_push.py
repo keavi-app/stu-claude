@@ -381,18 +381,10 @@ def check(path):
                     say("the installed hook is not bound to the selected stu config; "
                         "rerun STU_RUNTIME=codex stu-pre-push --install")
                     ok = False
-        else:
-            try:
-                _top, main = stu_env._locate(path)
-                neutral = os.path.join(main, ".stu", "stu.md")
-                legacy = os.path.join(main, ".claude", "stu.md")
-                if (os.environ.get("STU_RUNTIME") == "codex"
-                        or (os.path.lexists(neutral) and not os.path.isfile(legacy))):
-                    say("the installed hook has no binding for the Codex stu config; "
-                        "rerun STU_RUNTIME=codex stu-pre-push --install")
-                    ok = False
-            except stu_env.NotInRepo:
-                pass
+        elif os.environ.get("STU_RUNTIME") == "codex":
+            say("the installed hook has no binding for the Codex stu config; "
+                "rerun STU_RUNTIME=codex stu-pre-push --install")
+            ok = False
     print("INSTALLED" if ok else "MISSING")
     return 0 if ok else 1
 

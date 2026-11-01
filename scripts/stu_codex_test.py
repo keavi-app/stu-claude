@@ -93,7 +93,8 @@ class Contracts(unittest.TestCase):
         module = adapter()
         result = module.render('run', ROOT)
         self.assertIn('Next: $stu:settle', result)
-        self.assertIn('stu_orchestrator_cycle_2', result)
+        self.assertIn('stu_orchestrator_cycle_<n>', result)
+        self.assertIn('stu_implementer_cycle_<n>_unit_<id>', result)
         self.assertIn('live concurrency slot cap', result)
         self.assertIn('six hours', result)
         self.assertIn('final 90-minute', result)
@@ -114,6 +115,14 @@ class Contracts(unittest.TestCase):
         self.assertIn('known GitHub Free private-repository plan limitation', rendered)
         self.assertIn('unknown, never disabled', rendered)
         self.assertIn('Authentication, rate-limit and partial-data errors still stop', rendered)
+
+    def test_init_preserves_claude_shared_config_location_option_b(self):
+        # Keep canonical init's path so a config created under Codex is also visible
+        # to Claude hooks with STU_RUNTIME unset; no runtime-specific policy store.
+        rendered = adapter().render('init', ROOT)
+        self.assertIn('<MAIN_CHECKOUT>/.claude/stu.md', rendered)
+        self.assertNotIn('<MAIN_CHECKOUT>/.stu/stu.md', rendered)
+        self.assertIn('~/.stu/<PROJECT>/stu.md', rendered)
 
     def test_doctor_reports_manual_trust_without_claiming_it(self):
         result = subprocess.run([str(ROOT / 'bin/stu-codex'), 'doctor'],

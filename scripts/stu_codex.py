@@ -221,7 +221,8 @@ do not establish a model limit. Record supported selection explicitly; never inf
         text = replace(text, 'Dispatch `stu:reviewer` by name, no\n`model`, with',
                        'Dispatch a fresh `stu:reviewer` with an exact SHA and the binding\'s supported model/effort selection, with')
     elif name == 'init':
-        text = replace(text, '<MAIN_CHECKOUT>/.claude/stu.md', '<MAIN_CHECKOUT>/.stu/stu.md')
+        # Option (b): preserve canonical init's .claude/stu.md path so Claude's
+        # unmarked hooks and Codex always discover the same policy by default.
         text = replace(text, 'the language servers listed in `.claude/settings.json` (name the ones seen; do not guess at the rest)',
                        'the caller\'s available language-server tools and project configuration (name the ones seen; do not guess)')
         text = replace(text, 'the repo\'s own project skills (the skills directory under `.claude`)',

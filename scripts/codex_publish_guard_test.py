@@ -12,15 +12,15 @@ import publish_guard_test as fixtures
 
 
 class CodexPublishGuardTests(unittest.TestCase):
-    def neutral_config(self, f):
+    def shared_config(self, f):
         f.env = {k: v for k, v in f.env.items() if not k.startswith("STU_")}
         # Keep spaces and a quote in the directory to exercise shell assignment quoting.
-        cfg = os.path.join(f.app, ".stu", "owner's config", "stu.md")
+        cfg = os.path.join(f.app, ".claude", "owner's config", "stu.md")
         fixtures.write(cfg, fixtures.read(f.cfg))
         os.remove(f.cfg)
-        # Default neutral lookup uses .stu/stu.md; an explicit config can name a symlink.
-        neutral = os.path.join(f.app, ".stu", "stu.md")
-        os.symlink(cfg, neutral)
+        # Both runtimes use .claude/stu.md; a symlink retains the quoting fixture.
+        shared = os.path.join(f.app, ".claude", "stu.md")
+        os.symlink(cfg, shared)
         return cfg
 
     def install_codex(self, f):
@@ -28,9 +28,9 @@ class CodexPublishGuardTests(unittest.TestCase):
                               env=dict(f.env, STU_RUNTIME="codex"),
                               capture_output=True, text=True)
 
-    def test_neutral_config_human_push_still_scans_private_names(self):
+    def test_shared_config_human_push_still_scans_private_names(self):
         with fixtures.fam() as f:
-            self.neutral_config(f)
+            self.shared_config(f)
             self.assertEqual(self.install_codex(f).returncode, 0)
             clean = fixtures.commit(f.app, f.env, msg="clean work")
             result = f.push(f.app, "origin", "main")
@@ -42,9 +42,9 @@ class CodexPublishGuardTests(unittest.TestCase):
             self.assertIn("private-repo item", result.stderr)
             self.assertEqual(f.remote_ref(f.app_remote), clean)
 
-    def test_neutral_config_marked_push_needs_approval_without_runtime_env(self):
+    def test_shared_config_marked_push_needs_approval_without_runtime_env(self):
         with fixtures.fam() as f:
-            self.neutral_config(f)
+            self.shared_config(f)
             self.assertEqual(self.install_codex(f).returncode, 0)
             tip = fixtures.commit(f.app, f.env, msg="agent work")
             for marker in ("CODEX_THREAD_ID", "CODEX_SHELL"):
@@ -55,7 +55,7 @@ class CodexPublishGuardTests(unittest.TestCase):
 
     def test_codex_binding_does_not_reach_chained_hook(self):
         with fixtures.fam() as f:
-            self.neutral_config(f)
+            self.shared_config(f)
             local = os.path.join(f.app, ".git", "hooks", "pre-push")
             seen = os.path.join(f.tmp, "local-env")
             fixtures.write(local, '#!/bin/sh\nprintf "%s|%s" "$STU_RUNTIME" "$STU_CONFIG" > "' +
@@ -68,7 +68,7 @@ class CodexPublishGuardTests(unittest.TestCase):
 
     def test_bound_hook_check_and_missing_config_fail_closed(self):
         with fixtures.fam() as f:
-            cfg = self.neutral_config(f)
+            cfg = self.shared_config(f)
             self.assertEqual(self.install_codex(f).returncode, 0)
             result = subprocess.run([fixtures.PRE_PUSH, "--check", "--path", f.app], env=f.env,
                                     capture_output=True, text=True)
@@ -80,14 +80,37 @@ class CodexPublishGuardTests(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual((result.returncode, result.stdout.strip()), (1, "MISSING"))
 
-    def test_check_rejects_old_unbound_neutral_hook(self):
+    def test_check_rejects_old_unbound_codex_hook(self):
         with fixtures.fam() as f:
-            # Install the legacy generic hook first, then introduce a neutral-only config.
+            # Install the legacy generic hook first, then require a Codex config binding.
             self.assertEqual(f.install(f.app).returncode, 0)
-            self.neutral_config(f)
-            result = subprocess.run([fixtures.PRE_PUSH, "--check", "--path", f.app], env=f.env,
+            self.shared_config(f)
+            result = subprocess.run([fixtures.PRE_PUSH, "--check", "--path", f.app],
+                                    env=dict(f.env, STU_RUNTIME="codex"),
                                     capture_output=True, text=True)
             self.assertEqual((result.returncode, result.stdout.strip()), (1, "MISSING"))
+
+    def test_pinned_external_config_controls_unmarked_human_pushes(self):
+        with fixtures.fam() as f:
+            f.env = {k: v for k, v in f.env.items() if not k.startswith("STU_")}
+            selected = os.path.join(f.tmp, "selected owner's policy", "stu.md")
+            fixtures.write(selected, fixtures.read(f.cfg))
+            # The default config permits pushing; the explicitly selected policy scans.
+            fixtures.write(f.cfg, fixtures.fam_text(f.app, f.lib, app_over={
+                "visibility": "private", "human_checkpoints": None}))
+            installed = subprocess.run([fixtures.PRE_PUSH, "--install", "--path", f.app],
+                                       env=dict(f.env, STU_RUNTIME="codex", STU_CONFIG=selected),
+                                       capture_output=True, text=True)
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            clean = fixtures.commit(f.app, f.env, msg="clean work")
+            pushed = f.push(f.app, "origin", "main")
+            self.assertEqual(pushed.returncode, 0, pushed.stderr)
+            self.assertEqual(f.remote_ref(f.app_remote), clean)
+            fixtures.commit(f.app, f.env, msg="mentions acme/lib private work")
+            pushed = f.push(f.app, "origin", "main")
+            self.assertNotEqual(pushed.returncode, 0)
+            self.assertIn("private-repo item", pushed.stderr)
+            self.assertEqual(f.remote_ref(f.app_remote), clean)
 
     def test_codex_check_requires_binding_for_explicit_external_config(self):
         with fixtures.fam() as f:
@@ -108,6 +131,14 @@ class CodexPublishGuardTests(unittest.TestCase):
                                     env=dict(f.env, STU_RUNTIME="codex", STU_CONFIG=config),
                                     capture_output=True, text=True)
             self.assertEqual((result.returncode, result.stdout.strip()), (1, "MISSING"))
+
+    def test_default_hook_check_ignores_unused_neutral_path(self):
+        with fixtures.fam() as f:
+            self.assertEqual(f.install(f.app).returncode, 0)
+            fixtures.write(os.path.join(f.app, ".stu", "stu.md"), "unused config path\n")
+            result = subprocess.run([fixtures.PRE_PUSH, "--check", "--path", f.app], env=f.env,
+                                    capture_output=True, text=True)
+            self.assertEqual((result.returncode, result.stdout.strip()), (0, "INSTALLED"))
 
     def test_human_fixtures_strip_all_agent_markers(self):
         with tempfile.TemporaryDirectory() as home:
@@ -161,6 +192,57 @@ class CodexPublishGuardTests(unittest.TestCase):
                 "*** Begin Patch\n*** Delete File: owner-record\n*** End Patch"))
             self.assertTrue(fixtures.denied(pl, f.env), fixtures.verdict(pl, f.env))
             self.assertEqual(fixtures.read(f.approvals), "owner record\n")
+
+    def test_patch_input_shapes_cannot_edit_approvals(self):
+        with fixtures.fam() as f:
+            patch = "*** Begin Patch\n*** Add File: .claude/approvals.tsv\n+x\n*** End Patch"
+            inputs = [("raw", patch), ("empty-command", {"command": "", "input": patch})]
+            inputs += [(key, {key: patch}) for key in ("command", "input", "patch")]
+            for name, tool_input in inputs:
+                with self.subTest(shape=name):
+                    pl = fixtures.payload("apply_patch", f.app)
+                    pl["tool_input"] = tool_input
+                    self.assertTrue(fixtures.denied(pl, f.env), fixtures.verdict(pl, f.env))
+
+    def test_patch_header_whitespace_cannot_mask_approval_paths(self):
+        with fixtures.fam() as f:
+            for operation in ("Add File", "Update File", "Delete File", "Move to"):
+                with self.subTest(operation=operation):
+                    patch = "*** Begin Patch\n*** %s:  .claude/APPROVALS.TSV \t\n*** End Patch" % operation
+                    pl = fixtures.payload("apply_patch", f.app, command=patch)
+                    self.assertTrue(fixtures.denied(pl, f.env), fixtures.verdict(pl, f.env))
+
+    def test_all_patch_text_fields_are_checked(self):
+        with fixtures.fam() as f:
+            clean = "*** Begin Patch\n*** Add File: ordinary.txt\n+x\n*** End Patch"
+            protected = "*** Begin Patch\n*** Delete File: approvals.tsv\n*** End Patch"
+            for field in ("command", "input", "patch"):
+                with self.subTest(protected_field=field):
+                    ti = {key: clean for key in ("command", "input", "patch")}
+                    ti[field] = protected
+                    pl = fixtures.payload("apply_patch", f.app, **ti)
+                    self.assertTrue(fixtures.denied(pl, f.env), fixtures.verdict(pl, f.env))
+
+    def test_unknown_patch_shape_falls_back_to_approval_filename(self):
+        with fixtures.fam() as f:
+            for ti in ({"future": {"path": "APPROVALS.TSV"}},
+                       {"command": None, "patch": {"path": "approvals.tsv"}},
+                       {"command": " \t", "future": "approvals.tsv"},
+                       ["approvals.tsv"]):
+                with self.subTest(tool_input=ti):
+                    pl = fixtures.payload("apply_patch", f.app)
+                    pl["tool_input"] = ti
+                    self.assertTrue(fixtures.denied(pl, f.env), fixtures.verdict(pl, f.env))
+
+    def test_unrelated_patch_and_unknown_no_hit_shapes_are_allowed(self):
+        with fixtures.fam() as f:
+            clean = "*** Begin Patch\n*** Add File: approvals.py\n+x\n*** End Patch"
+            for ti in (clean, {"input": clean}, {"patch": clean},
+                       {"future": "approvals.py"}, {"command": None}, None):
+                with self.subTest(tool_input=ti):
+                    pl = fixtures.payload("apply_patch", f.app)
+                    pl["tool_input"] = ti
+                    self.assertTrue(fixtures.allowed(pl, f.env), fixtures.verdict(pl, f.env))
 
     def test_patch_crlf_approval_target_denied(self):
         with fixtures.fam() as f:

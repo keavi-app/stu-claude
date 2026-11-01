@@ -31,6 +31,8 @@ parked, and settled later in a fresh session with `/stu:settle`.
 ## Install
 
 For Codex installation, runtime differences and hook setup, see [Stu on Codex](docs/codex.md).
+Both runtimes create and discover the same `.claude/stu.md` repository config or
+`~/.stu/<project>/stu.md` private config; `STU_CONFIG` selects another file explicitly.
 The commands below install the Claude Code package.
 
 ```bash

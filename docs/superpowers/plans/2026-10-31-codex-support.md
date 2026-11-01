@@ -46,7 +46,7 @@ Files: scripts/stu_codex.py, bin/stu-codex, codex/runtime.md, codex/skills/ and 
 ### Task 4: Packaging and shared config
 
 Files: .codex-plugin/plugin.json, codex/hooks.json, scripts/stu_env.py, scripts/stu_forge.py, config/forge tests, Makefile, README.md, docs/codex.md, CHANGELOG.md.
-- [x] Test neutral config resolution and conflicting-path errors before implementing.
+- [x] Test shared config discovery under Codex and unmarked Claude; preserve explicit external configs.
 - [x] Bind Codex git hooks to their selected config; verify human terminal leak checks and missing-config refusal.
 - [x] Keep known GitHub plan-unavailable rules handling explicit and opt-in; preserve default Claude errors.
 - [x] Package explicit Codex skill/hook roots, retaining Claude manifest behavior.

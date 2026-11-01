@@ -34,10 +34,13 @@ fallback and label its evidence accordingly; never invent an LSP call.
 
 Maintain supervisor -> orchestrator -> workers. The supervisor spawns an orchestrator; that
 orchestrator spawns its workers, records their returned IDs, and receives their reports.
-Set `task_name` explicitly to `stu_<role>` with hyphens converted to underscores, optionally
-suffixed `_cycle_<n>` (for example `stu_orchestrator_cycle_2`, `stu_implementer`). Use a
-new suffix for each new dispatch of a role, including different units or review rounds within
-one supervisor cycle, so task names stay unique. Never reuse a completed reviewer for a new
+Set `task_name` explicitly to `stu_<role>` with hyphens converted to underscores. Use
+`stu_orchestrator_cycle_<n>` for each orchestrator cycle and
+`stu_implementer_cycle_<n>_unit_<id>` for each unit (for example
+`stu_implementer_cycle_1_unit_3`). Suffixes may contain lowercase letters, digits, and
+underscores. Append a numeric repeat suffix such as `_2` when dispatching the same unit
+again. Use a new suffix for each new dispatch of a role, including different units or review
+rounds within one supervisor cycle, so task names stay unique. Never reuse a completed reviewer for a new
 review that requires a fresh context. This lets the advisory usage hook identify the seat. Respect the live concurrency slot cap, including
 supervisor and orchestrators; sequence workers when necessary and never bypass the limit by
 running another untracked session. Always request a fresh context with `fork_turns: "none"` when that field is supported.

@@ -47,13 +47,18 @@ telemetry, but cannot certify native agent availability or persisted hook trust.
 
 ## Existing configurations and approval
 
-Codex reuses `<main checkout>/.claude/stu.md` and `~/.stu/<project>/stu.md`.
-New Codex configurations may use `<main checkout>/.stu/stu.md`. Set `STU_CONFIG`
-to use a particular file. If both local configurations exist at different paths,
-Codex requires an explicit selection rather than silently creating two policies.
-Claude keeps its existing lookup order. Use one shared config for a shared run;
-claims, objectives, handoffs and approvals remain compatible across runtimes.
-Explicit `guide:` is respected; otherwise Codex prefers `AGENTS.md` when present.
+Codex init creates the same `<main checkout>/.claude/stu.md` repository config or
+`~/.stu/<project>/stu.md` private config that Claude already discovers. This keeps
+Claude's lookup unchanged: a public or before-push policy created
+under Codex remains visible to Claude hooks even with `STU_RUNTIME` unset. The
+repository-local `.stu/stu.md` path is not discovered automatically by either runtime.
+If you created one with the earlier Codex adapter, move it to `.claude/stu.md` after
+checking for an existing config, or set `STU_CONFIG` explicitly in every runtime
+that uses it. `STU_CONFIG` still supports any explicit external config path.
+
+Use one shared config for a shared run; claims, objectives, handoffs and approvals
+remain compatible across runtimes. Explicit `guide:` is respected; otherwise only
+`STU_RUNTIME=codex` prefers `AGENTS.md` when present; Claude's guide lookup is unchanged.
 
 For public or `before-push` repositories, setup still offers installation of
 `stu-pre-push` and runs only after the owner accepts. The git hook enforces exact
@@ -103,7 +108,9 @@ warnings are advisory. Claude's native `maxTurns` and cache-TTL settings do not
 create equivalent guarantees on Codex. The startup settings read explicitly allows a recognized GitHub Free private-repository
 rules capability error to report `merge_queue unknown`, never `off`. Authentication, rate
 limits and partial-data errors still stop startup; the default Claude settings command is
-unchanged.
+unchanged. The opt-in exception matches GitHub's exact known plan-error message. If GitHub
+or `gh` changes that wording, startup stops safely until the response is reviewed; it never
+treats an unrecognized failure as an unavailable capability.
 
 Source context bands remain conservative
 handoff thresholds until longer Codex runs provide calibration evidence.

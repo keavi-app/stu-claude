@@ -253,7 +253,7 @@ class CodexTelemetryTest(unittest.TestCase):
         self.assertIn("CONTEXT HARD", got.stdout)
         self.assertIn("hard 190,000", got.stdout)
         path = Path(payload["transcript_path"])
-        for name in ("stu_implementer_issue_unrelated", "stu_implementer_issue_2_extra"):
+        for name in ("stu_implementation_unit_3", "stu_implementerish", "stu_implementer_Cycle_1"):
             with self.subTest(agent_name=name):
                 rejected_guard = self.root / ("guard-" + name)
                 self.env["RUN_TURN_GUARD_DIR"] = str(rejected_guard)
@@ -262,6 +262,31 @@ class CodexTelemetryTest(unittest.TestCase):
                 path.write_text("".join(json.dumps(row) + "\n" for row in rows))
                 self.assertEqual(self.run_script("codex_turn_guard.py", payload).stdout, "")
                 self.assertFalse(rejected_guard.exists())
+
+    def test_logical_seat_suffixes_keep_budget_warnings_for_each_dispatch(self):
+        payload, _ = self.hook_world(context=200000)
+        payload.update(agent_id=OWN, agent_type="default")
+        path = Path(payload["transcript_path"])
+        # Review examples plus a repeated dispatch of the documented unit name.
+        cases = (
+            ("stu_implementer", "hard 190,000"),
+            ("stu_orchestrator_cycle_2", "hard 160,000"),
+            ("stu_implementer_issue_12", "hard 190,000"),
+            ("stu_implementer_cycle_1_unit_3", "hard 190,000"),
+            ("stu_implementer_2", "hard 190,000"),
+            ("stu_implementer_unit_3", "hard 190,000"),
+            ("stu_implementer_cycle_1_unit_3_2", "hard 190,000"),
+        )
+        for name, expected_band in cases:
+            with self.subTest(agent_name=name):
+                self.env["RUN_TURN_GUARD_DIR"] = str(self.root / ("guard-" + name))
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+                rows[0]["payload"]["source"]["subagent"]["thread_spawn"]["agent_path"] = "/root/" + name
+                path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+                got = self.run_script("codex_turn_guard.py", payload)
+                self.assertEqual((got.returncode, got.stderr), (0, ""))
+                self.assertIn("CONTEXT HARD", got.stdout)
+                self.assertIn(expected_band, got.stdout)
 
     def test_hook_cwd_symlink_is_same_configured_project(self):
         payload, _ = self.hook_world()

@@ -70,7 +70,7 @@ def own_child(payload):
         return None
     # Names alone are insufficient: live configured claims are checked next.
     leaf = str(spawn.get("agent_path") or "").rsplit("/", 1)[-1]
-    match = re.fullmatch(r"stu_(orchestrator|implementer)(?:[_-](?:cycle|issue)[_-]?\d+)?", leaf)
+    match = re.fullmatch(r"stu_(orchestrator|implementer)(?:_[a-z0-9_]+)?", leaf)
     if match is None:
         match = re.fullmatch(r"stu[-_](orchestrator|implementer)", str(spawn.get("agent_role") or ""))
     if match is None:
