@@ -788,6 +788,9 @@ def test_sections_records_commands():
         rc, out, err = run(repo, env, "commands", "cmds")
         check("commands", (rc, out.splitlines()), (0, ["make a", "make b --flag"]))
         check("commands on absent section", run(repo, env, "commands", "nope")[:2], (0, ""))
+    check("records keep resolve placeholders",
+          stu_env.records('### d\nmatch: l {paths}\nresolve: r {finding} --by "#{pr} at {sha}"\n'),
+          [{"name": "d", "match": "l {paths}", "resolve": 'r {finding} --by "#{pr} at {sha}"'}])
     check("records unit", stu_env.records("x\n### n\nk: v:w\n"), [{"name": "n", "k": "v:w"}])
 
 

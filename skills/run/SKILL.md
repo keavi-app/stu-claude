@@ -966,7 +966,10 @@ In `## Decisions taken` in the handoff (the `[skim]` tag is defined in `handoff-
 
 Run `stu-env records fix-when-touched --repo <name>` for the unit's row. If it printed nothing and
 exited 0, this rule does not apply. Otherwise a deferred finding on a file the unit already edits
-is folded into that unit's brief; it is never a unit of its own and never `UNITS_ADDED`.
+is folded into that unit's brief; it is never a unit of its own and never `UNITS_ADDED`. A
+record's `resolve` command takes `{finding}`, and optionally `{pr}` (the unit's PR number) and
+`{sha}` (its head commit SHA); one the unit cannot fill leaves the finding unresolved and the
+command unrun.
 
 The test: *would a reviewer call the delivered work incomplete without it?* If yes, a "follow-ups"
 list containing it is a failure report written as a success report. The test asks what the work

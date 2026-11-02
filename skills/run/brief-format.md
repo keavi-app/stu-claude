@@ -78,8 +78,11 @@ not, a sibling unit that owns the part they will be tempted to fix.>
 <The deferred findings on this unit's paths that the unit folds in, read with
 `stu-env records fix-when-touched --repo <name>`: run each record's `match` command with the
 unit's paths in place of `{paths}`, list what it prints, and name each finding in the brief. Each
-is resolved with the record's `resolve` command (the finding in place of `{finding}`) once the
-unit lands. If the section is empty, write **None** and say why. A fix-when-touched finding is
+is resolved with the record's `resolve` command once the unit lands, with three placeholders
+substituted: the finding in place of `{finding}`, the unit's PR number (digits only) in place of
+`{pr}`, and the unit's head commit SHA when resolve runs (full length) in place of `{sha}`. `{pr}`
+and `{sha}` are optional. If the command uses one and the unit has no value for it (no PR yet),
+do not run the command: report the finding as unresolved, and never pass the literal placeholder. If the section is empty, write **None** and say why. A fix-when-touched finding is
 never a unit of its own.>
 
 ## Change nothing else
