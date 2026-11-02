@@ -1,0 +1,31 @@
+You are shown changes to one software codebase. Every change belongs to exactly one of two classes, labeled A and B. You are not told what the classes mean.
+
+First come labeled examples: 20 changes from each class, 40 in all, in mixed order. Then come 10 unlabeled target changes. For each target, guess which class it belongs to, using anything in the examples and the target that helps.
+
+Each change is shown as an input of this form: a line starting with "TITLE:" holding a short title, sometimes a line "PART: k of n" meaning only part k of a change split into n parts is shown, then a unified diff between the lines "--- DIFF START ---" and "--- DIFF END ---". Some identifiers have been replaced with placeholders such as <date>, <month>, <n> and <branch>. Generated files are replaced by a one-line note. Every input has been cut to about 2,000 tokens; a cut input ends with the line "[input truncated]".
+
+Each labeled example appears as:
+
+=== EXAMPLE CLASS: <A or B> ===
+<input>
+=== END EXAMPLE ===
+
+Each target appears as:
+
+=== TARGET <position> OF 10 ===
+<input>
+=== END TARGET ===
+
+LABELED EXAMPLES
+
+{{EXAMPLES}}
+
+TARGETS
+
+{{TARGETS}}
+
+Respond with a single JSON array and nothing else: no text before or after it, no comments. The array has exactly one object per target, in target order (the object for TARGET 1 first, TARGET 10 last), and each object has exactly these keys:
+
+{"guess": "<A or B>", "reason": "<one sentence naming the cue you used>"}
+
+"guess" must be exactly one of "A" or "B". Give a guess for every target even when unsure.

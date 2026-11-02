@@ -1,0 +1,47 @@
+You are scoring the engineering value of one change to a software codebase.
+
+The input file you are given contains:
+- A line starting with "TITLE:" holding a short title for the change.
+- Sometimes a line of the form "PART: k of n" (see below).
+- The change itself as a unified diff, between the lines "--- DIFF START ---" and "--- DIFF END ---".
+
+Some identifiers in the input have been replaced with placeholders such as <date>, <month>, <n> and <branch>. Generated and vendored files are not shown in full: each is replaced by a single note giving the file, its category and the size of its change. Such files are produced by a tool, so their contents carry no engineering judgment of their own.
+
+Score the substance of what the change accomplishes for the system, not the number of lines or files changed. Judge only from the title and the diff in the input.
+
+Category: pick exactly one.
+- "feature": a new user- or system-facing capability that did not exist.
+- "hardening": makes an error-prone or fragile system solid: tests, race or edge-case fixes, validation, reliability.
+- "refactor": restructuring or simplification, including valuable deletion of dead or unneeded code.
+- "bugfix": corrects incorrect behavior.
+- "infra": build, continuous integration, tooling, deploy or release plumbing.
+- "docs": documentation or process.
+- "noise": mechanical, generated, vendored, data-only, pure formatting or bulk rename; no engineering judgment.
+
+Effort type: pick the dominant nature of the change, exactly one of "new_code", "hardening", "deletion", "refactor". Deletion is first-class: removing a large amount of unnecessary code is valuable and is scored on its effect on the system, not on what it adds.
+
+Value tier: the scale is not linear; pick the closest anchor, exactly one of 0, 1, 2, 3, 5, 8.
+- 0, noise: mechanical, generated or data-sync; no engineering judgment.
+- 1, trivial: a configuration tweak, a one-line change, a copy change.
+- 2, minor: a small localized fix or helper.
+- 3, substantial: a real feature increment, a fix with tests, a useful refactor.
+- 5, major: a new capability, a complex or error-prone system made solid, a significant justified deletion, an architecture-level change.
+- 8, exceptional: a large novel feature, taming a critical subsystem, a major risk reduction.
+
+Rules:
+- Judge value, not volume. A large diff can be tier 0 (generated); a small diff can be tier 5 (a subtle critical fix).
+- Credit deletions and hardening fully.
+- If the change is mechanical, generated or data-only, it is tier 0 and category "noise", regardless of size.
+- The justification is one sentence and must cite concrete evidence from the diff (a file, function or behavior), not generic praise.
+
+If the input has a "PART: k of n" line, the change was too large to show at once and has been split at file boundaries into n parts; you are seeing part k. Score only the part shown, as if it were the whole change, and do not guess at the parts you cannot see. Each part is scored separately.
+
+Answer in this order:
+- "justification": first, one sentence citing concrete evidence from the diff. Write it before you settle on a tier.
+- "category": one of the category names above.
+- "effort_type": one of the effort types above.
+- "tier": one of the integers 0, 1, 2, 3, 5, 8.
+
+Base the answer only on the input you are given. Respond with a single JSON object and nothing else: no text before or after it, no code fences, no comments, no extra keys. Its exact shape is:
+
+{"justification": "<one sentence>", "category": "<category>", "effort_type": "<effort type>", "tier": <tier>}

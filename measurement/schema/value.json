@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["justification", "category", "effort_type", "tier"],
+  "properties": {
+    "justification": {"type": "string"},
+    "category": {"type": "string", "enum": ["feature", "hardening", "refactor", "bugfix", "infra", "docs", "noise"]},
+    "effort_type": {"type": "string", "enum": ["new_code", "hardening", "deletion", "refactor"]},
+    "tier": {"type": "integer", "enum": [0, 1, 2, 3, 5, 8]}
+  }
+}
