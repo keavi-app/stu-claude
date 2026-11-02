@@ -400,6 +400,8 @@ def _claimants(main, github):
             found.append(c)
 
     local = os.path.join(main, ".claude", "stu.md")
+    # Option (b): both runtimes share Claude's existing config lookup. Codex init
+    # keeps this path so unmarked Claude hooks discover the same strict policy.
     if os.path.isfile(local):
         add(_load(local))
     else:
@@ -682,6 +684,8 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
         return r.get(k) or (fm.get(k, "") if home else "")
 
     guide = homeget("guide") or (
+        "AGENTS.md" if os.environ.get("STU_RUNTIME") == "codex"
+        and os.path.exists(os.path.join(row_path, "AGENTS.md")) else
         "CLAUDE.md" if os.path.exists(os.path.join(row_path, "CLAUDE.md")) else "AGENTS.md")
     wt = homeget("worktrees_dir")
     belongs = bool(main) and os.path.realpath(main) == os.path.realpath(row_path)

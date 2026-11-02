@@ -60,9 +60,11 @@ def read(path):
 # ---- fixtures ---------------------------------------------------------------------------
 
 def env_for(home, **extra):
-    e = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    e = {k: v for k, v in os.environ.items()
+         if not k.startswith(("GIT_", "CODEX_"))}
     e.pop("STU_CONFIG", None)
-    e.pop("CLAUDECODE", None)  # the baseline is a human; agent cases opt in with AGENT_ENV
+    # The baseline is a human; agent cases opt in with explicit runtime markers.
+    e.pop("CLAUDECODE", None)
     write(os.path.join(home, ".gitconfig"), "[init]\n\tdefaultBranch = main\n")
     e.update({"HOME": home, "GIT_CONFIG_GLOBAL": os.path.join(home, ".gitconfig"),
               "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "T",
