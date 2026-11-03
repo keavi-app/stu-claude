@@ -101,10 +101,9 @@ Every change after that commit is listed here.
   of an array; `collect` rejected both), `model_ids.py` ok. runother `"leak": false` (llm 0.533,
   baseline 0.567, gap -0.033, p 0.7966). **period `"leak": true`** (llm 0.58, baseline 0.36,
   gap 0.22, p 0.0328). Confusion: Before 8 of 17 right (was 15), Sep 11 of 17, Oct 10 of 16. The
-  reasons now cite topic continuity (the same feature work in the period's examples; feature names
-  withheld here because the product is not yet public) rather
-  than surface format; isolated mentions of sentence-style titles, long explanatory comments and
-  Makefile e2e-list edits. No value instrument initialised since D3.
+  reasons now cite topic continuity (the same feature work in the period's examples) rather than
+  surface format, with isolated mentions of title style and other details of the diffs. Feature
+  names and file details are withheld here because the product is not yet public. No value instrument initialised since D3.
 
 ## D4 2026-11-02: no second removal attempt; value scoring proceeds under the leak fallback
 
