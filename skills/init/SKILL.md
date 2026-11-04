@@ -74,10 +74,12 @@ Then run `stu-env` (with `STU_CONFIG` set to the new path if it is not on the lo
 - **Committed location:** say the config is ready to commit, and leave committing to the owner. Never stage or commit it yourself.
 - **Private location:** say where it is and that nothing needs committing.
 
-End with exactly one line:
+End with exactly this, the command alone on its line so a triple-click copies all of it:
 
 ```
-Next: /stu:run "<a one-unit objective>"
+Next up, start a run with:
+
+/stu:run "<a one-unit objective>"
 ```
 
 Put a plausible one-unit objective from the repo in the quotes only if the owner named one; otherwise leave the angle-bracket text for them to fill.

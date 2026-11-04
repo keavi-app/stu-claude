@@ -74,8 +74,8 @@ Requirements:
    home (default `~/.stu/<project>/`) before any work starts, then cycles through
    orchestrators until the run is done or a stop condition fires. `/stu:run` also takes a
    handoff path or an issue number, and `overnight` fans the work out into parallel lanes.
-3. **Settle what it parked.** A run that stops with questions parked ends with a line like
-   `Next: /stu:settle <objective path>`. Run that in a **fresh** session. Settle shows each
+3. **Settle what it parked.** A run that stops with questions parked ends with the command on a line of
+   its own, `/stu:settle <objective path>`, ready to triple-click. Run it in a **fresh** session. Settle shows each
    question with the run's recommendation, writes your answers into the objective, and
    hands back the line that resumes the run. A run that parked nothing says so.
 

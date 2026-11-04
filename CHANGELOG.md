@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Every command stu hands the owner to paste (`/stu:settle`, the `/stu:run` that resumes a run,
+  the first `/stu:run` after `/stu:init`) prints alone on its own line, under a short lead-in such
+  as `Next up, settle in a new session with:`, so a triple-click copies exactly the command. The
+  old `Next: ` prefix and trailing note are gone, and the content lint keeps them out.
+
 ## 0.2.1
 
 - A `fix-when-touched` record's `resolve:` command can use `{pr}` (the unit's PR number, digits

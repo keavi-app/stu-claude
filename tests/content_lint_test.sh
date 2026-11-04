@@ -25,6 +25,8 @@ none "no bare autonomous-run" 'autonomous-run' skills agents
 none "no unprefixed /settle" '(^|[^a-z])/settle([^/]|$)' skills agents scripts bin
 none "no unprefixed /fix-campaign" '(^|[^a-z])/fix-campaign([^/]|$)' skills agents scripts bin
 none "no python3 run_claims/ctx invocation" 'python3 .*(run_claims|ctx)\.py' skills agents
+none "a command the owner copies carries no Next: prefix (triple-click takes the whole line)" \
+  'Next: /stu:' skills agents README.md
 none "no PROJECT-SPECIFIC blocks (answers live in the stu config)" 'PROJECT-SPECIFIC' skills agents
 if grep -q 'No pre-gate CI wait where the merge label also gates CI' agents/orchestrator.md
 then echo "ok   orchestrator states the label-gates-CI exception"
@@ -120,4 +122,9 @@ for f in agents/*.md; do
   elif fm "$f" | grep -q 'cacheTtl'; then ttl="$ttl$f: carries cacheTtl"$'\n'; fi
 done
 check_set "only the orchestrator carries a 1-hour cache TTL" "$ttl"
+# Every hand-off prints its command alone on a line, so one triple-click copies all of it.
+missing=$(need skills/run/SKILL.md 'Next up, settle in a new session with:' 'Next up, resume in a new session with:' 'triple-click'
+  need skills/settle/SKILL.md 'Next up, resume in a new session (`/clear` first) with:' 'triple-click'
+  need skills/init/SKILL.md 'Next up, start a run with:' 'triple-click')
+check_set "hand-off commands stand alone on their own line" "$missing"
 exit $((fails > 0))

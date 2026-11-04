@@ -92,7 +92,7 @@ class Contracts(unittest.TestCase):
     def test_native_runtime_and_command_boundaries(self):
         module = adapter()
         result = module.render('run', ROOT)
-        self.assertIn('Next: $stu:settle', result)
+        self.assertIn('settle in a new session with:\n\n$stu:settle <objective path>\n', result)
         self.assertIn('stu_orchestrator_cycle_<n>', result)
         self.assertIn('stu_implementer_cycle_<n>_unit_<id>', result)
         self.assertIn('live concurrency slot cap', result)
