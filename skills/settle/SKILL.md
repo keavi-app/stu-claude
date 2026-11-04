@@ -1,6 +1,6 @@
 ---
 name: settle
-description: Use when a /stu:run has stopped and the owner wants to settle its parked questions before the next round — /stu:settle <objective path | handoff path | run slug>. Also use when the owner asks "any questions to settle?", "what do you need from me before the next run?", or pastes a supervisor's `Next: /stu:settle` line.
+description: Use when a /stu:run has stopped and the owner wants to settle its parked questions before the next round — /stu:settle <objective path | handoff path | run slug>. Also use when the owner asks "any questions to settle?", "what do you need from me before the next run?", or pastes a supervisor's `/stu:settle` line.
 ---
 
 # `/stu:settle` — answer a stopped run's questions, then hand back one line
@@ -36,7 +36,7 @@ Read `Run state:` in the scoreboard.
   has actions to take, listed below.
 - `running` — **stop here.** The supervisor may still write the objective, and answers
   recorded anywhere it does not read would be lost. Tell the owner the run is still going, and to
-  settle once it prints its `Next: /stu:settle` line.
+  settle once it prints its `/stu:settle` line.
 - missing (a run from before this field existed) — ask the owner once whether that session has
   ended, and treat the answer as the state.
 
@@ -64,7 +64,7 @@ minus `-objective.md`. Read the scoreboard's two lists, per lane:
   `<action>` vocabulary: `merge <slug>#<pr>` (merge that passed PR), `tag <repo> at <sha>` (cut that
   tag), `approve <id> at <sha>`. Print each as the owner would read it.
 
-For each approval the owner wants, print exactly this line, with the plugin root's absolute path
+For each approval the owner wants, print exactly this line, alone on its line, with the plugin root's absolute path
 resolved (the value of `${CLAUDE_PLUGIN_ROOT}`), for the owner to type:
 
 ```
@@ -150,8 +150,14 @@ the supervisor, and the next `/stu:run` starts a fresh cycle count (the run skil
 ## 6. Hand back one line
 
 ```
+Next up, resume in a new session (`/clear` first) with:
+
 /stu:run <Last handoff path> [overnight]
 ```
+
+The owner copies the command with a triple-click, which takes the whole line. Print it as its
+own paragraph, a blank line above it, with nothing else on its line: no prefix, no trailing note,
+no backticks, bullet, quote or indent.
 
 - **Path:** the scoreboard's `Last handoff:`. Under `overnight`, use the first lane that
   still has outstanding units; the supervisor reads every lane from the objective.
@@ -163,15 +169,13 @@ the supervisor, and the next `/stu:run` starts a fresh cycle count (the run skil
   has any is never reported done; tell the owner which actions remain and that the run resumes
   after them.
 
-Tell the owner to run it in a fresh session (`/clear` first).
-
 ## Common mistakes
 
 | Mistake | Instead |
 |---|---|
 | Asking a row-7 question because the run parked it | Decide it; show it only if it passes the skim filter |
 | A question with no recommendation | Form one first. A lean counts. |
-| Settling while `Run state: running` | Stop and tell the owner to settle after the run prints its `Next:` line |
+| Settling while `Run state: running` | Stop and tell the owner to settle after the run prints its `/stu:settle` line |
 | Deleting a dropped unit from `Units issued` | Close it with the dropped note; it stays issued |
 | Fixing a stuck PR you found in step 2 | Report it; the next run or the owner acts on it |
 | Recording an approval for the owner | Print the `stu-approve` line; only the owner types it |

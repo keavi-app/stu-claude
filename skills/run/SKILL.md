@@ -106,7 +106,7 @@ before anything is dispatched: a unit whose `after:` names a predecessor in anot
    ended. Exceptions:
    - `Outstanding: NONE` in every lane **and** at least one unit parked, under `Run state:
      stopped` (not `settled`): every open unit awaits an unanswered question. Stop at once with
-     `BLOCKED: condition 5` and the `Next: /stu:settle` line; dispatching would only spend a
+     `BLOCKED: condition 5` and the `/stu:settle` hand-off ("Final message", below); dispatching would only spend a
      cycle.
    - Nothing outstanding, nothing parked and nothing Waiting in any lane: the run is finished.
      Report `DONE`; dispatch nothing. If an unapproved `Awaiting approval:` entry remains, the run
@@ -777,19 +777,32 @@ unknown (a BLOCKED lane included), writes `stopped — <the BLOCKED/DONE line of
 verbatim>`, Waiting units or not; `/stu:settle` carries them forward. A count is not
 reading a handoff: the supervisor still never opens one.
 
-**Final message.** If settled: DONE prints DONE; such a CONTINUE prints `/stu:run <Last handoff
-path> [overnight]`. If `waiting-on-human`, print `DONE (<n> waiting: <ids>)` (the Waiting ids and the Awaiting-approval ids), then two lists, each
+**Final message.** If settled: DONE prints DONE; such a CONTINUE prints:
+
+```
+Next up, resume in a new session with:
+
+/stu:run <Last handoff path> [overnight]
+```
+
+If `waiting-on-human`, print `DONE (<n> waiting: <ids>)` (the Waiting ids and the Awaiting-approval ids), then two lists, each
 omitted when empty: `ready for <owner> to merge:` (the `Waiting:` units whose action is `merge`
 or `tag`, with their `<ref>`) and `awaiting <owner>'s approval to push:` (the `Awaiting approval:`
-entries), `<owner>` being the `stu-env` `OWNER` value; then the same `Next:` line a stopped run
+entries), `<owner>` being the `stu-env` `OWNER` value; then the same hand-off a stopped run
 prints. If stopped, whatever the lanes' DONE/CONTINUE, print:
 
 ```
-Next: /stu:settle <objective path>   — in a fresh session
+Next up, settle in a new session with:
+
+/stu:settle <objective path>
 ```
 
+**The command stands alone.** The owner copies it with a triple-click, which takes the whole
+line. Print it as its own paragraph, a blank line above it, with nothing else on its line: no
+prefix, no trailing note, no backticks, bullet, quote or indent.
+
 **Settling happens in a fresh session, never here.** If the owner starts answering here, point them to
-the line above.
+the hand-off above.
 
 **The scoreboard write is the only reason a resume works.** Your unit list drifts from the
 objective's table once check 2 accepts a `UNITS_CHANGED` or `UNITS_ADDED` line (or the owner adds a
