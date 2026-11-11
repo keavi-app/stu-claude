@@ -1,7 +1,8 @@
 # Stu fleet mode and judgment seats
 
-Status: design, not built. Base: the 0.2.2 line. Every decision below is settled; the open items
-are the questions the nesting spike exists to answer.
+Status: design, not built. Base: the 0.2.2 line. The owner's decisions are listed under
+"Decisions". One question is still open: whether supervisors run as subagents or as headless
+sessions, which the nesting spike decides.
 
 ## Outcome
 
@@ -27,17 +28,27 @@ So the cost to remove is the typing and the session-juggling, not the owner's ju
 
 | Layer | Runs as | Holds | Model |
 |---|---|---|---|
-| Coordinator (`/stu:fleet`) | the main session, interactive only | the fleet board | top model |
-| Supervisor (`/stu:run`) | background subagent, one per objective (pending the spike) | the unit scoreboard | top model |
+| Coordinator (`/stu:fleet`) | the main session, interactive only | the fleet board | the run skill's supervisor model |
+| Supervisor (`/stu:run`) | background subagent, one per objective (pending the spike) | the unit scoreboard | unchanged |
 | Orchestrator | subagent of the supervisor | briefs and cycle state | existing table |
 | Workers | subagents of the orchestrator | one brief, one diff | existing table |
 
-The supervisor layer stays: it keeps cycle returns out of the coordinator, and
-`design-rationale.md` already rejected moving that role into the main session.
+The supervisor layer stays rather than folding into the coordinator: it keeps every cycle return
+out of the coordinator's context, which is what lets one coordinator hold several runs.
 
 **Fallback if the spike fails.** The coordinator launches each supervisor as its own top-level
 headless session instead of a subagent, and reads only its board line and final return. The
-program file, board, budget, merge hold and settle brief are unchanged.
+program file, board, budget, merge hold and settle brief are unchanged. Three operations change
+binding, and one rule weakens:
+
+- **Wait** is the process exiting or its return file appearing, not a completion notification.
+- **List live descendants** is not available: the coordinator cannot see a headless session's
+  subagents. Liveness becomes the session's process plus the age of its transcript's last write.
+- **Stop** is a signal to the session's process.
+- **The idle-tree check before a relaunch** becomes "process gone, or process alive with no
+  transcript write for longer than the deadline, then stopped". That is weaker: a supervisor
+  waiting quietly on a long child looks the same as a hung one. So in the fallback, a relaunch on
+  the quiet rule goes in the brief instead of happening on its own.
 
 ## The nesting spike (before any fleet code)
 
@@ -80,8 +91,10 @@ Settle mode: draft | auto-narrow
 ## Excluded (owned by peer sessions)
 ## Machine limits
 ## Fleet board        (coordinator writes)
-## Merge hold         (anyone may set; every merge gate reads)
 ```
+
+The merge hold is not a section of this file; it lives in its own file (see "Merge hold and
+lock"), so a merge gate that has no program path can still read it.
 
 - The cycle cap stays in each objective, which owns it. A fleet objective with no `Cycle cap:`
   is a startup stop.
@@ -104,8 +117,11 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
 - **Liveness.** A notification without the return schema is interim: one line, no action. A
   relaunch happens only after the deadline, an idle-tree check, and an explicit stop of the old
   supervisor. Never two supervisors on one unit list.
-- **Relaunch without a settle** only for a self-stop on context or growth, or a cycle cap hit
-  with units left. Everything else waits for the brief.
+- **Relaunch without a settle** only for a self-stop on context or growth (condition 6, or a
+  `self-stop:` lane), or a cycle cap hit with units left (condition 10). A cap-hit stop has no
+  `self-stop:` line, so the run skill restarts its count at `0/<cap>` on relaunch: the objective's
+  cap is per launch, and the fleet's cycle budget is what bounds the total. The coordinator never
+  edits an objective's cap. With no cycle budget room left, a cap hit goes in the brief.
 - **Stops that go straight to the owner**, never relaunched or settled around: conditions 4, 7,
   8, 9 and 11 of the run skill (non-convergence, a guard would have to be weakened, a command
   that failed twice, a wrong premise, missing durable state).
@@ -146,8 +162,8 @@ buildable.
 Model mix, checked against each dispatch: the sonnet seats that ran on opus were all explicit
 escalations. 16 of 183 implementers and 5 of 115 reviewers ran on opus, and every one was
 dispatched with `model: opus` and an `ESCALATION:` line, as the orchestrator's rules require.
-11 of the 16 were in one run of money-handling fixes. So the routing table held; a cycle budget
-should expect roughly one implementer in ten to escalate, more on high-stakes work.
+11 of the 16 were in one run. So the routing table held; a cycle budget should expect roughly
+one implementer in ten to escalate, more on high-stakes work.
 
 What did leave the table: 2 orchestrators and 9 verifiers or reviewers ran on the top model, all
 under coordinators told to use it freely. Also, 12 orchestrators were dispatched by a supervisor
@@ -156,14 +172,15 @@ cycle each was has not been checked.
 
 ### What the budget is for
 
-Four different needs, which an earlier draft folded into one number:
+Four different needs:
 
 1. **A ceiling that survives settling.** The cycle cap is per run and a settle resets it. In an
    ordinary week something has to say "this fleet may spend this much, total".
 2. **A loop guard.** A run that relaunches without closing anything.
 3. **A deadline.** Three of the big sessions were the opposite of a ceiling: spare quota and a
    reset hours away. The constraint there is the clock and the machine, not tokens.
-4. **A cap on the top-model allowance.** Judgment jobs draw on a separate, smaller pool.
+4. **A cap on the top-model allowance.** Judgment jobs draw on a separate, smaller pool. Stu
+   cannot read that pool, so the judgment-jobs count below is the proxy for it.
 
 A team with unmetered tokens needs only the loop guard.
 
@@ -192,7 +209,8 @@ the next budget a number chosen from evidence, and it shows the escalation rate 
 running off its routed model without a transcript dig.
 
 Planning figures until there is more data: a cycle is about 90k output tokens and 9 agents; a
-six-unit lane took 4 to 9 cycles; a full day of four lanes is 25 to 50 cycles.
+six-unit lane took 4 to 9 cycles, so one pass of four lanes is 16 to 36 cycles. The busiest
+single coordinator ran 26 in a day.
 
 ## Settling
 
@@ -216,8 +234,10 @@ objective to one brief per wave.
 
 ### Auto-narrow mode (opt-in per program)
 
-The settler may apply a ruling without waiting only when all hold: the question is row 1 of the
-park-or-decide table (the project's to decide); the verifier passed it; it amends no spec, public
+The settler may apply a ruling without waiting only when all hold: the question is row 7 of the
+park-or-decide table ("anything else": implementation approach, wording inside an approved
+surface, order of work), which the settle skill already decides without asking; the verifier
+passed it; it amends no spec, public
 API contract or project-guide rule; and it carries no deploy precondition. Everything else is
 drafted for the brief as above.
 
@@ -248,10 +268,25 @@ Stu serialises merges inside one supervisor. A fleet has several, merging into a
 that may deploy unpinned. In the evidence, a peer session's hold request reached one
 orchestrator after two PRs were already armed.
 
-- **Hold.** One file under the run home. Any session or the owner may set it with a reason.
-  Every merge gate reads it immediately before labelling or merging and refuses while it is set.
-- **Lock.** One merge-gate label or merge at a time across the fleet, by the same file.
-- Both are read from disk at the gate, so they do not depend on a message reaching each layer.
+One file under the run home holds both, so a gate with no program path can read it. Both are read
+from disk at the gate, so they do not depend on a message reaching each layer.
+
+- **Hold.** Any session or the owner sets it with a reason, through `stu-fleet hold`. Every merge
+  gate reads it immediately before labelling or merging and refuses while it is set.
+- **Disarm on hold.** Refusing new labels does not stop a PR already armed: under label-handoff
+  the gate labels and an auto-merge actor merges later, which is the case above. So setting the
+  hold also revokes the merge label (and disables forge auto-merge, where the gate enabled it) on
+  every fleet PR that is labelled and not yet landed, and records each one in the hold file.
+  Releasing the hold re-arms nothing: each recorded PR goes back through a fresh gate dispatch at
+  its current head. A PR that lands between the hold and the revoke is reported in the hold file
+  as landed-during-hold, never hidden.
+- **Lock.** One PR at a time between label and landing, across the fleet. The lock is taken
+  before the gate labels or merges and released when the gate confirms the landing, or the label
+  is revoked, or the PR closes. This serialises landings, not just labelling.
+- **Stale lock.** The lock records the PR, the head SHA and the time. Any gate or the coordinator
+  may clear it when the PR has merged or closed, or its label is gone, checked on the forge, not
+  assumed. A lock older than the run deadline with the PR still open and labelled goes in the
+  brief; nothing clears that one on its own.
 
 ## Judgment seats
 
@@ -265,7 +300,8 @@ which is itself a check, so the row and its lint land together.
 | Auditor | `stu:groomer`, `audit` scope | Tries to break a stated invariant | a report, filed issues, ledger entries |
 | Designer | `stu:designer` | One decision-ready design round | an image set or spec, then stops |
 
-Coordinator and supervisor do not get the judgment model; both are relays.
+Coordinator and supervisor do not read `judgment_model`; both are relays and keep the model the
+run skill already gives the supervisor, even when the two keys name the same model.
 
 Context discipline, since nearly every agent in one wave of judgment work hit its context
 ceiling in under 20 minutes: a scope it can finish; locating goes to `stu:scout` and claim checks
@@ -290,11 +326,18 @@ Fleet follows it from the first PR.
   merge hold, budget accounting, loop guard and the relaunch decision are plain files plus one
   `stu-fleet` script (`board`, `spend`, `hold`, `next`). Both runtimes call the same script, so
   the logic exists once.
-- **The skill names five operations and nothing runtime-specific outside them:** launch a
-  supervisor, wait for a return, list a supervisor's live descendants, stop a supervisor, notify
-  the owner. Everything else in `skills/fleet` is prose about files and schemas.
-- **One "Runtime binding" section** maps those five to the Claude tools. Codex later adds its own
-  five lines to `codex/runtime.md`. A content lint fails if a Claude tool name appears in the
+- **The skill names seven operations and nothing runtime-specific outside them:**
+  1. launch a supervisor;
+  2. dispatch a seat agent (settler, verifier, groomer, designer, scout) with a model;
+  3. wait for a return or a deadline, whichever comes first, and re-arm the deadline;
+  4. list a supervisor's live descendants (absent in the headless fallback; see "Shape");
+  5. stop a supervisor;
+  6. send the owner a brief and receive their one-line answer;
+  7. notify the owner one-way (a limit reached, a stop that goes straight to them).
+
+  Everything else in `skills/fleet` is prose about files and schemas.
+- **One "Runtime binding" section** maps those seven to the Claude tools. Codex later adds its own
+  seven lines to `codex/runtime.md`. A content lint fails if a Claude tool name appears in the
   fleet skill outside that section.
 - **The supervisor launch is already abstract** because of the spike fallback: "background
   subagent" and "separate headless session" are two bindings of the same operation. Codex is a
@@ -321,6 +364,16 @@ Fleet follows it from the first PR.
    branch in the supervisor alone would split the config. The fix: when the on-disk file is
    strictly behind the base branch with no local edits, proceed with a one-line note; keep
    stopping when it is ahead or edited.
+
+   Today's probe cannot make that split: `behind=0` covers both "checkout behind" and "local
+   edits". The fix adds a `git diff --quiet HEAD -- <config>` test, so "strictly behind" means
+   `HEAD` is an ancestor of `<remote>/<base>` and the file has no uncommitted change.
+
+   What running behind costs: every agent of the run reads the same older file, so the run is
+   consistent, but a row or key added on the base branch is not seen until the owner pulls. The
+   one-line note names the base-branch commit range for the file, so the owner sees what the run
+   is missing. A run whose objective names a repo row the on-disk config lacks still stops, on
+   `stu-env`'s own "no repo row matches" error.
 3. **Explicit cycle cap.** Covered by the program-file rule above; no change to plain runs.
 
 ## Build order
