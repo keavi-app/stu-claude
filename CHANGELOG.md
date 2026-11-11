@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4
+
+- A run no longer stops at startup just because the repo's config file is behind the base branch
+  in the main checkout. When the checkout only lags (no local edits), the run prints one note
+  naming the file and the base-branch commits it is missing, then goes on; every agent of the run
+  reads the same file, so the run stays consistent. A config that is ahead, diverged, or edited
+  still stops. A run whose objective names a repo row the on-disk config lacks still stops on the
+  "no repo row matches" error.
+
 ## 0.2.3
 
 - A label-handoff unit under `completion: ready` now closes on a landed `MERGED_IDS` entry as well
