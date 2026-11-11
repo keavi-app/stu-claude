@@ -495,10 +495,11 @@ defined"), the ID goes in `CLOSED_IDS` and NOT in `REMAINING_IDS`, `PARKED_IDS` 
 `stu-run-check` blocks it as `closed-but-remaining`. The one exception is an `AFTER_PASS_FAILED`
 entry for the same ID: it keeps the unit outstanding, so the ID stays in `REMAINING_IDS` beside its
 gate field and is not in `CLOSED_IDS`. `READY_IDS` on a label-handoff row under
-`completion: merged` is not a closing field at all (under `completion: ready` a `LANDED:` relayed
-as `MERGED_IDS` closes a label-handoff unit just as `READY_IDS` does): it tracks a labelled PR that has not landed,
+`completion: merged` is not a closing field at all: it tracks a labelled PR that has not landed,
 so the ID stays in `REMAINING_IDS` (never `CLOSED_IDS` or `PARKED_IDS`) until a `LANDED:` relays
-its `MERGED_IDS`.
+its `MERGED_IDS`. Under `completion: ready` a `LANDED:` relayed as `MERGED_IDS` closes a
+label-handoff unit just as `READY_IDS` does; relay `MERGED_IDS` alone for a unit that already
+landed.
 
 **Relaying a saved gate file.** Relay from `<run-dir>/gate/<id>@<full sha>.txt` instead of a fresh
 dispatch only when you have verified, this cycle, that the unit's head is still exactly that
