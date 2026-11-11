@@ -242,8 +242,8 @@ Closing, by the unit's row (field = the gate field that closes it):
 
 ```
 merge_mode direct / direct-push   MERGED_IDS
-label-handoff                     READY_IDS under completion ready or integrated (the final
-                                  unit), MERGED_IDS under merged
+label-handoff                     READY_IDS or MERGED_IDS under completion ready or
+                                  integrated (the final unit), MERGED_IDS under merged
 report-only (mode: pr-only)       PASSED_IDS
 human_checkpoints before-push     APPROVAL_IDS (leg 1) or PASSED_IDS (leg 2, report-only
                                   rows only); MERGED_IDS and READY_IDS never close it
@@ -416,7 +416,9 @@ closing table above:
 
 - **`direct` / `direct-push` row** — `MERGED_IDS` (`<id>@<landed sha>`), the gate's `LANDED:`.
 - **`label-handoff` row** — under `completion: ready` (or `integrated`, for the final unit),
-  `READY_IDS`: the gate returned `READY:` for the unit's PR. Under `completion: merged`,
+  `READY_IDS`: the gate returned `READY:` for the unit's PR; or `MERGED_IDS` (`<id>@<landed sha>`)
+  when the auto-merge actor landed the PR first and the gate returned `LANDED:`, verified as on a
+  direct row. Under `completion: merged`,
   `MERGED_IDS`: `READY:` alone is not terminal there, the unit stays in `REMAINING_IDS`, tracked in
   `READY_IDS`, until it lands.
 - **report-only row** (`mode: pr-only`) — `PASSED_IDS`.

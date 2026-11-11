@@ -869,7 +869,7 @@ def test_close_paths():
     sha = "a1" * 20
     cases = [
         ("direct-push", {}, "", "MERGED", "PASSED"),
-        ("label-handoff", {"ci_merge_label": "go"}, "completion: ready", "READY", "MERGED"),
+        ("label-handoff", {"ci_merge_label": "go"}, "completion: ready", "READY", "PASSED"),
         ("report-only", {}, "", "PASSED", "MERGED"),
     ]
     for mode, over, extra, good, bad in cases:
@@ -1021,6 +1021,16 @@ def test_closed_but_remaining():
                                      ret(REMAINING_IDS="lib#2", READY_IDS=entry))
         check("ready_and_remaining_blocked_under_ready",
               (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
+        # A landed MERGED_IDS closes under ready too (the actor merged before the gate's READY).
+        rc, out, err = w.check_files(objective(unit, extra="completion: ready"),
+                                     ret(CLOSED_IDS="lib#2", MERGED_IDS="lib#2@" + sha))
+        check("label_handoff_merged_not_landed_blocked_under_ready",
+              (rc, blocked_with(out, "lib#2", "merged-not-on-base")), (1, True))
+        lsha = w.landed("lib", "ready-merged")
+        rc, out, err = w.check_files(objective(unit, extra="completion: ready"),
+                                     ret(CLOSED_IDS="lib#2", MERGED_IDS="lib#2@" + lsha))
+        check("label_handoff_merged_landed_closes_under_ready",
+              (rc, status(out, "lib#2")[0]), (0, "CLOSED"))
         # Under merged READY_IDS only tracks the unit, so it belongs beside REMAINING_IDS.
         rc, out, err = w.check_files(objective(unit), ret(REMAINING_IDS="lib#2", READY_IDS=entry))
         check("ready_and_remaining_under_merged_stays_outstanding",
