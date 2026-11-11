@@ -18,7 +18,8 @@ Config lookup: $STU_CONFIG (the only candidate) -> <main checkout>/.claude/stu.m
 ~/.stu/<project>/stu.md -> every ~/.stu/*/stu.md with a `## repos` table that names the
 repo. Config = flat `key: value` frontmatter + Markdown `## id` sections. A `## repos`
 section holds one `### name` block of `key: value` lines per repo; the first is home. Any
-`ci_<name>` frontmatter key is exported as `CI_<NAME>`; `triage_extra` as `TRIAGE_EXTRA`.
+`ci_<name>` frontmatter key is exported as `CI_<NAME>`; `triage_extra` as `TRIAGE_EXTRA`;
+`merge_lock` (on|off, default off; family-only) as `MERGE_LOCK`.
 HTML comments in a section (the template's /stu:init questions) are not part of its body.
 A flat config (no table) is a family of one; every row key may sit in its frontmatter.
 """
@@ -44,7 +45,7 @@ MERGE_MODES = ("direct", "label-handoff", "report-only", "direct-push")
 MODES = ("work", "pr-only", "park")
 CI_KINDS = ("aggregator", "list", "none")
 FAMILY_ONLY_KEYS = ("run_home", "project", "owner", "triage_extra", "completion_mode",
-                    "stop_condition_2", "deep_pass_model")
+                    "stop_condition_2", "deep_pass_model", "merge_lock")
 FAMILY_ONLY_SECTIONS = ("completion-mode", "stop-condition-2", "deep-pass-model")
 MANDATORY = ("slug", "remote", "base", "visibility", "mode", "merge_mode", "ci")
 
@@ -695,6 +696,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
     mode = r.get("mode") or "work"
     ci_kind = r.get("ci") or "aggregator"
     merge_mode, base, base_source, skipped = "direct", "", "", "false"
+    merge_lock = "off"
     if full:
         with _in(label):
             _validate(r, name, strict, home, body, mode, ci_kind)
@@ -730,6 +732,10 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
             if skipped not in ("true", "false"):
                 raise ConfigError("row %s: ci_skipped_is_success must be true or false, "
                                   "not %r" % (name, skipped))
+            lock = (fm.get("merge_lock") or "off").lower()
+            if lock not in ("on", "off"):
+                raise ConfigError("merge_lock must be on or off, not %r" % fm.get("merge_lock"))
+            merge_lock = lock
             base, base_source = _base(r, row_path, remote, slug, host, forge_lookup)
             if not base and forge_lookup and table and require_config:
                 raise ConfigError("no base branch resolvable for row %s: set 'base:' under "
@@ -775,6 +781,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
         "INITIAL_VERSION": r.get("initial_version", ""),
     }
     out["TRIAGE_EXTRA"] = fm.get("triage_extra", "") if home else ""
+    out["MERGE_LOCK"] = merge_lock
     ci = {}
     if home:
         ci.update((k, v) for k, v in fm.items() if k.startswith("ci_") and len(k) > 3)

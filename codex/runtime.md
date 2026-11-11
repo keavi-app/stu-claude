@@ -109,3 +109,9 @@ limits or cache guarantees from another runtime's frontmatter. Check `stu-ctx` o
 Codex usage hooks, when installed, are advisory. Unknown, failed or unparseable context usage
 is hard-exceeded: stop new dispatch, collect in-flight returns under bounded deadlines, write
 a handoff and stop. Never claim a hook enforces a budget if this session has no such hook.
+
+## Fleet
+
+fleet: not bound yet. The merge gate's hold and lock step calls `stu-fleet` from the package
+`bin/` like any other helper, but nothing here binds fleet coordination (a coordinator, a lane
+cap, a revoke-only dispatch by a coordinator) to Codex operations.

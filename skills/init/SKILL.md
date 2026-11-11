@@ -22,7 +22,7 @@ Otherwise ask, in one message, with a recommendation:
 
 ## 2. Frontmatter
 
-Show the derived values and ask once whether any is wrong. Write only the keys the owner sets (or that have no derivation, such as `github_repo` when it printed unresolved). **Leave every other key blank** (`owner:` with no value): blank means derive, and the file stays diffable against the template. Keep the template's `# ci_*` comment lines and its `ci_*` defaults. The `ci_*` keys and `triage_extra` are asked only if the owner raises CI or issue triage; otherwise leave them as the template has them.
+Show the derived values and ask once whether any is wrong. Write only the keys the owner sets (or that have no derivation, such as `github_repo` when it printed unresolved). **Leave every other key blank** (`owner:` with no value): blank means derive, and the file stays diffable against the template. Keep the template's `# ci_*` comment lines and its `ci_*` defaults. The `ci_*` keys and `triage_extra` are asked only if the owner raises CI or issue triage; otherwise leave them as the template has them. `merge_lock` is asked only if the owner runs several supervisors into one base branch; otherwise leave it blank (off). A fleet program will turn it on.
 
 ### Row keys
 
