@@ -134,14 +134,16 @@ writes no objective and leaves no `Run state: running`:
   git -C "$m" ls-files --error-unmatch -- "$r" >/dev/null 2>&1 || { echo SKIP; exit 0; }
   git -C "$m" fetch -q "$rm" "$b" || { echo FETCH_FAILED; exit 0; }
   git -C "$m" diff --quiet "$rm/$b" -- "$r"; d=$?; echo "diff=$d"
-  [ "$d" = 1 ] && { git -C "$m" merge-base --is-ancestor HEAD "$rm/$b"; echo "behind=$?"; } )
+  [ "$d" = 1 ] && { git -C "$m" merge-base --is-ancestor HEAD "$rm/$b"; echo "behind=$?"
+    git -C "$m" diff --quiet HEAD -- "$r"; echo "edited=$?"
+    git -C "$m" log --oneline "HEAD..$rm/$b" -- "$r" | head -5; } )
 ```
 
-The remote and base are the home row's `REMOTE` and `BASE` from `stu-env`. `SKIP` (config outside the checkout, untracked, or the home row has no `BASE`) or `diff=0`: carry on. `diff=1`: dispatch
-nothing and print ONE line — the local config `<CONFIG_PATH>` is behind (`behind=0`: the checkout
-is behind or has local edits) or ahead of (any other `behind=`) `<remote>/<base>`; the owner
+The remote and base are the home row's `REMOTE` and `BASE` from `stu-env`. `SKIP` (config outside the checkout, untracked, or the home row has no `BASE`) or `diff=0`: carry on. `diff=1` with `behind=0` and `edited=0` is strictly behind: the checkout merely lags the base branch and
+every agent of the run reads the same on-disk file, so print ONE note line naming `<CONFIG_PATH>` and the commits the probe listed (a stop it is not, and it writes nothing), then carry on. Any other `diff=1` (`behind=` not 0, so ahead or diverged, or `edited=1`, local edits): dispatch
+nothing and print ONE line — the local config `<CONFIG_PATH>` is ahead of, diverged from, or edited relative to `<remote>/<base>`; the owner
 reconciles it, between runs. `FETCH_FAILED` or any other `diff=`: a one-line warning, never a
-stop and never a "behind" claim.
+stop and never a "behind" claim. A run on a strictly-behind config whose objective names a repo row the on-disk file lacks still stops, on `stu-env`'s own "no repo row matches" error.
 
 Batch all of it: a startup costing four turns has spent more than a cycle returns.
 
