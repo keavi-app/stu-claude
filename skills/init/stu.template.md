@@ -19,6 +19,10 @@ ci_merge_label:
 ci_mode: check-run
 # daemon-status only: the gating context-name prefix:
 ci_status_prefix:
+# Merge lock: on|off (default off). On makes every merge gate take one fleet-wide lock before it
+# labels or merges, so only one PR is between label and landing at a time. A fleet program
+# turns it on; plain runs leave it off. The merge hold (stu-fleet hold) is honoured either way:
+merge_lock:
 # Extra issue-search qualifiers /stu:fix-campaign's triage filter appends (e.g. -label:wontfix):
 triage_extra:
 # More ci_* keys, all optional; a blank or absent key means derive (defaults shown):
@@ -80,7 +84,7 @@ keys above are optional. A section
 that answers a question for one repo only is written `## <id> @<name>` (for example
 `## verification-commands @lib`), where <name> is a row; the unsuffixed section belongs to the
 home row. completion-mode, stop-condition-2 and deep-pass-model are family-only and cannot take
-an `@<name>` suffix, and the keys owner, project, run_home and triage_extra stay in the
+an `@<name>` suffix, and the keys owner, project, run_home, merge_lock and triage_extra stay in the
 frontmatter, never on a row.
 -->
 

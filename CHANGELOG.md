@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.5
+
+- New `stu-fleet` helper keeps one merge hold and one merge lock in a single file under the run
+  home. `stu-fleet hold set --reason ...` makes every merge gate refuse to label or merge until
+  `hold clear`; it also prints the one armed PR, if any, that must be disarmed. The lock lets only
+  one PR sit between label and landing at a time, taken and released through `stu-fleet lock`.
+- The merge gate checks the hold (and, with the new `merge_lock: on` config key, takes the lock)
+  immediately before it labels or merges, and releases the lock when it confirms the landing. A
+  refused gate returns `GATE: FAIL` with a `fleet-hold:` or `fleet-lock:` reason, which the
+  orchestrator and supervisor treat as "try again later", not a failure or a stop.
+- The gate gains a `revoke-only` dispatch that disarms one PR without evaluating it. `merge_lock`
+  defaults to off for plain runs; a fleet program will turn it on. Codex notes `fleet: not bound yet`.
+
 ## 0.2.4
 
 - A run no longer stops at startup just because the repo's config file is behind the base branch

@@ -577,7 +577,7 @@ Set operations on IDs you already hold; none requires reading anything.
 4. `PREMISE_CLAIM` missing or empty -> one repair request ("One repair request, then fail
    closed", below), then **BLOCKED** if still missing or empty.
 5. `CLOSED_IDS: NONE` twice consecutively, or `REMAINING_IDS` unchanged across three cycles ->
-   **NOT_CONVERGING**, with four carve-outs, each covering **both** triggers (a carve-out holding
+   **NOT_CONVERGING**, with five carve-outs, each covering **both** triggers (a carve-out holding
    only the second would be pre-empted by trigger 1's two-cycle bound).
    - **Waiting only.** A cycle whose accepted `WAITING_IDS` is non-empty and whose `REMAINING_IDS`
      is `NONE` triggers neither condition: nothing the run can do is outstanding, and the stop is
@@ -625,6 +625,19 @@ Set operations on IDs you already hold; none requires reading anything.
      it, and at 3 the run stops `BLOCKED: condition 4 — no close in 3 cycles, units moving:
      <ids>`. **A split made only to satisfy check 5 is a finding** (record it in the handoff
      append), and you never tell an orchestrator to split to avoid this check.
+
+   - **A fleet merge hold or lock.** A gate refused by the fleet (`REASON` beginning
+     `fleet-hold:` or `fleet-lock:`) is not a gate failure: its unit stays in `REMAINING_IDS` and
+     is re-gated on a later cycle. The orchestrator's schema does not carry gate reasons, so read
+     the unit's saved gate return, `<run-dir>/gate/<id>@<sha>.txt`, which counts only when the
+     unit's gate was dispatched THIS cycle and the file's last line is a `REASON:` beginning
+     `fleet-hold:` or `fleet-lock:`. The file is overwritten per dispatch and carries no cycle
+     marker, so a file left from an earlier cycle at the same sha never counts. **A unit with such a
+     refusal does not count toward either trigger; the carve-out holds only while every unit in
+     `REMAINING_IDS` that is not parked, waiting or in `READY_IDS` has one.** One ordinary
+     outstanding unit with no refusal this cycle, however many are refused, and the triggers apply
+     as usual. A refusal is never a stop on its own; the cycle cap still bounds the run.
+     A hold is an owner or peer decision to wait, not this run's to clear.
 
 ### One repair request, then fail closed
 

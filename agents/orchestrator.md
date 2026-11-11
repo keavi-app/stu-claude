@@ -407,7 +407,7 @@ You authored this work, so you cannot also choose the evidence by which it is ju
 
 **The legal dispatch is the repo name (the unit's row), the worktree absolute path, the PR
 number, and `STU_CONFIG=<CONFIG_PATH>`.** For a direct-push or before-push unit (no PR) the PR
-number is replaced by the branch name. No logs, check output, review
+number is replaced by the branch name. (`revoke-only` is a coordinator's dispatch, never yours.) No logs, check output, review
 verdicts, test counts, description of what shipped, or assertion that a gate row is satisfied.
 The gate runs its own commands.
 
@@ -460,6 +460,15 @@ has landed, dispatch the gate again on a later cycle — the same legal dispatch
 verdict says; a `FAIL` there is a finding about the base branch's CI health, routed to
 `RUN_HOME/ledger-inbox/`, never a reason to withhold the ID.
 
+**A refused gate is not a failed gate.** A gate `FAIL` whose `REASON` begins `fleet-hold:` or
+`fleet-lock:` means the fleet's merge hold is set or another PR holds the fleet lock (`merge-gate.md`,
+"Fleet hold and lock"). The unit stays in `REMAINING_IDS`: not parked, not `CLOSED_IDS`, no finding,
+no escalation, and it does not count toward non-convergence (run skill, check 5). Dispatch its gate
+again on a later cycle, never again in the same cycle, and never relay a saved gate file for it
+(a refusal says nothing about the evidence): the return you save to `<run-dir>/gate/` is
+history only. Keep working every other unit. You never run `stu-fleet` yourself and never clear a
+hold or lock.
+
 A red gating check is read before any rerun, never rerun blind.
 
 ## Relaying a gate return: one line per field
@@ -504,7 +513,8 @@ landed.
 **Relaying a saved gate file.** Relay from `<run-dir>/gate/<id>@<full sha>.txt` instead of a fresh
 dispatch only when you have verified, this cycle, that the unit's head is still exactly that
 `<full sha>` (`git rev-parse` on the branch, or the forge's PR head). A head that moved, or a
-file for any other sha, is stale: dispatch the gate again.
+file for any other sha, is stale: dispatch the gate again. A saved return that is a fleet refusal is
+never relayed this way, whatever the sha.
 
 ## A unit re-issued from an approval
 
