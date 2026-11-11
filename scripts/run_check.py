@@ -85,8 +85,8 @@ WAITING_IDS and AFTER_PASS_FAILED. Status precedence BLOCKED > OPEN > WAITING > 
 
 Closing, by the unit's row (field = the gate field that closes it):
   merge_mode direct / direct-push   MERGED_IDS
-  label-handoff                     READY_IDS under completion ready or integrated (the final
-                                    unit), MERGED_IDS under merged
+  label-handoff                     READY_IDS or MERGED_IDS under completion ready or
+                                    integrated (the final unit), MERGED_IDS under merged
   report-only (mode: pr-only)       PASSED_IDS
   human_checkpoints before-push     APPROVAL_IDS (leg 1) or PASSED_IDS (leg 2, report-only
                                     rows only); MERGED_IDS and READY_IDS never close it
@@ -579,7 +579,10 @@ def allowed_fields(chk, e, ident, got):
     elif mm == "report-only":
         allowed = set(["PASSED_IDS"])
     else:
-        allowed = set(["MERGED_IDS"] if chk.completion(e) == "merged" else ["READY_IDS"])
+        # Under ready/integrated READY_IDS closes, and so does a MERGED_IDS entry: a gate that
+        # returns LANDED (the auto-merge actor beat it to the merge) records the landing.
+        allowed = set(["MERGED_IDS"] if chk.completion(e) == "merged"
+                      else ["READY_IDS", "MERGED_IDS"])
     if before_push(e):
         # Only the plan's two fields close a before-push row; MERGED_IDS and READY_IDS are
         # the wrong field here whatever the merge mode.

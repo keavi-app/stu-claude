@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- A label-handoff unit under `completion: ready` now closes on a landed `MERGED_IDS` entry as well
+  as on `READY_IDS`. When the auto-merge actor merges the PR before the merge gate returns, the gate
+  reports `LANDED:` rather than `READY:`, and the checker used to block that unit as the wrong field
+  so it could never close. The landed sha is verified on the base exactly as on a direct row; a sha
+  that did not land is still blocked.
+
 ## 0.2.2
 
 - Every command stu hands the owner to paste (`/stu:settle`, the `/stu:run` that resumes a run,
