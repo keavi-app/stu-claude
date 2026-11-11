@@ -125,7 +125,9 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
   explicit rule: a relaunch by the coordinator writes `Run state: fleet-relaunch <date>`, and a
   run resuming from that state starts at `0/<cap>`. The objective's cap becomes per launch, and the
   fleet's cycle budget bounds the total. The coordinator never edits an objective's cap. With no
-  cycle budget room left, a cap hit goes in the brief.
+  cycle budget room left, a cap hit goes in the brief. Under the default budget (the sum of the
+  runs' caps), the only room a cap-hit relaunch has is cycles other runs left unspent; a program
+  that wants cap-hit relaunches as a matter of course sets a larger budget or `none`.
 - **Stops that go straight to the owner**, never relaunched or settled around: conditions 4, 7,
   8, 9 and 11 of the run skill (non-convergence, a guard would have to be weakened, a command
   that failed twice, a wrong premise, missing durable state).
@@ -302,6 +304,9 @@ from disk at the gate, so they do not depend on a message reaching each layer.
   throughput is then one PR per auto-merge cycle plus the gap until the next gate or coordinator
   wake notices. That is the price of serialising landings into a base branch that deploys
   unpinned; a program whose base does not deploy on merge may turn the lock off.
+- **With the lock off**, the hold still makes every gate refuse to label or merge, but no armed
+  PR is recorded, so setting the hold disarms nothing: a PR labelled before the hold may still
+  land. A program that needs a hold to stop armed PRs keeps the lock on.
 - **Stale lock.** A lock older than the run deadline with its PR still open and labelled goes in
   the brief; nothing clears that one on its own.
 
@@ -403,12 +408,12 @@ Codex note in the same PR.
 | S1 | Fix 1: ready-mode `MERGED_IDS` | none |
 | S2 | Fix 2: stale-config stop | none |
 | S3 | Nesting spike and its findings section | none |
-| S4 | Merge hold and lock file, the gate's lock step, its revoke-only mode | none |
+| S4 | Merge hold and lock file; `stu-fleet` created with only its `hold` and `lock` subcommands; the gate's lock step and its revoke-only mode. Also settles what a gate returns when refused the lock, and whether a gate re-run on the lock-holder PR re-enters it | none |
 | S5 | `judgment_model` key, routing row, lint | none |
 | S6 | Settle skill refactor: ruling provenance mark, settler-safe writes | none |
 | S7 | `stu:settler` in draft mode, with ruling verification | S5, S6 |
-| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, the `fleet-relaunch` count rule, `agents/supervisor.md` | S3 |
-| S9 | Fleet: program file, board, `stu-fleet` script, `fleet_max_lanes` key, runtime-binding lint | S8 |
+| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, `agents/supervisor.md`, and the `fleet-relaunch` run state with every reader of `Run state:` (the handoff format's grammar, Resume's count rule, `/stu:settle`) | S3 |
+| S9 | Fleet: program file, board, `stu-fleet` `board`, `spend` and `next` (extending S4's script), `fleet_max_lanes` key, runtime-binding lint | S4, S8 |
 | S10 | Fleet: liveness and relaunch, budget limits and loop guard, actuals on the board | S9 |
 | S11 | Fleet: settle brief loop | S7, S10 |
 | S12 | `stu:groomer` | S5 |
