@@ -517,8 +517,9 @@ of the dispatch.
 - **A direct-push dispatch (no PR to lock) with `MERGE_LOCK` `on`:** `stu-fleet hold status`, then
   `stu-fleet lock status`. A hold (exit 10) refuses as below. Any holder (a first line other than
   `LOCK none`) refuses with `REASON: fleet-lock: held by <slug>#<pr>` taken from that line: a push
-  to the base lands a change while a PR sits between label and landing. With the lock off, a
-  direct-push dispatch checks the hold only.
+  to the base lands a change while a PR sits between label and landing. A direct push takes no
+  lock of its own, so a PR can still take the lock between this read and the push; that window
+  stays open. With the lock off, a direct-push dispatch checks the hold only.
 
 Exit 0 proceeds. Exit 10, or exit 11 or 12 from `take`, is a refusal: label nothing, merge nothing,
 push nothing, and return `GATE: FAIL` with `REASON` the text after `REFUSED ` on the command's one
