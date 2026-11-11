@@ -46,9 +46,9 @@ cat "$file"; echo OK
 os.chmod(STUB, 0o755)
 
 
-def pr(n, state="open", labels="merge-ok"):
+def pr(n, state="open", labels="merge-ok", auto="off"):
     with open(os.path.join(PRS, str(n)), "w") as f:
-        f.write("STATE %s\nLABELS %s\n" % (state, labels or "-"))
+        f.write("STATE %s\nLABELS %s\nAUTO_MERGE %s\n" % (state, labels or "-", auto))
 
 
 def pr_unreachable(n):
@@ -184,6 +184,11 @@ def test_stale_holder_released_on_the_forge():
     check("fresh lock without its label is not abandoned", take(2, now=T0 + 60)[0], 11)
     check("lock older than the grace without its label is released",
           take(2, now=T0 + 1000)[0], 0)
+    reset()
+    pr(1, labels="", auto="on")
+    pr(2)
+    take(1)
+    check("label gone but auto-merge still on keeps the lock", take(2, now=T0 + 99999)[0], 11)
     reset()
     pr(1, labels="")
     pr(2)

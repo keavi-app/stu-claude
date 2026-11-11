@@ -495,7 +495,7 @@ statement about a different change (for a PR, `stu-forge pr-state`'s `HEAD_SHA`;
 
 ### Fleet hold and lock: the last check before you label or merge
 
-Applies to label-handoff and direct modes and to direct-push (hold only). Report-only and
+Applies to label-handoff, direct and direct-push modes. Report-only and
 before-push act on nothing and skip it. Run it **immediately before** the first thing that
 authorises a merge: in label-handoff mode after the provenance comment and the second head
 re-check, right before the label; in direct mode right before `merge-at`; in direct-push mode
@@ -510,8 +510,15 @@ of the dispatch.
 
   Leave out `--label` when `CI_MERGE_LABEL` is empty. Re-running the gate on the PR that already
   holds the lock re-enters it.
-- **`MERGE_LOCK` is `off`, or a direct-push dispatch:** `stu-fleet hold status`. Exit 0 means no
-  hold; exit 10 means a hold is set.
+- **`MERGE_LOCK` is `off`:** `stu-fleet hold status`. Exit 0 means no hold; exit 10 means a hold
+  is set. **With the lock off there is a window no hold can close:** you read "no hold", a peer
+  sets one, and you then label or merge anyway, and no armed PR is recorded for the hold to name.
+  Only the lock closes it; a program that needs a hold to stop armed PRs keeps the lock on.
+- **A direct-push dispatch (no PR to lock) with `MERGE_LOCK` `on`:** `stu-fleet hold status`, then
+  `stu-fleet lock status`. A hold (exit 10) refuses as below. Any holder (a first line other than
+  `LOCK none`) refuses with `REASON: fleet-lock: held by <slug>#<pr>` taken from that line: a push
+  to the base lands a change while a PR sits between label and landing. With the lock off, a
+  direct-push dispatch checks the hold only.
 
 Exit 0 proceeds. Exit 10, or exit 11 or 12 from `take`, is a refusal: label nothing, merge nothing,
 push nothing, and return `GATE: FAIL` with `REASON` the text after `REFUSED ` on the command's one

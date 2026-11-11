@@ -16,10 +16,15 @@ state file atomically. An unreadable state file is an error (exit 3), never "no 
 
 `lock take`, in one locked step: if the lock is held by another PR, the holder is checked on
 the forge (`stu-forge pr-state`) and released when its PR is merged or closed, or when its
-merge label is gone and the lock is older than a grace period (a gate takes the lock before it
+merge label is gone, its auto-merge is off, and the lock is older than a grace period (a gate takes the lock before it
 labels, so a fresh lock with no label yet is not abandoned). The forge being unreachable is a
 refusal, never an assumption. Then it refuses if the hold is set, then if another PR still
 holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR).
+
+The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW and
+STU_FLEET_LABEL_GRACE are TEST-ONLY hooks (file path, stand-in forge command, clock, grace);
+nothing in a real run sets them. `hold status` and `lock status` are read-only: they take no
+flock (writes replace the file atomically) and never call the forge.
 
 Exit codes: 0 ok; 2 usage; 3 error (state file, run home); 10 refused, hold set; 11 refused,
 lock held; 12 refused, holder not checkable on the forge. A refusal prints one line that
@@ -166,7 +171,7 @@ def ref(h):
 
 
 def forge_state(slug, pr):
-    """-> (state, labels) of one PR via stu-forge pr-state; raises Fail(EXIT_FORGE)."""
+    """-> (state, labels, auto_merge_on) of one PR via stu-forge pr-state; raises Fail(EXIT_FORGE)."""
     cmd = os.environ.get("STU_FLEET_FORGE")  # tests only: a stand-in for stu-forge
     argv = ([cmd] if cmd else [sys.executable, os.path.join(HERE, "stu_forge.py")]) + \
         ["pr-state", "--slug", slug, "--pr", str(pr)]
@@ -186,16 +191,17 @@ def forge_state(slug, pr):
     if got.get("STATE") not in ("open", "merged", "closed"):
         raise Fail(EXIT_FORGE, "forge unreachable (no PR state)")
     labels = [] if got.get("LABELS", "-") == "-" else got["LABELS"].split(",")
-    return got["STATE"], labels
+    return got["STATE"], labels, got.get("AUTO_MERGE") != "off"
 
 
 def holder_gone(lock):
     """Observe the lock holder. -> (gone?, why) where why is merged|closed|label-gone|None."""
-    state, labels = forge_state(lock["slug"], lock["pr"])
+    state, labels, auto_on = forge_state(lock["slug"], lock["pr"])
     if state in ("merged", "closed"):
         return True, state
     label = lock.get("label") or ""
-    if label and label not in labels:
+    # a PR with auto-merge still enabled is still armed, label or not
+    if label and label not in labels and not auto_on:
         grace = float(os.environ.get("STU_FLEET_LABEL_GRACE", DEFAULT_GRACE))
         try:
             age = now_epoch() - parse_stamp(lock["taken_at"])
@@ -221,7 +227,20 @@ def disarm_line(lock):
     return "DISARM %s %s" % (ref(lock), lock.get("sha") or "-") if lock else "DISARM none"
 
 
+def hold_status(doc):
+    if doc["hold"] is None:
+        print("HOLD none")
+        return 0
+    print("HOLD set %s (since %s)" % (doc["hold"]["reason"], doc["hold"].get("set_at", "?")))
+    print(disarm_line(doc["lock"]))
+    for e in doc["landed_during_hold"]:
+        print("LANDED-DURING-HOLD %s#%s %s %s" % (e["slug"], e["pr"], e["sha"], e["at"]))
+    return EXIT_HOLD
+
+
 def cmd_hold(sub, a):
+    if sub == "status":  # read-only: no flock, no forge (writes replace the file atomically)
+        return hold_status(load(state_path()))
     with Locked(state_path()) as st:
         doc = st.doc
         if sub == "set":
@@ -249,15 +268,7 @@ def cmd_hold(sub, a):
             doc["landed_during_hold"] = []
             st.save()
             return 0
-        # status
-        if doc["hold"] is None:
-            print("HOLD none")
-            return 0
-        print("HOLD set %s (since %s)" % (doc["hold"]["reason"], doc["hold"].get("set_at", "?")))
-        print(disarm_line(doc["lock"]))
-        for e in doc["landed_during_hold"]:
-            print("LANDED-DURING-HOLD %s#%s %s %s" % (e["slug"], e["pr"], e["sha"], e["at"]))
-        return EXIT_HOLD
+        raise Fail(EXIT_USAGE, "unreachable")
 
 
 # ---- lock -------------------------------------------------------------------------------

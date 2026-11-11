@@ -629,9 +629,12 @@ Set operations on IDs you already hold; none requires reading anything.
    - **A fleet merge hold or lock.** A gate refused by the fleet (`REASON` beginning
      `fleet-hold:` or `fleet-lock:`) is not a gate failure: its unit stays in `REMAINING_IDS` and
      is re-gated on a later cycle. The orchestrator's schema does not carry gate reasons, so read
-     the disk, as the gate does: **neither trigger fires, and `Cycles with no close` does not
-     advance, on a cycle that ends with `stu-fleet hold status` exiting 10 or `stu-fleet lock
-     status` naming a holder.** It is never a stop on its own; the cycle cap still bounds the run.
+     the unit's saved gate return, `<run-dir>/gate/<id>@<sha>.txt`, whose newest entry from THIS
+     cycle ends with a `REASON:` line beginning `fleet-hold:` or `fleet-lock:`. **A unit with such a
+     refusal does not count toward either trigger; the carve-out holds only while every unit in
+     `REMAINING_IDS` that is not parked, waiting or in `READY_IDS` has one.** One ordinary
+     outstanding unit with no refusal this cycle, however many are refused, and the triggers apply
+     as usual. A refusal is never a stop on its own; the cycle cap still bounds the run.
      A hold is an owner or peer decision to wait, not this run's to clear.
 
 ### One repair request, then fail closed
