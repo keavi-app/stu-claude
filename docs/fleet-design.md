@@ -81,6 +81,7 @@ Cycle budget: <n> | none      (optional; see "Budget")
 Judgment jobs: <n> | none     (optional)
 Stop at: <time> | none        (optional)
 Settle mode: draft | auto-narrow
+Merge lock: on | off          (optional; default on, see "Merge hold and lock")
 
 ## Runs
 - <slug>: <objective path> | after: <slug or none> | resources: <names>
@@ -118,10 +119,13 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
   relaunch happens only after the deadline, an idle-tree check, and an explicit stop of the old
   supervisor. Never two supervisors on one unit list.
 - **Relaunch without a settle** only for a self-stop on context or growth (condition 6, or a
-  `self-stop:` lane), or a cycle cap hit with units left (condition 10). A cap-hit stop has no
-  `self-stop:` line, so the run skill restarts its count at `0/<cap>` on relaunch: the objective's
-  cap is per launch, and the fleet's cycle budget is what bounds the total. The coordinator never
-  edits an objective's cap. With no cycle budget room left, a cap hit goes in the brief.
+  `self-stop:` lane), or a cycle cap hit with units left (condition 10). Today's count rule does
+  not fit the cap-hit case: a clean cap hit ends `settled <date> — nothing to settle`, and Resume
+  continues the count, so a relaunch would start exhausted. Supervised mode (S8) therefore adds one
+  explicit rule: a relaunch by the coordinator writes `Run state: fleet-relaunch <date>`, and a
+  run resuming from that state starts at `0/<cap>`. The objective's cap becomes per launch, and the
+  fleet's cycle budget bounds the total. The coordinator never edits an objective's cap. With no
+  cycle budget room left, a cap hit goes in the brief.
 - **Stops that go straight to the owner**, never relaunched or settled around: conditions 4, 7,
   8, 9 and 11 of the run skill (non-convergence, a guard would have to be weakened, a command
   that failed twice, a wrong premise, missing durable state).
@@ -271,22 +275,35 @@ orchestrator after two PRs were already armed.
 One file under the run home holds both, so a gate with no program path can read it. Both are read
 from disk at the gate, so they do not depend on a message reaching each layer.
 
-- **Hold.** Any session or the owner sets it with a reason, through `stu-fleet hold`. Every merge
-  gate reads it immediately before labelling or merging and refuses while it is set.
+- **One writer at a time.** Every change to the file (setting or clearing the hold, taking or
+  releasing the lock) happens under an exclusive file lock held by `stu-fleet`, so the reads and
+  writes below are ordered, never interleaved.
+- **Hold.** Any session or the owner sets it with a reason, through `stu-fleet hold`. A gate
+  refuses while it is set.
+- **Lock.** One PR at a time between label and landing, across the fleet. Before it labels or
+  merges, a gate asks `stu-fleet` for the lock. In one locked step `stu-fleet` refuses if the hold
+  is set or the lock is held, and otherwise records the PR, head SHA and time as the lock holder.
+  The gate labels only after that step succeeds. This serialises landings, not just labelling, and
+  it closes the race between reading the hold and labelling: a hold set after the lock is taken
+  finds that PR recorded as the holder.
 - **Disarm on hold.** Refusing new labels does not stop a PR already armed: under label-handoff
-  the gate labels and an auto-merge actor merges later, which is the case above. So setting the
-  hold also revokes the merge label (and disables forge auto-merge, where the gate enabled it) on
-  every fleet PR that is labelled and not yet landed, and records each one in the hold file.
-  Releasing the hold re-arms nothing: each recorded PR goes back through a fresh gate dispatch at
-  its current head. A PR that lands between the hold and the revoke is reported in the hold file
-  as landed-during-hold, never hidden.
-- **Lock.** One PR at a time between label and landing, across the fleet. The lock is taken
-  before the gate labels or merges and released when the gate confirms the landing, or the label
-  is revoked, or the PR closes. This serialises landings, not just labelling.
-- **Stale lock.** The lock records the PR, the head SHA and the time. Any gate or the coordinator
-  may clear it when the PR has merged or closed, or its label is gone, checked on the forge, not
-  assumed. A lock older than the run deadline with the PR still open and labelled goes in the
-  brief; nothing clears that one on its own.
+  the gate labels and an auto-merge actor merges later. Setting the hold returns the lock
+  holder, if any, as the one PR to disarm. Disarming is not reimplemented in `stu-fleet`: the
+  coordinator dispatches a `stu:merge-gate` in a new revoke-only mode for that PR, which runs the
+  gate's existing "Revoke a claim" sequence (stop the daemon if it is acting, then
+  `stu-forge disarm`). A peer session that sets the hold without a coordinator gets the PR number
+  back and is told to dispatch the same revoke. Releasing the hold re-arms nothing: the PR goes
+  back through a fresh gate dispatch at its current head. A PR that lands before the revoke is
+  recorded as landed-during-hold, never hidden.
+- **Release.** Under `completion: merged` the gate's landing confirmation releases the lock.
+  Under `completion: ready` no later gate confirms a landing, so release is by observation: before
+  taking the lock, any gate, and `stu-fleet next` on every coordinator wake, checks the holder on
+  the forge and releases it when the PR has merged or closed, or its label is gone. Landing
+  throughput is then one PR per auto-merge cycle plus the gap until the next gate or coordinator
+  wake notices. That is the price of serialising landings into a base branch that deploys
+  unpinned; a program whose base does not deploy on merge may turn the lock off.
+- **Stale lock.** A lock older than the run deadline with its PR still open and labelled goes in
+  the brief; nothing clears that one on its own.
 
 ## Judgment seats
 
@@ -386,11 +403,11 @@ Codex note in the same PR.
 | S1 | Fix 1: ready-mode `MERGED_IDS` | none |
 | S2 | Fix 2: stale-config stop | none |
 | S3 | Nesting spike and its findings section | none |
-| S4 | Merge hold and lock file, read by the merge gate | none |
+| S4 | Merge hold and lock file, the gate's lock step, its revoke-only mode | none |
 | S5 | `judgment_model` key, routing row, lint | none |
 | S6 | Settle skill refactor: ruling provenance mark, settler-safe writes | none |
 | S7 | `stu:settler` in draft mode, with ruling verification | S5, S6 |
-| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, `agents/supervisor.md` | S3 |
+| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, the `fleet-relaunch` count rule, `agents/supervisor.md` | S3 |
 | S9 | Fleet: program file, board, `stu-fleet` script, `fleet_max_lanes` key, runtime-binding lint | S8 |
 | S10 | Fleet: liveness and relaunch, budget limits and loop guard, actuals on the board | S9 |
 | S11 | Fleet: settle brief loop | S7, S10 |
