@@ -1,8 +1,8 @@
 # Stu fleet mode and judgment seats
 
-Status: design, not built. Base: the 0.2.2 line. The owner's decisions are listed under
-"Decisions". One question is still open: whether supervisors run as subagents or as headless
-sessions, which the nesting spike decides.
+Status: design, partly built (S1, S2, S4). Base: the 0.2.2 line. The owner's decisions are listed
+under "Decisions". The nesting spike (S3) chose subagent supervisors, with two binding changes for
+S8; findings in `design-rationale.md`, "Fleet nesting spike".
 
 ## Outcome
 
@@ -29,14 +29,14 @@ So the cost to remove is the typing and the session-juggling, not the owner's ju
 | Layer | Runs as | Holds | Model |
 |---|---|---|---|
 | Coordinator (`/stu:fleet`) | the main session, interactive only | the fleet board | the run skill's supervisor model |
-| Supervisor (`/stu:run`) | background subagent, one per objective (pending the spike) | the unit scoreboard | unchanged |
+| Supervisor (`/stu:run`) | background subagent, one per objective (spike: go) | the unit scoreboard | unchanged |
 | Orchestrator | subagent of the supervisor | briefs and cycle state | existing table |
 | Workers | subagents of the orchestrator | one brief, one diff | existing table |
 
 The supervisor layer stays rather than folding into the coordinator: it keeps every cycle return
 out of the coordinator's context, which is what lets one coordinator hold several runs.
 
-**Fallback if the spike fails.** The coordinator launches each supervisor as its own top-level
+**Fallback if the spike had failed** (it did not: see "The nesting spike"; kept as the binding for a runtime without nested agents). The coordinator launches each supervisor as its own top-level
 headless session instead of a subagent, and reads only its board line and final return. The
 program file, board, budget, merge hold and settle brief are unchanged. Three operations change
 binding, and one rule weakens:
@@ -50,7 +50,9 @@ binding, and one rule weakens:
   waiting quietly on a long child looks the same as a hung one. So in the fallback, a relaunch on
   the quiet rule goes in the brief instead of happening on its own.
 
-## The nesting spike (before any fleet code)
+## The nesting spike (done: S3, go)
+
+Answered 2026-11-12; findings in `design-rationale.md`, "Fleet nesting spike". The questions as posed:
 
 The subagent-supervisor shape assumes harness behaviour that Stu's own docs call unreliable or
 unobserved. One throwaway run, with a toy objective, answers these:
@@ -352,7 +354,7 @@ Fleet follows it from the first PR.
   1. launch a supervisor;
   2. dispatch a seat agent (settler, verifier, groomer, designer, scout) with a model;
   3. wait for a return or a deadline, whichever comes first, and re-arm the deadline;
-  4. list a supervisor's live descendants (absent in the headless fallback; see "Shape");
+  4. list a supervisor's live descendants (in the subagent shape, the descendant-tree script, since `ListAgents` is not available inside a subagent; absent in the headless fallback; see "Shape");
   5. stop a supervisor;
   6. send the owner a brief and receive their one-line answer;
   7. notify the owner one-way (a limit reached, a stop that goes straight to them).
@@ -412,7 +414,7 @@ Codex note in the same PR.
 | S5 | `judgment_model` key, routing row, lint | none |
 | S6 | Settle skill refactor: ruling provenance mark, settler-safe writes | none |
 | S7 | `stu:settler` in draft mode, with ruling verification | S5, S6 |
-| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, `agents/supervisor.md`, and the `fleet-relaunch` run state with every reader of `Run state:` (the handoff format's grammar, Resume's count rule, `/stu:settle`) | S3 |
+| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement by agent id (`ctx.py`), a descendant-tree script replacing all four `ListAgents` uses in the run skill (allowed-tools, timer tree check, owner liveness answer, restart idle-tree test), agent-transcript lookup by a prompt nonce, `agents/supervisor.md` with `cacheTtl: 1h` (the lint's second role), and the `fleet-relaunch` run state with every reader of `Run state:` (the handoff format's grammar, Resume's count rule, `/stu:settle`) | S3 |
 | S9 | Fleet: program file, board, `stu-fleet` `board`, `spend` and `next` (extending S4's script), `fleet_max_lanes` key, runtime-binding lint | S4, S8 |
 | S10 | Fleet: liveness and relaunch, budget limits and loop guard, actuals on the board | S9 |
 | S11 | Fleet: settle brief loop | S7, S10 |
@@ -435,5 +437,5 @@ a coordinator can dispatch it by hand before any fleet code exists.
 
 ## Not verified
 
-- Everything the spike exists to answer.
+- The spike's own gaps: a wait longer than one timer, an overnight supervisor, overage.
 - Which cycle each of the 12 model-less orchestrator dispatches was.
