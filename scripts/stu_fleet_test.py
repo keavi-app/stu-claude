@@ -772,6 +772,118 @@ def test_board_v2_grammar():
         check(name + " exits 3", pfleet("board", "show", PROG)[0], 3)
 
 
+def asst_rec(rid, model, out):
+    return {"type": "assistant", "requestId": rid, "message": {
+        "id": "m-" + rid, "model": model, "usage": {"output_tokens": out}}}
+
+
+def put_agent(root, session, aid, seat, parent=None, nonce=None, recs=()):
+    sdir = os.path.join(root, "proj", session, "subagents")
+    os.makedirs(sdir, exist_ok=True)
+    meta = {"agentType": seat, "finished": True}
+    if parent:
+        meta["parentAgentId"] = parent
+    with open(os.path.join(sdir, "agent-%s.meta.json" % aid), "w") as f:
+        json.dump(meta, f)
+    first = {"type": "user", "message": {"content": "go\n" + ("STU-SUPERVISED: %s\n" % nonce if nonce else "")}}
+    with open(os.path.join(sdir, "agent-%s.jsonl" % aid), "w") as f:
+        for r in [first] + list(recs):
+            f.write(json.dumps(r) + "\n")
+
+
+def test_actuals():
+    root = os.path.join(TMP, "projects")
+    env = {"STU_PROJECTS_ROOT": root}
+    o = lifecycle()
+    log = PROG + ".actuals.jsonl"
+    if os.path.exists(log):
+        os.remove(log)  # earlier tests share this program path and left records
+    ret = run_ret(os.path.join(PDIR, "act.txt"), o, nxt="owner", cond="4 \u2014 x")
+    check("actuals on an empty log", pfleet("actuals", PROG), (0, ["actuals: none recorded"], ""))
+    check("actuals needs a path", pfleet("actuals")[0], 2)
+    # launch one: the supervisor lives in another session than its subagents' consumer would
+    put_agent(root, "s1", "sup", "stu:supervisor", nonce="stu-act-one", recs=[asst_rec("a", "claude-opus-x", 10)])
+    put_agent(root, "s1", "imp", "stu:implementer", parent="sup", recs=[
+        asst_rec("b", "claude-sonnet-x", 5), asst_rec("b", "claude-sonnet-x", 50), asst_rec("c", "claude-opus-x", 20)])
+    put_agent(root, "s1", "rev", "stu:reviewer", parent="imp", recs=[asst_rec("d", "claude-sonnet-x", 8)])
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": "stu-act-one"})
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret, extra=env)
+    check("record adds agents and out, prints no actuals line", (rc, len(out), field(out[0], "agents"),
+          field(out[0], "out")), (0, 1, "3", "88"))
+    entries = [json.loads(x) for x in open(log)]
+    check("one log line with the shape", (len(entries), sorted(entries[0]), entries[0]["agents"], entries[0]["out"]),
+          (1, ["agents", "by_seat_model", "nonce", "out", "recorded_at", "slug"], 3, 88))
+    check("log rows", entries[0]["by_seat_model"], [
+        {"seat": "stu:implementer", "model": "claude-opus-x", "agents": 1, "turns": 1, "out": 20},
+        {"seat": "stu:implementer", "model": "claude-sonnet-x", "agents": 1, "turns": 1, "out": 50},
+        {"seat": "stu:reviewer", "model": "claude-sonnet-x", "agents": 1, "turns": 1, "out": 8},
+        {"seat": "stu:supervisor", "model": "claude-opus-x", "agents": 1, "turns": 1, "out": 10}])
+    check("fleet line carries the totals", pfleet("board", "show", PROG)[1][-1],
+          "- fleet | judgment: 0 | agents: 3 | out: 88 | notices: none")
+    # launch two: transcript missing -> still succeeds, adds nothing, logs unavailable
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": "stu-act-gone"})
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret, extra=env)
+    check("missing transcript never blocks the record", (rc, field(out[0], "agents"), field(out[0], "out"),
+          out[1].startswith("actuals: unavailable \u2014 no agent file under ")), (0, "3", "88", True))
+    # launch three: ambiguous nonce, via idle
+    put_agent(root, "s2", "d1", "stu:supervisor", nonce="stu-act-two")
+    put_agent(root, "s3", "d2", "stu:supervisor", nonce="stu-act-two")
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": "stu-act-two"})
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha", extra=env)
+    check("idle with an ambiguous nonce still succeeds", (rc, field(out[0], "state"), "ambiguous" in out[1]),
+          (0, "owner", True))  # the loop guard fired: three dry launches
+    # launch four: idle adds actuals too
+    put_agent(root, "s4", "sup4", "stu:supervisor", nonce="stu-act-four", recs=[asst_rec("z", "claude-opus-x", 7)])
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": "stu-act-four"})
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha", extra=env)
+    check("idle is cumulative", (rc, field(out[0], "agents"), field(out[0], "out")), (0, "4", "95"))
+    entries = [json.loads(x) for x in open(log)]
+    check("log is append-only, one line per launch", [("unavailable" in e, e["nonce"]) for e in entries], [
+        (False, "stu-act-one"), (True, "stu-act-gone"), (True, "stu-act-two"), (False, "stu-act-four")])
+    check("log entry is unavailable with a reason", sorted(entries[1]), ["nonce", "recorded_at", "slug", "unavailable"])
+    # the report
+    before = open(log).read(), open(PROG).read()
+    rc, out, err = pfleet("actuals", PROG)
+    check("actuals output", (rc, out), (0, [
+        "run alpha: launches 4, agents 4, out 95, unavailable 2",
+        "seat model agents turns out",
+        "stu:implementer claude-opus-x 1 1 20",
+        "stu:implementer claude-sonnet-x 1 1 50",
+        "stu:reviewer claude-sonnet-x 1 1 8",
+        "stu:supervisor claude-opus-x 2 2 17",
+        "off-route stu:implementer: 1/2 turns not on sonnet (50%)",
+        "off-route stu:reviewer: 0/1 turns not on sonnet (0%)",
+        "routing unknown: stu:supervisor",
+        "fleet: launches 4, agents 4, out 95, unavailable 2",
+        "seat model agents turns out",
+        "stu:implementer claude-opus-x 1 1 20",
+        "stu:implementer claude-sonnet-x 1 1 50",
+        "stu:reviewer claude-sonnet-x 1 1 8",
+        "stu:supervisor claude-opus-x 2 2 17",
+        "off-route stu:implementer: 1/2 turns not on sonnet (50%)",
+        "off-route stu:reviewer: 0/1 turns not on sonnet (0%)",
+        "routing unknown: stu:supervisor"]))
+    check("actuals is read-only", (open(log).read(), open(PROG).read()), before)
+    check("spend carries agents and out", pfleet("spend", PROG)[1][0], "run alpha: cycles 6, launches 4, dry 4, agents 4, out 95")
+    with open(log, "a") as f:
+        f.write("not json\n")
+    check("a damaged log is exit 3", pfleet("actuals", PROG)[0], 3)
+
+
+def test_v2_board_migrates():
+    a = objective("a")
+    program([("alpha", a, "none", "none")], tail="\n## Fleet board\n" + v2("alpha", "live", c=2, l=1, n="stu-x1234567") +
+            "\n- fleet | judgment: 1 | notices: none\n")
+    check("v2 line reads as agents 0, out 0", pfleet("board", "show", PROG)[1], [
+        brd("alpha", "live", c=2, l=1, n="stu-x1234567"), "- fleet | judgment: 1 | agents: 0 | out: 0 | notices: none"])
+    rc = pfleet("board", "idle", PROG, "--run", "alpha")[0]
+    check("the next write adds the fields", ("agents: 0 | out: 0 | handoff" in open(PROG).read(),
+          open(PROG).read().rstrip().endswith("| agents: 0 | out: 0 | notices: none")), (True, True))
+
+
 def lifecycle(name="loop", scoreboard="Run state: running\nCycles used: 0/4\nClosed: NONE\n", header=HEADER):
     o = objective(name, scoreboard=scoreboard)
     program([("alpha", o, "none", "none")], header=header)
@@ -1009,7 +1121,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next):
+          test_limits_and_next, test_actuals, test_v2_board_migrates):
     t()
 
 if FAILURES:

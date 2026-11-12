@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.15
+
+- The fleet board now records actuals. `board record` and `board idle` read the launch's
+  supervisor tree from the agent transcripts (found by its launch nonce in any session) and add
+  its agent count and output tokens to the run line as `agents: <n> | out: <n>`, cumulative across
+  launches; the fleet line carries the totals. A board from 0.2.14 reads as 0 and gains the fields
+  on its next write. When the transcripts cannot be found, or the nonce matches zero or several
+  agents, the command prints `actuals: unavailable - <reason>` and still succeeds.
+- Each of those commands also appends one JSON line per launch to `<program>.actuals.jsonl`, with
+  turns and output tokens by seat and model.
+- New `stu-fleet actuals PROGRAM` (read-only) prints, per run and for the fleet, launches, agents,
+  output tokens, a seat/model table, and each `stu:` seat's share of turns off its routed model.
+  `spend` adds `agents` and `out`. Actuals are a report; the cycle budget stays the only limit.
+
 ## 0.2.14
 
 - `stu-fleet` now decides relaunches and enforces limits. `next` prints `relaunch <slug>` for a run
