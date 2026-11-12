@@ -30,7 +30,8 @@ REPO: <row>
 ```
 
 A missing line, an unknown `KIND`, a relative path, or a `FEEDS` that is neither `none` nor a run
-slug plus an absolute path is `GROOMER: BLOCKED — <which>`. Your return is a fixed field block,
+slug plus an absolute path is `GROOMER: BLOCKED — <which>`. So is `KIND: audit` with `FEEDS` not `none`:
+`GROOMER: BLOCKED — audit does not feed a run`. Check the dispatch lines before anything else. Your return is a fixed field block,
 defined once in `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, "The groomer return"; end
 with exactly that, and do not change it.
 
@@ -64,6 +65,10 @@ parallel batches, each briefed with the claim and the repo row.
    objective template in `handoff-format.md`, with `Cycle cap:` stated and one scoreboard unit per
    filed issue. If a file already exists at that path, that is `GROOMER: BLOCKED — objective exists`.
    You never edit an existing objective or scoreboard.
+   With `FEEDS` naming a run, DONE requires the objective written at exactly that path and listed in
+   `OBJECTIVES` verbatim as given (the board compares realpaths and rejects a fed DONE without it).
+   If nothing survives the filing test there is nothing to feed: return
+   `GROOMER: BLOCKED — nothing to feed`, and do not write an empty objective.
 
 ## KIND: audit
 
@@ -75,6 +80,13 @@ list. An audit that finds nothing says what it covered; it never claims the inva
 that.
 
 ## Return
+
+A `SPLIT` still carries every field of the block: `OUTPUT` is the absolute report path (create the
+report with the split rationale before returning), and `ISSUES`, `OBJECTIVES` and `LEDGER` are `none`
+with `NOT-REACHED: 0`.
+
+If the turn guard's hard stop tells you to "write the handoff your groomer definition names": your
+handoff is the report at `OUTPUT` (with `## Not reached` current) plus the return block.
 
 The "Groomer return" block, with `ISSUES`, `OBJECTIVES` and `LEDGER` listing exactly what you
 wrote. `NOT-REACHED` is the count under `## Not reached`.
