@@ -40,7 +40,7 @@ The seven operations:
    program's line. Do not edit either yourself.
 3. Run `stu-fleet board show <program path>` and `stu-fleet spend <program path>` and report
    both to the owner in a few lines, plus `stu-fleet actuals <program path>` condensed to a few
-   lines (agents, output tokens, and any seat running off its routed model; `actuals: none
+   lines (agents, output tokens, and the off-route share, if `actuals` prints one; `actuals: none
    recorded` is just said). This is the wave report; repeat it at the start of each wave. The
    `budget:` and `judgment-jobs:` lines go in it. `spend` and `actuals` only report; the limits
    are enforced by `next` and the `board` commands (see "Limits" below).
@@ -131,7 +131,7 @@ coordinator starts at "Startup", then `next`; for each live supervisor it re-arm
 ## 5. Judgment jobs
 
 Before any groom, audit or design dispatch (none exist yet), run
-`stu-fleet board judgment <program path> --job <slug>`; a refusal means do not dispatch. Settler
+`stu-fleet board judgment <program path> --job <slug>`; a refusal means do not dispatch, and show it to the owner as printed. Settler
 drafts and verifier or scout dispatches are never counted.
 
 ## 6. Not built yet
@@ -159,7 +159,7 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    the same arming as the run skill's "Liveness" (timer arming and `TaskStop` on return only).
    Keep its task id, and `TaskStop` it when the return is accepted. When it fires, take
    operation 4 and apply the supervisor rule in "The loop": re-arm with no bound while the tree is
-   alive, report once when it is idle. The run skill's repair, restart and 6-hour bound do not
+   alive, stop it (operation 5) and run `board idle`, as in "The loop". The run skill's repair, restart and 6-hour bound do not
    apply to supervisors.
 4. **List descendants:** `stu-tree --root <supervisor agent id>` (exit 0 means something in the
    tree is live). `ListAgents` is not available inside a subagent and is not used.
