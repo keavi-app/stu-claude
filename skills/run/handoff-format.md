@@ -103,13 +103,17 @@ to the objective. A supervisor resuming from an objective that has grown anyway 
 
 Run state:              running | stopped — <the BLOCKED/DONE line, verbatim> |
                          waiting-on-human |
-                         settled <YYYY-MM-DD> — <what /stu:settle changed, one line>
+                         settled <YYYY-MM-DD> — <what /stu:settle changed, one line> |
+                         fleet-relaunch <YYYY-MM-DD>
+                         (`fleet-relaunch` is written by a fleet coordinator alone, never by a
+                         run or by /stu:settle: a relaunch is pending, and the run that resumes
+                         from it starts its cycle count at `0/<cap>`.)
                          (global, never per lane. `waiting-on-human`: nothing is outstanding or
                          parked, but a unit is Waiting or awaits approval. Precedence at the last
                          write: stopped > waiting-on-human > settled. The supervisor writes
                          `settled ... nothing to settle` only per the run skill's final-message
                          rule. /stu:settle edits this section,
-                         only while this line reads stopped, waiting-on-human or settled, and only as its
+                         only while this line reads stopped, waiting-on-human, settled or fleet-relaunch, and only as its
                          step 5 lists: Run state, Parked, Outstanding, Closed for a
                          dropped unit, and the issued sets for a unit the owner adds.)
 Cycles used:            <n>/<cap>

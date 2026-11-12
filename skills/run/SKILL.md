@@ -133,7 +133,8 @@ before anything is dispatched: a unit whose `after:` names a predecessor in anot
      Report `DONE`; dispatch nothing. If an unapproved `Awaiting approval:` entry remains, the run
      stays `waiting-on-human`: print the final message for that state ("Final message", below).
    - `Run state: settled` means `/stu:settle` already folded the owner's answers into the
-     objective and scoreboard; start from them as written.
+     objective and scoreboard; start from them as written. `fleet-relaunch <date>` is the same
+     for this purpose: a coordinator relaunched you, so start from the scoreboard as written.
 
 **Concurrent runs.** In the startup read batch, run `stu-claims list --runs` and drop your own run slug (the
 objective file's name without `.md`), with or without a trailing ` waiting`. A `<run> waiting` line
@@ -956,7 +957,9 @@ Report `CYCLES_USED/CAP` in the morning line.
 
 **The cap counts per run**, not per invocation. At Resume, below the cap, the
 count continues (`<n+1>/<cap>`) if `Run state:` reads `settled <date> — nothing to settle`, or
-reads `stopped —` and any lane line carries `self-stop:`. Anything else, every `/stu:settle` line included, starts at `0/<cap>`.
+reads `stopped —` and any lane line carries `self-stop:`. Anything else, every `/stu:settle` line
+included, starts at `0/<cap>`; so does `Run state: fleet-relaunch <date>`, which only a fleet
+coordinator writes, because the objective's cap is per launch.
 
 ## Turn discipline
 
