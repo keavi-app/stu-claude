@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.11
+
+- The content lint that checks every repo-scoped `stu-env` call in `agents/` carries `--repo` now
+  reads the full list of family-only sections. It used to read only the first line of that list,
+  so `judgment-model` counted as repo-scoped and a correct call without `--repo` would have failed
+  the lint. A new check fails if any section the config template calls family-only is missing from
+  the set the lint reads.
+
 ## 0.2.10
 
 - New `stu:settler` agent, the first judgment seat. Given a stopped run's objective in draft mode,

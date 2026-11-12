@@ -78,9 +78,15 @@ done)
 check_set "every backticked stu-forge verb is in scripts/stu_forge.py" "$badverbs"
 
 # In agents/, a repo-scoped stu-env section/commands/records call carries --repo. Family-only
-# ids come from FAMILY_ONLY_SECTIONS in scripts/stu_env.py, read as text.
-famonly=$(grep -E '^FAMILY_ONLY_SECTIONS' scripts/stu_env.py | grep -oE '"[a-z0-9-]+"' | tr -d '"')
+# ids come from FAMILY_ONLY_SECTIONS in scripts/stu_env.py, imported rather than grepped: the
+# tuple wraps across lines, and a line grep silently dropped every id after the first line.
+famonly=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import stu_env
+print("\n".join(stu_env.FAMILY_ONLY_SECTIONS))')
 [ -n "$famonly" ] || check_set "stu_env.py FAMILY_ONLY_SECTIONS parsed" "none found"
+# Every section the config template calls family-only must be in the set the lint reads.
+famgap=$(for id in completion-mode stop-condition-2 deep-pass-model judgment-model; do
+  printf '%s\n' "$famonly" | grep -qxF "$id" || echo "$id"; done)
+check_set "the lint's family-only set holds every family-only section" "$famgap"
 norepo=$(grep -rnE 'stu-env (section|commands|records) [a-z0-9-]+' agents | grep -vF -e '--repo' | while IFS= read -r hit; do
   id=$(printf '%s\n' "$hit" | grep -oE 'stu-env (section|commands|records) [a-z0-9-]+' | head -1 | awk '{print $3}')
   printf '%s\n' "$famonly" | grep -qxF "$id" || echo "$hit"
