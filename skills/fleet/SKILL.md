@@ -45,14 +45,21 @@ The seven operations:
 ## 2. The loop
 
 Run `stu-fleet next <program path>` and read its **stdout**. It exits 12 with its full output
-when the forge cannot answer for the merge lock's holder; that is not a failure here. Act on the
-lines, then run `next` again after every state change.
+when the forge cannot answer for the merge lock's holder; that is not a failure here. Any other
+nonzero exit from `stu-fleet` (1, 2, 3 or 13, from `program`, `board` or `next`) stops the loop:
+show its `REFUSED` or `BLOCKED` lines to the owner as they are and do nothing else until they
+answer. Act on the lines, then run `next` again after every state change.
 
 - `start <slug>`: run `stu-fleet board launch <program path> --run <slug>`, then launch a
   supervisor (operation 1) for that run with a fresh `STU-SUPERVISED: <nonce>` line (a new
   random string per launch, never reused) and the objective path in its prompt, so it runs
   `/stu:run` in supervised mode. Keep its agent id and the nonce. Then wait (operation 3) with
   **one deadline per supervisor**, armed alongside the launch; never one shared deadline.
+  **When the deadline fires,** check the supervisor's tree (operation 4). Alive: re-arm the
+  deadline, with no bound on the number of re-arms, because a healthy supervisor legitimately
+  runs 4 to 7 hours or more. Idle (nothing live, no return): report it to the owner once and take
+  no other action; relaunch is not built yet. The run skill's repair message, single restart and
+  6-hour re-arm bound are for orchestrators and do not apply to supervisors.
 - `wait <slug> — <reason>`: nothing to do.
 - `live <slug>`: nothing to do.
 - `done <slug>`: nothing.
@@ -69,6 +76,8 @@ lines, then run `next` again after every state change.
   7, 8, 9 and 11 of the run skill, or a wait on a merge, tag or approval). Send it to the owner
   as it is. Never relaunch it and never settle around it.
 - `relaunch <slug> — <stop>`: **relaunch policy is not built yet.** Report it to the owner.
+- `lock: held by <pr> — <reason>; not released`: the merge lock holder could not be checked on
+  the forge. Say so once in the wave report; the lock stays held and gates handle it.
 - `hold: set — <reason>`: the merge hold is set. Say so once in the wave report; gates refuse on
   their own.
 - `lanes: <live>/<cap>`: the lane use. The cap counts lanes, not supervisors.
@@ -126,8 +135,11 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    skill's routing table gives them.
 3. **Wait:** the completion notification of the background `Agent` call, plus one background
    `Bash` command per supervisor (`sleep 5400` with `run_in_background` and `timeout: 5500000`),
-   exactly as the run skill's "Liveness" describes. Keep its task id, and `TaskStop` it when the
-   return is accepted. When it fires, take operation 4 before doing anything else.
+   the same arming as the run skill's "Liveness" (timer arming and `TaskStop` on return only).
+   Keep its task id, and `TaskStop` it when the return is accepted. When it fires, take
+   operation 4 and apply the supervisor rule in "The loop": re-arm with no bound while the tree is
+   alive, report once when it is idle. The run skill's repair, restart and 6-hour bound do not
+   apply to supervisors.
 4. **List descendants:** `stu-tree --root <supervisor agent id>` (exit 0 means something in the
    tree is live). `ListAgents` is not available inside a subagent and is not used.
 5. **Stop a supervisor:** `TaskStop` with its agent id.

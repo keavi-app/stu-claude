@@ -154,8 +154,9 @@ none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonn
 fleet_leak=$(awk '
   NR==1 && /^---$/ { fm = 1; next }
   fm { if (/^---$/) fm = 0; next }
-  /^## / { bind = ($0 == "## Runtime binding") }
-  !bind && /(^|[^A-Za-z_])(Agent|TaskStop|ListAgents|SendMessage|PushNotification|Monitor|ToolSearch|Bash|subagent_type|run_in_background|cacheTtl)([^A-Za-z_]|$)/ { print FILENAME ":" NR ": " $0 }
+  /^[[:space:]]*```/ { fence = !fence }
+  !fence && /^## / { bind = ($0 == "## Runtime binding") }
+  !bind && /(^|[^A-Za-z_])(Agent|TaskStop|ListAgents|SendMessage|PushNotification|Monitor|ToolSearch|Bash|Write|Read|Edit|Task|Skill|WebFetch|subagent_type|run_in_background|cacheTtl)([^A-Za-z_]|$)/ { print FILENAME ":" NR ": " $0 }
 ' skills/fleet/SKILL.md)
 check_set "no Claude tool name in the fleet skill outside its Runtime binding section" "$fleet_leak"
 grep -qxF '## Runtime binding' skills/fleet/SKILL.md \

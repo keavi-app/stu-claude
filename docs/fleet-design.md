@@ -1,6 +1,6 @@
 # Stu fleet mode and judgment seats
 
-Status: design, partly built (S1, S2, S4, S9). Base: the 0.2.2 line. The owner's decisions are listed
+Status: design, partly built (S1 to S9). Base: the 0.2.2 line. The owner's decisions are listed
 under "Decisions". The nesting spike (S3) chose subagent supervisors, with two binding changes for
 S8; findings in `design-rationale.md`, "Fleet nesting spike".
 
