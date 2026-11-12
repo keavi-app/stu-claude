@@ -208,8 +208,8 @@ drafts and verifier or scout dispatches are never counted.
 
 Stated here so nothing assumes it:
 
-- The groomer and designer agents themselves (S12b and S13 add them); the board, `next` and the
-  return checks that schedule them exist.
+- The designer agent itself (S13 adds it); the board, `next` and the return checks that schedule it
+  exist. The groomer is built (`stu:groomer`).
 - Auto-narrow settle mode (a program that asks for it behaves as draft mode).
 - Codex: there is no Codex binding for this skill; `codex/runtime.md` says `fleet: not bound yet`.
 
@@ -222,7 +222,7 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    `run_in_background: true`, and a prompt of the `STU-SUPERVISED: <nonce>` line plus the
    objective path. No `model` is passed: a supervisor inherits the launcher's model.
 2. **Dispatch a seat:** an `Agent` call with the seat's `stu:` type (`stu:verifier`,
-   `stu:settler`, `stu:scout`, and `stu:groomer` and `stu:designer` once S12b and S13 land them)
+   `stu:settler`, `stu:scout`, `stu:groomer`, and `stu:designer` once S13 lands it)
    and its `model`. The settler's, groomer's and designer's model is the value of
    `stu-env section judgment-model`; empty means `opus`. Verifier and scout use the models the run
    skill's routing table gives them.

@@ -95,6 +95,7 @@ AGENT_TURN_BUDGETS = {
     # greps), not the working bar. At 100 it had one unique catch and would have
     # forced a handoff on the 125-140-turn runs that finish cleanly today.
     "implementer": 140,
+    "groomer": 120,
 }
 
 # Context bands. SOFT = finish the unit and hand off; HARD = hand off now,
@@ -106,6 +107,8 @@ AGENT_TURN_BUDGETS = {
 AGENT_CTX_BANDS = {
     "orchestrator": (120_000, 160_000),
     "implementer": (150_000, 190_000),
+    # The groomer is a judgment seat that dies of context, not turns: the orchestrator's pair.
+    "groomer": (120_000, 160_000),
 }
 # The fleet pair: any agent type with no row above. RUN_CTX_SOFT / RUN_CTX_HARD,
 # read at call time, override the table for every agent type.

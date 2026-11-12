@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.20
+
+- New `stu:groomer` agent, the second judgment seat. `KIND: groom` turns an audit report, epic or
+  ledger batch into verified issues (filed only under the filing test, otherwise dropped or written
+  to the ledger inbox) and, when it feeds a run, writes that run's objective at a new path.
+  `KIND: audit` tries to break a stated invariant and reports what was tried, what held and what
+  broke. It writes its report as it goes, returns `SPLIT` for an oversized scope, and carries
+  context bands of 120k/160k in the turn guard. Codex: fleet is still not bound.
+
 ## 0.2.19
 
 - The fleet board now tracks judgment jobs. Each line under `## Judgment work` gets a job line
