@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.16
+
+- `/stu:fleet` now acts on what `stu-fleet` decides: it launches with the nonce `board launch`
+  prints, runs `board relaunch` for a `relaunch` line, stops an idle supervisor and then runs
+  `board idle`, sends limit and loop-guard `owner` lines and `notice:` lines to the owner, runs
+  `board judgment` before any groom, audit or design dispatch, and adds `stu-fleet actuals` to the
+  wave report. The "not built yet" list shrinks to the settle brief loop, the groom, audit and
+  design seats, and Codex.
+
 ## 0.2.15
 
 - The fleet board now records actuals. `board record` and `board idle` read the launch's

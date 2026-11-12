@@ -230,9 +230,10 @@ of their states, and brings you what needs you. The scripts hold the state and t
 [the fleet design](docs/fleet-design.md), "The program file". Claude Code only: Codex has no fleet
 binding yet.
 
-Not built yet: relaunching a stopped supervisor, enforcing the cycle budget and the loop guard,
-and the settle brief loop. A run that parks questions or stops for you is listed for you, and
-`spend` only reports. Treat it as a way to try the shape, not a replacement for starting runs
+The coordinator relaunches a supervisor that stopped with units left, holds starts and relaunches
+once the cycle budget is spent or `Stop at:` has passed, and stops relaunching a run whose last two
+launches closed no unit. Not built yet: the settle brief loop, so a run that parks questions is
+listed for you. Treat it as a way to try the shape, not a replacement for starting runs
 yourself.
 
 ## Coming from a copied install
