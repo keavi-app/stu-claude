@@ -581,7 +581,7 @@ def test_next():
           out, ["live alpha", "start gamma", "wait delta — resource sim held by gamma",
                 "wait eps — lane cap 4/4", "hold: clear", "lanes: 1/4"])
     rc, out, err = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})
-    check("cap from config hook", (out[1], out[-1]), ("wait gamma — lane cap 1/2", "lanes: 1/2"))
+    check("cap from config hook", (out[1], out[-1]), ("owner gamma — needs 3 lanes, cap 2", "lanes: 1/2"))
     program([("alpha", a, "none", "db"), ("gamma", c, "none", "sim")],
             header=HEADER + "Max live lanes: 9\n", tail="\n## Fleet board\n" + brd("alpha", "live") + "\n")
     check("program cap overrides config", pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})[1],
