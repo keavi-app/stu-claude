@@ -554,7 +554,7 @@ def test_spend():
     rc, out, err = pfleet("spend", PROG)
     check("spend default budget is the sum of caps", (rc, out), (0, [
         "run alpha: cycles 5, launches 2", "run beta: cycles 3, launches 1", "fleet: cycles 8",
-        "budget: 8/10 (80%)", "judgment-jobs: not counted until S10"]))
+        "budget: 8/10 (80%)", "judgment-jobs: not counted yet"]))
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: 40\n")
     check("explicit budget", pfleet("spend", PROG)[1][-2], "budget: 0/40 (0%)")
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: none\n")
@@ -632,6 +632,32 @@ def test_next():
     check("no state file is not an error", pfleet("next", PROG)[0], 0)
 
 
+def test_review_fixes():
+    a = objective("a")
+    obj = write(os.path.join(PDIR, "hd-objective.md"),
+                "# O\n\nWritten x. Mode: overnight. Cycle cap: 4.\n\n## Scoreboard\n\n"
+                "### Lane: A\nLane state: running\n## Lane: B\nLane state: running\n")
+    check("markdown lane headings counted", stu_fleet.objective_facts(obj)[1], 2)
+    # a handoff path with a space round-trips through record, show and next
+    program([("alpha", a, "none", "none")])
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    ret = run_ret(os.path.join(PDIR, "sp.txt"), a, cycles="1/4")
+    text = open(ret).read().replace(HANDOFF, "/x/my handoff.md")
+    write(ret, text)
+    check("record with spaced handoff", pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)[0], 0)
+    rc, out, err = pfleet("board", "show", PROG)
+    check("show reads it back", (rc, "handoff: /x/my handoff.md | stop:" in out[0]), (0, True))
+    check("next reads it back", pfleet("next", PROG)[0], 0)
+    # a run needing more lanes than the cap
+    big = objective("big", mode="overnight", lanes=3)
+    program([("big", big, "none", "none")])
+    rc, out, err = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})
+    check("oversize run goes to the owner", out[0], "owner big \u2014 needs 3 lanes, cap 2")
+    program([("big", big, "none", "none")], header=HEADER + "Max live lanes: 2\n")
+    rc, out, err = pfleet("program", "check", PROG)
+    check("check blocks oversize run", (rc, any("3 lanes" in x for x in out)), (1, True))
+
+
 def test_fleet_usage():
     check("unknown program subcommand", pfleet("program", "run", PROG)[0], 2)
     check("unknown flag", pfleet("spend", PROG, "--run", "x")[0], 2)
@@ -644,7 +670,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_real_forge_through_fake_gh, test_fail_closed_on_bad_state, test_usage,
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_spend,
-          test_next, test_fleet_usage):
+          test_next, test_review_fixes, test_fleet_usage):
     t()
 
 if FAILURES:

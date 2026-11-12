@@ -442,7 +442,7 @@ def objective_facts(path):
         head.append(ln)
     m = re.search(r"\bCycle cap:\s*(\d+)", "\n".join(head))
     cap = int(m.group(1)) if m and int(m.group(1)) >= 1 else None
-    lanes = len(re.findall(r"(?m)^\s*Lane:\s*\S", text))
+    lanes = len(re.findall(r"(?m)^\s*(?:#+\s*)?Lane:\s*\S", text))
     return cap, max(1, lanes)
 
 
@@ -474,7 +474,7 @@ def split_list(v):
 def parse_board_line(ln, where):
     m = re.fullmatch(
         r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
-        r"handoff: (\S+) \| stop: (.+)" % SLUG_RE, ln.rstrip("\n"))
+        r"handoff: (.+?) \| stop: (.+)" % SLUG_RE, ln.rstrip("\n"))
     if not m or m.group(2) not in STATES:
         raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
     return {"slug": m.group(1), "state": m.group(2), "cycles": int(m.group(3)),
@@ -616,6 +616,10 @@ def validate_program(prog, block):
                 if r["cap"] is None:
                     block(r["line"], "run %s: objective has no 'Cycle cap: <n>' line; a fleet "
                                      "objective states its cap (startup stop)" % r["slug"])
+        mx = h.get("Max live lanes")
+        if mx and pos(mx[0]) and r["lanes"] > int(mx[0]):
+            block(r["line"], "run %s: its objective declares %d lanes but Max live lanes: is %s; "
+                             "raise the cap or cut the lanes" % (r["slug"], r["lanes"], mx[0]))
         for a in r["after"]:
             if a not in slugs:
                 block(r["line"], "run %s: after: names %r, which is not a run" % (r["slug"], a))
@@ -852,7 +856,7 @@ def cmd_spend(sub, a):
     else:
         limit = int(raw) if raw else sum(r["cap"] for r in prog["runs"])
         print("budget: %d/%d (%d%%)" % (total, limit, total * 100 // limit))
-    print("judgment-jobs: not counted until S10")
+    print("judgment-jobs: not counted yet")
     return 0
 
 
@@ -922,6 +926,8 @@ def cmd_next(sub, a):
                 print("wait %s — after %s" % (slug, ",".join(pending)))
             elif clash:
                 print("wait %s — resource %s held by %s" % (slug, clash[0][0], clash[0][1]))
+            elif r["lanes"] > cap:
+                print("owner %s \u2014 needs %d lanes, cap %d" % (slug, r["lanes"], cap))
             elif live + r["lanes"] > cap:
                 print("wait %s — lane cap %d/%d" % (slug, live, cap))
             else:
