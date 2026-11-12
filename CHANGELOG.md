@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.10
+
+- New `stu:settler` agent, the first judgment seat. Given a stopped run's objective in draft mode,
+  it drafts a ruling for every unanswered question (a plain-language question, a recommendation, a
+  "reverses if" line, any deploy precondition, which park-or-decide row it falls on, and flags),
+  has a `stu:verifier` check each one against the project guide and the code on the base branch,
+  saves the draft to the run's `settle/` folder, and returns one brief the owner answers in a line:
+  `fine`, `reverse 2, 5` or `talk about 3`.
+- In write mode it takes the owner's line and does the ruling writes only (settle step 5a): an
+  accepted ruling is marked `(by: settler; owner-approved <date>)`, a reversed one is written as
+  the opposite and marked `(by: owner)`, and a deploy precondition goes to the merge hold. It never
+  touches the scoreboard; it hands back `SCOREBOARD-TODO` lines for the dispatcher to do.
+- Rows 2 to 6 of park-or-decide, a possible stop-condition-2 disagreement (which implies
+  `owner-only`), and any reversal of an earlier ruling are always flagged for the owner. Bare `fine`
+  covers only unflagged items and items flagged only `owner-only`; a `reversal` or `sc2-candidate`
+  item, or one whose verifier verdict is not `HOLDS` (verdicts now include `PARTIAL` and
+  `UNVERIFIED`), needs an explicit `accept <n>` in the answer line, which is now
+  `fine | accept 2 | reverse 2, 5 | talk about 3`. The return check also rejects a brief line that
+  omits a flag its `R` line carries.
+- The settler's return is a fixed block, defined in the handoff format and checked by a new
+  `stu-run-check --settler-return FILE` mode. The settle skill gains a short "Drafting by
+  `stu:settler`" section; the interactive `/stu:settle` path is unchanged. The run skill's routing
+  row now lists the settler as built. Codex: fleet is still not bound.
+
 ## 0.2.9
 
 - `/stu:run` now has a supervised mode for a fleet coordinator: a run whose prompt carries a

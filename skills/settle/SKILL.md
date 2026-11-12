@@ -178,6 +178,26 @@ Why, and the evidence: `docs/fleet-design.md`, "Settling".
   pick a side on) is flagged, never reclassified away.
 - Promoting an observation-ledger entry to an issue, unless the program opts in.
 
+### Drafting by `stu:settler`
+
+A session or coordinator may hand the drafting to a `stu:settler` instead of walking the owner
+through step 4 itself. The interactive one-question-at-a-time path above stays the default for
+`/stu:settle`; this is the alternative for a coordinator that already holds the objective.
+
+1. Dispatch `stu:settler` with `MODE: draft` and the objective path (model: the `stu-env section
+   judgment-model` value when non-empty). It returns the settler return block
+   (`${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, "The settler return"); save it to a file
+   and run `stu-run-check --settler-return <file>`.
+2. Show the owner its `BRIEF:` block as it is. The owner answers in a line: `fine`, `accept 2`,
+   `reverse 2, 5` or `talk about 3`, combinable. Bare `fine` covers only unflagged items and items
+   flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier
+   verdict is not `HOLDS`, is marked in the brief as needing an explicit `accept <n>`.
+3. Dispatch `stu:settler` with `MODE: write`, the draft path from the return, and the owner's line
+   verbatim. It performs step 5a only, and an item that needs an explicit `accept <n>`
+   and did not get one stays unanswered (UNANSWERED).
+4. Perform every `SCOREBOARD-TODO:` line it returns yourself, under 5b. The settler never does.
+   A `talk about` item stays unanswered: walk it through step 4.
+
 ## 6. Hand back one line
 
 ```

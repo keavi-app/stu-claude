@@ -17,9 +17,9 @@ none "no .claude/agents/ paths" '\.claude/agents/' skills agents scripts bin
 none "no scripts/ paths in skills/agents (use stu-claims, stu-ctx, stu-ci-wait)" \
   'scripts/(run_claims|ctx|ci-wait)' skills agents
 none "no unprefixed subagent_type" \
-  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier)"' skills agents
+  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler)"' skills agents
 none "no unprefixed backticked agent names" \
-  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier)`' skills agents
+  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler)`' skills agents
 none "no /autonomous-run" '/autonomous-run' skills agents scripts bin
 none "no bare autonomous-run" 'autonomous-run' skills agents
 none "no unprefixed /settle" '(^|[^a-z])/settle([^/]|$)' skills agents scripts bin
@@ -131,6 +131,15 @@ check_set "hand-off commands stand alone on their own line" "$missing"
 if grep -E '^\| .*judgment seat' skills/run/SKILL.md | grep -qF 'stu-env section judgment-model'
 then echo "ok   routing table has the judgment-seat row naming judgment-model"
 else echo "FAIL routing table has the judgment-seat row naming judgment-model"; fails=$((fails + 1)); fi
+# The settler performs settle step 5a only: its text names 5a, says it never performs 5b, and it
+# never dispatches an orchestrator, implementer or merge gate.
+missing=$(need agents/settler.md '5a' 'You never perform 5b' 'MODE: draft' 'MODE: write' 'stu-run-check' 'SCOREBOARD-TODO')
+check_set "settler names 5a and never performs 5b" "$missing"
+none "settler is not a dispatcher of orchestrators, implementers or gates" \
+  'stu:(orchestrator|implementer|merge-gate)' agents/settler.md
+if fm agents/settler.md | grep -qxE 'model: opus' && fm agents/settler.md | grep -E '^tools:' | grep -qF 'Agent'
+then echo "ok   settler is on the default judgment model and holds Agent"
+else echo "FAIL settler is on the default judgment model and holds Agent"; fails=$((fails + 1)); fi
 # No agent or skill names a literal Claude model ID; models come from config or aliases.
 none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonnet|haiku|fable|[0-9])' skills agents
 exit $((fails > 0))

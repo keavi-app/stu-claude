@@ -11,6 +11,10 @@
       `<id> APPROVED <sha>` for each `Awaiting approval:` entry whose id AND full sha have a
       record in the approvals file, then `OK`. It reads that file itself, so no seat ever
       names it. A record for another id at the same sha does not count here.
+  stu-run-check --settler-return PATH
+      Checks a `stu:settler` return block against the schema in handoff-format.md, "Settler
+      return". One `SETTLER BLOCKED malformed: <problem>` line per problem, then `BLOCKED`
+      (exit 1); a well-formed block prints `SETTLER OK <status>` and `OK`. It reads no objective.
 
   stu-run-check --supervisor-return PATH
       Validates the "Supervisor return" block a supervised `/stu:run` ends with (no objective
@@ -205,6 +209,7 @@ sys.path.insert(0, HERE)
 import push_policy  # noqa: E402
 import stu_env  # noqa: E402
 import stu_forge  # noqa: E402
+import settler_return  # noqa: E402
 
 GH_VERBS = ("pr-state", "claim-state", "landed")
 PR_ENTRY = re.compile(r"^([^#@\s/]+/[^#@\s/]+)#([0-9]+)@(\S*)$")
@@ -1110,8 +1115,25 @@ def run_returns(chk, fields):
     return lines, any_blocked
 
 
+def run_settler_return(argv):
+    if len(argv) != 2 or argv[0] != "--settler-return":
+        raise ToolError("usage", "usage: stu-run-check --settler-return PATH")
+    text = read_text(argv[1], "settler return")
+    problems = settler_return.check(text)
+    block, _ = settler_return.parse(text)
+    if not problems:
+        return ["SETTLER OK %s" % block["status"]], False
+    return ["SETTLER BLOCKED malformed: %s" % p for p in problems], True
+
+
 def main(argv):
     try:
+        if argv and argv[0] == "--settler-return":
+            lines, blocked = run_settler_return(argv)
+            for ln in lines:
+                print(ln)
+            print("BLOCKED" if blocked else "OK")
+            return 1 if blocked else 0
         args = parse_args(argv)
         if "supervisor-return" in args:
             lines = check_supervisor_return(read_text(args["supervisor-return"], "supervisor return"))
