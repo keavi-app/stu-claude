@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.14
+
+- `stu-fleet` now decides relaunches and enforces limits. `next` prints `relaunch <slug>` for a run
+  whose supervisor stopped with units left, and turns any start or relaunch into an `owner` line
+  once the cycle budget is spent or the program's `Stop at:` has passed. A live run is never
+  stopped by a limit. Each limit prints one `notice:` line at 80% and at 100%, once per program.
+- New `board idle` (for a supervisor that went quiet and was stopped without returning),
+  `board relaunch` (re-checks the limits under the lock, writes `Run state: fleet-relaunch <date>`
+  into the objective, then launches), and `board judgment` (counts one groom, audit or design job
+  against `Judgment jobs:`). `spend` now reports judgment jobs, `Stop at` and each run's dry count.
+- A loop guard, always on: two launches in a row that close no unit stop the relaunching and send
+  the run to the owner.
+- Each launch gets a nonce, printed last by `board launch` and `board relaunch`, for the
+  coordinator to put in the supervisor's `STU-SUPERVISED:` line.
+- A Runs line takes `| lanes: <n>`; an overnight objective must declare it. The board lines gain
+  `closed`, `dry` and `nonce` fields and a final `fleet` line; boards from 0.2.12 still read.
+
 ## 0.2.13
 
 - New experimental skill `/stu:fleet <program path>`. It runs several objectives from one

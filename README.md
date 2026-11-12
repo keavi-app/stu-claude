@@ -115,7 +115,7 @@ A `PreToolUse` hook is the publish guard's tool-call half; see Publishing safely
 | `stu-tree` | Lists a subagent's live descendants and exits 0 when any is running. |
 | `stu-ci-wait` | One background call, one line: waits for a PR's CI verdict instead of polling. |
 | `stu-approve` | `stu-approve <id> <sha>`: records the owner's approval of one commit for a before-push checkpoint. Human-only. |
-| `stu-fleet` | The merge hold and the merge lock, one file under the run home: `hold set|clear|status`, `lock take|release|status`. Gates read it before they label or merge. |
+| `stu-fleet` | The merge hold and the merge lock, one file under the run home: `hold set|clear|status`, `lock take|release|status`; plus the fleet program, board, `spend` and `next`. Gates read it before they label or merge. |
 | `stu-forge` | Forge facts for the run kit (pull requests, labels, tags, checks) with a fail-closed output contract: result lines, then one `OK` or `ERROR <class> <detail>` line. |
 | `stu-pre-push` | The publish guard's git `pre-push` hook: `--install` writes it, `--check` prints `INSTALLED` or `MISSING`. |
 | `stu-run-check` | The supervisor's mechanical checks on one orchestrator return; `--approved` lists the approved awaiting units; `--supervisor-return` validates a supervised run's return block. |
@@ -225,7 +225,7 @@ Cost is roughly context size times number of turns, so stu bounds both.
 `/stu:fleet <program path>` turns the main session into a coordinator for several objectives at
 once. It launches one supervised `/stu:run` per objective as a background subagent, keeps a board
 of their states, and brings you what needs you. The scripts hold the state and the decisions
-(`stu-fleet program check`, `board`, `spend`, `next`); the skill carries them out. The program file
+(`stu-fleet program check`, `board show|launch|record|requeue|idle|relaunch|judgment`, `spend`, `next`); the skill carries them out. The program file
 (owner, lane cap, runs and their `after:` and `resources:`, the merge lock) is described in
 [the fleet design](docs/fleet-design.md), "The program file". Claude Code only: Codex has no fleet
 binding yet.

@@ -18,33 +18,93 @@
                                         fold a supervisor return into the run's board line
   stu-fleet board requeue PROGRAM --run SLUG
                                         settle|relaunch|owner -> queued
-  stu-fleet spend PROGRAM               cycles and launches per run, and the fleet cycle budget
-  stu-fleet next PROGRAM                one decision line per run, then hold and lanes
+  stu-fleet board idle PROGRAM --run SLUG
+                                        a live supervisor found idle and stopped, no return -> relaunch
+  stu-fleet board relaunch PROGRAM --run SLUG
+                                        relaunch a run the policy allows now; prints the new nonce
+  stu-fleet board judgment PROGRAM --job SLUG
+                                        count one groom, audit or design dispatch
+  stu-fleet spend PROGRAM               cycles, launches and dry launches per run; budget, judgment
+                                        jobs and Stop at
+  stu-fleet next PROGRAM                one decision line per run, notices, hold, lanes, limits
 
 State: <RUN_HOME>/merge-hold.json (override: STU_FLEET_FILE), RUN_HOME from stu-env. Every
 read-modify-write runs under an exclusive flock on a sibling `.lock` file and replaces the
 state file atomically. An unreadable state file is an error (exit 3), never "no hold".
 
 The program file (docs/fleet-design.md, "The program file") carries the board in its
-`## Fleet board` section, one line per run, in Runs order:
+`## Fleet board` section, one run line per run in Runs order, then one fleet line, always last:
 
   - <slug> | state: <queued|live|settle|relaunch|owner|done> | cycles: <n> | launches: <n> |
-    from: <n> | handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
+    from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | handoff: <abs path|none> |
+    stop: <none|STOP-CONDITION verbatim>
+  - fleet | judgment: <n> | notices: <none|comma list of cycle-80,cycle-100,judgment-80,
+    judgment-100,stop-at>
 
-(one physical line; `|` inside copied text is written `/`). Only stu-fleet writes it: under an
+(one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
+named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
+and nonce) reads as closed 0, dry 0, nonce none, and a missing fleet line as judgment 0, notices
+none; the next write emits v2. Anything else malformed, a fleet line that is not last, a
+duplicate, or an unknown notice id is exit 3. Only stu-fleet writes the section: under an
 exclusive flock on `<program>.lock`, replacing the program file atomically and touching nothing
 outside that section. `cycles` is fleet-cumulative; `from` is the count the current launch
 resumed from, taken from the objective's `Run state:` and `Cycles used:` by `resume_count`
-(the run skill's "The cycle cap"). A board line naming a slug not in Runs, or a malformed one,
-is an error (exit 3), never dropped. `program check` prints a normalized summary, or one
-`line N BLOCKED: <detail>` per problem then `BLOCKED`. Every other program command refuses a
-program with problems the same way (exit 1). `board record` validates the return with
-`run_check.check_supervisor_return` (the same validator as `stu-run-check
---supervisor-return`), refuses a return for another objective, and refuses unless the run is
-live and the cycle delta is not negative.
+(the run skill's "The cycle cap"); `closed` is the number of distinct unit IDs in the
+objective's `Closed:` lines (first word of each comma-separated item, union across `Lane:`
+blocks, NONE is 0) when the current launch began; `dry` counts consecutive launches that ended
+with no new closed unit; `nonce` is the current launch's. A board line naming a slug not in
+Runs, or a malformed one, is an error (exit 3), never dropped. `program check` prints a
+normalized summary, or one `line N BLOCKED: <detail>` per problem then `BLOCKED`. Every other
+program command refuses a program with problems the same way (exit 1).
 
-`next` prints, in Runs order, `start|wait|settle|owner|relaunch|live|done <slug>` lines (`—` separates the reason), then
-`hold: set — <reason>` or `hold: clear`, then `lanes: <live>/<cap>`. Before that it observes the
+A Runs line takes an optional trailing `| lanes: <n>`. A run's lane count is
+max(declared, counted `Lane:` headings, 1). `program check` blocks an objective whose header
+says `Mode: overnight` without `lanes:`, and a plain objective declaring anything but 1.
+
+`board launch` marks a run live, snapshots `from` and `closed`, stores a fresh random nonce
+(`stu-<hex>`, agent_tree's NONCE_RE) and prints the board line, then `nonce: <nonce>` as its
+last line. `board record` validates the return with `run_check.check_supervisor_return` (the
+same validator as `stu-run-check --supervisor-return`), refuses a return for another objective,
+and refuses unless the run is live and the cycle delta is not negative. `board record` and
+`board idle` apply the loop guard (always on): the objective's closed count now, not greater than
+the launch's `closed`, adds 1 to `dry`, else resets it; a resulting `relaunch` with dry >= 2
+becomes `owner` with stop `loop guard — 2 launches closed no unit; last stop: <that stop>`.
+`done`, `settle` and `owner` outcomes keep their state. `board idle` (refused 13 unless live)
+is for a supervisor the coordinator found idle and already stopped: state relaunch, stop
+`idle — no return`, handoff = the objective scoreboard's first `Last handoff:` (`none` if
+absent), cycles += `Cycles used` numerator - `from` (a negative delta is refused, never clamped).
+
+`board relaunch` is refused (13) unless the run is `relaunch` and the `next` policy says
+`relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
+limit). Then, in one step, it rewrites the first `Run state:` line inside the objective's
+`## Scoreboard` to `fleet-relaunch <YYYY-MM-DD>` (the program clock's date) and launches as
+`board launch` does (so `from` is 0), printing the board line and the nonce. This is the one
+place stu-fleet writes an objective: under a flock on `<objective>.lock`, atomic replace,
+nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
+is refused (13) before anything is written. It never edits a `Cycle cap:`.
+
+Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `board judgment`:
+the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
+runs' caps, `none` = no limit; spent at used >= limit), judgment jobs (used = the fleet line's
+`judgment`; `Judgment jobs:`, default none; spent at used >= limit) and `Stop at:` (passed when
+the program clock is at or after it). Limits are never raised or edited here. `board judgment
+--job SLUG` counts one dispatch (SLUG must be a `## Judgment work` line, else exit 1); it is
+refused (13) when judgment jobs are spent or Stop at has passed; it prints
+`judgment-jobs: <used>/<limit|none>`.
+
+`next` prints, in Runs order, `start|wait|settle|owner|relaunch|live|done <slug>` lines (`—`
+separates the reason). A queued run that would start, and a `relaunch` run, become
+`owner <slug> — cycle budget spent <used>/<limit>` or `owner <slug> — stop at <time> passed`
+(cycle budget first); otherwise a `relaunch` run prints `relaunch <slug> — <stop>`, after the
+same `after:`, resource and lane checks as `start` (`wait` with the same reasons when they block).
+A live run is never stopped by a limit. After the run lines: one `notice: cycle-budget|
+judgment-jobs 80|100% (<used>/<limit>)` per limit at or over that mark and `notice: stop-at
+passed (<time>)`, each printed once per program ever (recorded in the fleet line's `notices`
+under the program lock, before printing); then `hold: set — <reason>` or `hold: clear`, then
+`lanes: <live>/<cap>`, `budget: <used>/<limit|none>` and `judgment-jobs: <used>/<limit|none>`.
+`spend` prints `run <slug>: cycles <n>, launches <n>, dry <n>` per run, `fleet: cycles <n>`,
+`budget: <used>/<limit> (<pct>%)` or `<used>/none`, `judgment-jobs: <used>/<limit|none>` and
+`stop-at: <time|none> (passed|not passed)`. Before `next` prints anything else it observes the
 merge lock holder on the forge and releases it when its PR merged, closed or lost its label
 (`lock: released ...`); a holder the forge cannot answer for stays held, the full output is still
 printed, and the exit is 12. The effective lane cap is the program's `Max live lanes:`, else
@@ -59,8 +119,9 @@ refusal, never an assumption. Then it refuses if the hold is set, then if anothe
 holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR).
 
 The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
-STU_FLEET_LABEL_GRACE and STU_FLEET_MAX_LANES are TEST-ONLY hooks (state file path, stand-in
-forge command, clock, grace, lane cap used when the program has no `Max live lanes:`); nothing
+STU_FLEET_LABEL_GRACE, STU_FLEET_MAX_LANES and STU_FLEET_NONCE are TEST-ONLY hooks (state file
+path, stand-in forge command, clock, grace, lane cap used when the program has no `Max live
+lanes:`, a fixed launch nonce); nothing
 in a real run sets them. `hold status` and `lock status` are read-only: they take no
 flock (writes replace the file atomically) and never call the forge. `program check`,
 `board show` and `spend` are read-only too.
@@ -68,8 +129,9 @@ flock (writes replace the file atomically) and never call the forge. `program ch
 Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED lines);
 2 usage; 3 error (state file, run home, unreadable program, malformed board); 10 refused, hold
 set; 11 refused, lock held; 12 refused, holder not checkable on the forge; 13 refused, board
-state (launching a live or done run, recording into a run that is not live, a negative cycle
-delta, requeuing from a state that cannot be requeued). A refusal prints one line that
+state (launching a live or done run, recording or idling a run that is not live, a negative cycle
+delta, requeuing from a state that cannot be requeued, relaunching a run the policy does not
+allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite). A refusal prints one line that
 begins `REFUSED ` followed by the reason text a gate returns (`fleet-hold: ...`,
 `fleet-lock: ...` or `fleet-board: ...`).
 """
