@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.7
+
+- `/stu:settle` now writes its results in two named parts. Ruling writes (the answers, the
+  rulings, what the owner reviewed, and any deploy precondition, which goes to the merge hold with
+  `stu-fleet hold set` rather than a notes file) are safe for a settler agent to do. Scoreboard
+  writes stay with the settle session itself, or the fleet coordinator, and are never done by an
+  agent that drafted rulings.
+- Every line under `Rulings already given` now ends in a mark saying who ruled: `(by: owner)`,
+  or `(by: settler; owner-approved <date>)`. A later reversal names the ruling it reverses. Old
+  lines with no mark read as the owner's. Nothing parses these lines, so older runs are unaffected.
+- The settle skill lists what is always the owner's: reversing any ruling, deciding whether a
+  question is a stop-condition-2 disagreement, and promoting ledger entries.
+
 ## 0.2.6
 
 - New family-only config section `judgment-model`: one model (a runtime alias such as `opus` or an

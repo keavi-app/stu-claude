@@ -542,7 +542,7 @@ Set operations on IDs you already hold; none requires reading anything.
    that question. Parked is durable, so check 3 and a resumed run hold `DONE` until the owner rules.
    **A unit the owner adds — between runs through `/stu:settle` step 5, mid-run by telling you — is a
    the owner ruling, not `UNITS_ADDED`:** add it to the same three sets, record their words under
-   `Rulings already given`, and do not count it toward the cap.
+   `Rulings already given` marked `(by: owner)`, and do not count it toward the cap.
 3. `DONE` with non-empty `REMAINING_IDS` or `PARKED_IDS` -> **BLOCKED**, in any completion mode.
    `DONE` with a non-empty `WAITING_IDS` that `stu-run-check` accepted is legal: it sets `Run state:
    waiting-on-human` ("Which `Run state:` is written", below). Read `completion:` from the objective file (`handoff-format.md`; a missing line means the

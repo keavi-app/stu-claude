@@ -121,15 +121,36 @@ and no question waits, the run needed no settle.
 
 ## 5. Write it back
 
+Two kinds of write, kept apart. **A settler agent performs only the ruling writes.** The scoreboard
+writes are done by the `/stu:settle` session itself, or in a fleet by the coordinator; they are
+never delegated to an agent that drafted rulings, because a settler editing scoreboard fields by
+hand is how a checker gets walked past.
+
+### 5a. Ruling writes (settler-safe)
+
 **Questions file.** Append `## Answers — <YYYY-MM-DD>`, one line per unit: the answer, and
 the owner's own words whenever they went beyond "yes" (an amendment, a third option, a reason).
 
 **Objective file:**
 
-- `## Rulings already given`: one line per answer and per reversal, dated.
+- `## Rulings already given`: one line per answer and per reversal, dated, each ending in a
+  provenance mark (grammar in `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, "Rulings
+  already given"): `(by: owner)` for what the owner ruled, `(by: settler; owner-approved <date>)`
+  for a settler draft the owner accepted. A reversal names the ruling it reverses by date and text.
 - `## Decisions reviewed` (create it if absent): every skim-list decision the owner saw, one line
-  each, as written in the handoff, under a dated heading, plus the `Not shown` line. This is the watermark the next
-  settle checks against.
+  each, as written in the handoff, under a dated heading, plus the `Not shown` line. This is the
+  watermark the next settle checks against. Record only what the owner actually saw.
+- A ruling's **deploy precondition** is set on the merge hold, never in a notes file:
+  `stu-fleet hold set --reason "<precondition>"` (exit 0 set or already set, 2 usage, 3 error;
+  `hold clear` is the owner's). Name the hold in the ruling line.
+
+### 5b. Scoreboard writes (the settle session or the fleet coordinator only)
+
+Everything that touches the scoreboard, a `Readied` entry, `Run state:`, or any other field
+`stu-run-check` reads (`Units issued`, `Ever issued`, `Parked`, `Outstanding`, `Closed`, `Merged`,
+`Readied`, `Passed`, `Tagged`, `Approved`, `Waiting`, `Awaiting approval`). A settler agent never
+performs these.
+
 - Scoreboard, per lane:
   - An answered unit moves from `Parked` to `Outstanding`. That is a status change, not a
     membership change.
@@ -146,6 +167,15 @@ the owner's own words whenever they went beyond "yes" (an amendment, a third opt
 
 Do not touch `Cycles used`, `Model overrides`, or the check-5 counters. They belong to
 the supervisor, and the next `/stu:run` starts a fresh cycle count (the run skill's SKILL.md, "The cycle cap").
+
+### Always the owner's
+
+Why, and the evidence: `docs/fleet-design.md`, "Settling".
+
+- Reversing any earlier ruling, a settler's included.
+- A candidate stop-condition-2 disagreement (two sources of truth the project guide says never to
+  pick a side on) is flagged, never reclassified away.
+- Promoting an observation-ledger entry to an issue, unless the program opts in.
 
 ## 6. Hand back one line
 
