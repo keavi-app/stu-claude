@@ -519,12 +519,21 @@ def test_board_continue_and_negative():
         check("NEXT %s -> %s" % (nxt, want), (rc, out[0].split(" | ")[1]), (0, "state: %s" % want))
         if "|" in cond:
             check("pipe in stop replaced", out[0].endswith("stop: 2 — a / b"), True)
-        check("done run is not relaunched" if want == "done" else "launch of %s refused? no" % want,
-              pfleet("board", "launch", PROG, "--run", "alpha")[0], 13 if want == "done" else 0)
+        check("launch of a %s run refused 13" % want,
+              pfleet("board", "launch", PROG, "--run", "alpha")[0], 13)
     for st in ("queued", "live", "done"):
         program([("alpha", a, "none", "none")],
                 tail="\n## Fleet board\n" + brd("alpha", st) + "\n")
         check("requeue from %s refused" % st, pfleet("board", "requeue", PROG, "--run", "alpha")[0], 13)
+
+
+def test_launch_only_from_queued():
+    a = objective("a")
+    for st in ("settle", "relaunch", "owner", "done", "live"):
+        program([("alpha", a, "none", "none")], tail="\n## Fleet board\n" + brd("alpha", st, p="10 — c") + "\n")
+        before = open(PROG).read()
+        rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
+        check("launch from %s refused 13" % st, (rc, "not queued" in out[0], open(PROG).read()), (13, True, before))
 
 
 def test_board_errors_and_preservation():
@@ -987,7 +996,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
           test_real_forge_through_fake_gh, test_fail_closed_on_bad_state, test_usage,
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
-          test_board_continue_and_negative, test_board_errors_and_preservation, test_spend,
+          test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
           test_limits_and_next):

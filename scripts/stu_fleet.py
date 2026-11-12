@@ -13,7 +13,7 @@
   stu-fleet program check PROGRAM       parse and validate a fleet program file
   stu-fleet board show PROGRAM          print the board (a queued row for every run with none)
   stu-fleet board launch PROGRAM --run SLUG
-                                        mark a run live; records the cycle count it resumes from
+                                        mark a queued run live (any other state is refused 13); records the cycle count it resumes from
   stu-fleet board record PROGRAM --run SLUG --return FILE
                                         fold a supervisor return into the run's board line
   stu-fleet board requeue PROGRAM --run SLUG
@@ -129,7 +129,7 @@ flock (writes replace the file atomically) and never call the forge. `program ch
 Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED lines);
 2 usage; 3 error (state file, run home, unreadable program, malformed board); 10 refused, hold
 set; 11 refused, lock held; 12 refused, holder not checkable on the forge; 13 refused, board
-state (launching a live or done run, recording or idling a run that is not live, a negative cycle
+state (launching a run that is not queued, recording or idling a run that is not live, a negative cycle
 delta, requeuing from a state that cannot be requeued, relaunching a run the policy does not
 allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite). A refusal prints one line that
 begins `REFUSED ` followed by the reason text a gate returns (`fleet-hold: ...`,
@@ -888,7 +888,9 @@ def scoreboard(text):
 
 def closed_ids(text):
     """The distinct unit IDs in an objective's `Closed:` lines (the union across `Lane:` blocks;
-    `NONE` is none). An entry is the first word of each comma-separated item."""
+    `NONE` is none). The line is split on commas and the first word of each item is the ID.
+    Annotated entries with inner commas, or a list wrapped onto a continuation line, miscount;
+    that makes the loop guard trip earlier, never later."""
     ids = set()
     for m in re.finditer(r"(?m)^\s*Closed:[ \t]*(.*)$", scoreboard(text)):
         for item in m.group(1).split(","):
@@ -1120,11 +1122,13 @@ def cmd_board(sub, a):
         b = [x for x in board if x["slug"] == run["slug"]][0]
         nonce = None
         if sub == "launch":
-            if b["state"] in ("live", "done"):
-                return refuse(EXIT_BOARD, "fleet-board: %s is %s; %s" % (
-                    run["slug"], b["state"],
-                    "never two supervisors on one unit list" if b["state"] == "live"
-                    else "a done run is not launched again"))
+            if b["state"] != "queued":
+                why = {"live": "never two supervisors on one unit list",
+                       "done": "a done run is not launched again",
+                       "relaunch": "a relaunch goes through board relaunch",
+                       "settle": "requeue it first", "owner": "requeue it first"}[b["state"]]
+                return refuse(EXIT_BOARD, "fleet-board: %s is %s, not queued; %s" % (
+                    run["slug"], b["state"], why))
             nonce = begin_launch(run, b)
         elif sub == "relaunch":
             if b["state"] != "relaunch":
@@ -1273,6 +1277,8 @@ def lane_cap(prog):
 
 
 def cmd_next(sub, a):
+    """A notice is recorded in the fleet line before it is printed, so a crash in between loses
+    that one notice; deliberate, so a notice never prints twice."""
     prog = load_program(a["program"])
     rc = need_valid(prog)
     if rc:

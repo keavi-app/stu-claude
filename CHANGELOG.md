@@ -15,7 +15,8 @@
 - Each launch gets a nonce, printed last by `board launch` and `board relaunch`, for the
   coordinator to put in the supervisor's `STU-SUPERVISED:` line.
 - A Runs line takes `| lanes: <n>`; an overnight objective must declare it. The board lines gain
-  `closed`, `dry` and `nonce` fields and a final `fleet` line; boards from 0.2.12 still read.
+  `closed`, `dry` and `nonce` fields and a final `fleet` line; boards from 0.2.12 still read. An existing program with an overnight
+  run fails `program check` until its Runs line adds `| lanes: <n>`.
 
 ## 0.2.13
 
