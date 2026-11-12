@@ -314,6 +314,9 @@ A `PostToolUse` hook (`scripts/turn-guard.py`, `AGENT_CTX_BANDS`) reads both num
 transcript and tells you which one tripped: once on approach, again at the bar, then every 25 turns
 past it. That message is this budget speaking, not a suggestion to weigh against finishing.
 
+To read your own context yourself, run `stu-ctx --nonce <nonce>` with the nonce from the
+`STU-NONCE:` line of your dispatch prompt. A bare `stu-ctx` measures the root session, not you.
+
 **How.** Write `<run-dir>/handoffs/campaign-handoff-<n>.md` and return. The handoff is the **only**
 thing that crosses the boundary, so it is structured state, not prose:
 

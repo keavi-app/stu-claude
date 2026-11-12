@@ -4,7 +4,6 @@ description: Use when the owner starts a long autonomous session — /stu:run <h
 allowed-tools:
   - Agent
   - SendMessage
-  - ListAgents
   - TaskStop
   - Bash
   - Write
@@ -299,7 +298,7 @@ malformed schema.
 A completion notification fires when the orchestrator stops with **no live background subagent of
 its own**; a live background Bash (a CI wait) does not suppress it, so an interim "completed"
 notice can arrive while it waits. It can also stop WITH a subagent live (its own implementer, dispatched
-`run_in_background`): no notification fires, `ListAgents` shows it `completed` while the child
+`run_in_background`): no notification fires, the agent inventory shows it `completed` while the child
 runs, and a dead or hung child reaches you nowhere. Detect it with one background timer armed
 alongside the dispatch. Why: design-rationale.md, "Liveness incidents".
 
@@ -308,10 +307,13 @@ alongside the dispatch. Why: design-rationale.md, "Liveness incidents".
   `timeout`; the maximum is 7200000). Keep its task id; do not wait on it.
 - When the orchestrator's return (schema or repair reply) is accepted, `TaskStop` the timer in
   that same message. A later notification from a stopped or fired timer is one line, no check.
-- If the timer fires first, take the **tree check** once. The tree is alive when `ListAgents`
-  shows the orchestrator OR any child it dispatched running (an orchestrator `completed` with a
-  child running is alive), or when its worktrees' `HEAD` is moving (two samples about a minute
-  apart; the test "Restart once per lane" uses).
+- If the timer fires first, take the **tree check** once. Run `stu-tree --root <orchestrator
+  agent id>` (the id comes from the launch result). The tree is alive when it exits 0: the
+  orchestrator OR any descendant is live (an orchestrator `completed` with a child running is
+  alive; only `finished: true` counts as done). Exit 1 means none is live; exit 3 means the
+  session or root could not be found, so the tree state is unknown (fail closed, never assume
+  idle). The tree is also alive when its worktrees' `HEAD` is moving (two samples about a minute
+  apart; the partial fallback "Restart once per lane" uses).
   - **Alive** -> re-arm one new timer (same `timeout`); you send the orchestrator no message and no repair (a reply to a
     `completed` orchestrator with a running child is not delivered until the child ends), up to
     **4 consecutive re-arms finding it alive (6 hours since the first liveness check on this
@@ -346,7 +348,7 @@ and re-armed independently (`overnight.md`, "Scoreboard and stop rules under fan
 timer per dispatch, re-armed only when it fires on a live orchestrator. Nothing runs on a
 schedule while it is healthy.
 
-If the owner asks whether an orchestrator is still running, answer from `ListAgents`, never from memory
+If the owner asks whether an orchestrator is still running, answer from `stu-tree --root <orchestrator agent id>`, never from memory
 or its last prose line.
 
 ### Restart once per lane
@@ -358,7 +360,7 @@ still-silent branch above, this cycle's one repair already spent). The counter i
 
 - `Restarts used: 0/1` -> first establish that the silent orchestrator's tree is **idle**: its
   worktrees show no moving `HEAD` or changed file set across two checks about a minute apart (the
-  tree check's test), and `ListAgents` shows no child of that task running. If either shows a live
+  tree check's test), and `stu-tree --root <orchestrator agent id>` exits 1 (exit 3 is unknown, not idle). If either shows a live
   child, or child state cannot be established, do not restart; wait or park per the rule above.
   Only when none is: `TaskStop` the silent task (two orchestrators never hold one unit list, Rules
   5, and two writers never share a worktree); write `Restarts used: 1/1`; dispatch a fresh
@@ -858,6 +860,16 @@ An orchestrator you dispatched must not re-run the premise check; one dispatched
 SUPERVISED: /stu:run cycle <n> — premise <HOLDS|STALE|PARTIAL|NONE>: <the correction or enumeration, verbatim, or "as stated">
 ```
 
+Every orchestrator dispatch, in both modes, also carries one more line, fresh for that dispatch:
+
+```
+STU-NONCE: <nonce>
+```
+
+Make the nonce with `od -An -N6 -tx1 /dev/urandom | tr -d ' \n'` prefixed by `n`. The orchestrator
+uses it to find its own transcript (`stu-ctx --nonce`), and `stu-tree` shares the same lookup. It
+is not a secret; it only has to be unique within the session.
+
 `NONE` is legal for exactly one dispatch: a fresh run's cycle 1. `WRONG` (with its line) and
 `UNVERIFIED` never reach this line (both stop the run). The orchestrator's mirror rule lives in
 `${CLAUDE_PLUGIN_ROOT}/agents/orchestrator.md`.
@@ -899,6 +911,10 @@ this table exists to catch. Why: design-rationale.md, "Growth arithmetic".
 ```
 stu-ctx
 ```
+
+That bare form reads the main session's transcript. A supervisor running as a subagent (its
+prompt carries a `STU-SUPERVISED: <nonce>` line) reads its own instead: `stu-ctx --nonce <that
+nonce>`. A bare `stu-ctx` there would measure the root session, not you.
 
 **Check it at every subagent return**, batched into a message you were already sending; it never
 costs its own turn. **A failed or unparseable read is HARD-exceeded** — not knowing is not being

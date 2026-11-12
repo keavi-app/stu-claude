@@ -49,6 +49,13 @@ class Contracts(unittest.TestCase):
         for field in ('PREMISE_CLAIM:', 'INTEGRATED_IDS:', 'AFTER_PASS_FAILED:', 'APPROVAL_IDS:'):
             self.assertIn(field, rendered)
 
+    def test_codex_output_has_no_claude_only_tree_or_nonce_commands(self):
+        module = adapter()
+        for name in ('run', 'orchestrator'):
+            rendered = module.render(name, ROOT)
+            self.assertNotIn('stu-tree', rendered)
+            self.assertNotIn('--nonce', rendered)
+
     def test_gate_return_is_retained(self):
         module = adapter()
         original = (ROOT / 'agents/merge-gate.md').read_text()
