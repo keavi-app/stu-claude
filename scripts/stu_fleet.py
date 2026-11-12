@@ -1224,6 +1224,15 @@ def cmd_board(sub, a):
             rc = record_draft(run, b, a["return"])
             if rc:
                 return rc
+            write_settle_counts(a["program"], run["slug"], None, 0, 0)
+        elif sub == "settled":
+            rc, last = record_settled(a["program"], run, b, a["return"])
+            if rc:
+                return rc
+            st.write(board)
+            print(board_line(b))
+            print(last)
+            return 0
         else:  # record
             rc = record_return(run, b, a["return"])
             if rc:
@@ -1464,6 +1473,200 @@ def record_draft(run, b, ret_path):
     b["draft"] = os.path.abspath(ret_path)
     b["written"] = []
     return 0
+
+
+def settle_counts_path(program):
+    return program + ".settle.json"
+
+
+def read_settle_counts(program, slug, draft):
+    """-> (unparked, dropped) already applied under this draft by earlier `board settled` calls."""
+    try:
+        with open(settle_counts_path(program), encoding="utf-8") as f:
+            e = json.load(f).get(slug) or {}
+    except FileNotFoundError:
+        return 0, 0
+    except (OSError, ValueError, AttributeError) as e:
+        raise Fail(EXIT_ERROR, "cannot read %s: %s; fix or delete it" % (settle_counts_path(program), e))
+    if not isinstance(e, dict) or e.get("draft") != draft:
+        return 0, 0
+    return int(e.get("unparked", 0)), int(e.get("dropped", 0))
+
+
+def write_settle_counts(program, slug, draft, unparked, dropped):
+    """Record the counts for `slug`'s current draft (draft None clears the entry); called under
+    the program lock. The file is a sidecar of the program, never part of it."""
+    path = settle_counts_path(program)
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except FileNotFoundError:
+        doc = {}
+    except (OSError, ValueError) as e:
+        raise Fail(EXIT_ERROR, "cannot read %s: %s; fix or delete it" % (path, e))
+    if not isinstance(doc, dict):
+        raise Fail(EXIT_ERROR, "%s has an unexpected shape; fix or delete it" % path)
+    if draft is None:
+        if slug not in doc:
+            return
+        del doc[slug]
+    else:
+        doc[slug] = {"draft": draft, "unparked": unparked, "dropped": dropped}
+    atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n", prefix=".fleet-settle-")
+
+
+_FIELD = r"^([ \t]*%s:[ \t]*)(.*?)([ \t]*)((?:\r?\n)?)$"
+
+
+def _sb_blocks(lines):
+    """-> list of (start, end) line ranges inside `## Scoreboard`: one per `Lane:` heading (the
+    preamble before the first heading too, when there are headings), or the whole scoreboard
+    when it has none. None when there is no `## Scoreboard`."""
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("## Scoreboard")), None)
+    if at is None:
+        return None
+    end = next((i for i in range(at + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    heads = [i for i in range(at + 1, end) if re.match(r"\s*(?:#+\s*)?Lane:\s*\S", lines[i])]
+    if not heads:
+        return [(at, end)]
+    cuts = [at] + heads + [end]
+    return [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1)]
+
+
+def _field_at(lines, block, label):
+    """-> (line index, items) of the first `<label>:` line in the block, or None."""
+    for i in range(block[0], block[1]):
+        m = re.match(_FIELD % label, lines[i])
+        if m:
+            v = m.group(2).strip()
+            items = [] if not v or v.upper() == "NONE" else [x.strip() for x in v.split(",") if x.strip()]
+            return i, items
+    return None
+
+
+def _set_items(lines, i, label, items):
+    m = re.match(_FIELD % label, lines[i])
+    lines[i] = m.group(1) + (", ".join(items) or "NONE") + m.group(3) + m.group(4)
+
+
+def _has(items, uid):
+    return any(x.split()[0] == uid for x in items)
+
+
+def _without(items, uid):
+    return [x for x in items if x.split()[0] != uid]
+
+
+def edit_scoreboard(path, todos, written_n, prior, finish, date):
+    """Apply `unpark` and `drop` TODOs to the objective's scoreboard lines and, when `finish`,
+    rewrite the first `Run state:` there, all in memory first: a refusal writes nothing. Under a
+    flock on <objective>.lock, replacing the file atomically; only scoreboard lines change.
+    -> (refusal text or None, unparked, dropped) for the TODOs applied now."""
+    try:
+        with open(path + ".lock", "a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            with open(path, encoding="utf-8", newline="") as f:
+                text = f.read()
+            lines = text.splitlines(keepends=True)
+            blocks = _sb_blocks(lines)
+            if blocks is None:
+                return "fleet-board: %s has no '## Scoreboard' to settle into" % path, 0, 0
+            unparked = dropped = 0
+            for verb, uid in todos:
+                found = {lab: [(b, _field_at(lines, b, lab)) for b in blocks] for lab in
+                         ("Parked", "Outstanding", "Closed")}
+                hit = lambda lab: [(b, f) for b, f in found[lab] if f and _has(f[1], uid)]
+                if verb == "unpark":
+                    if hit("Parked"):
+                        b, f = hit("Parked")[0]
+                        out = _field_at(lines, b, "Outstanding")
+                        if not out:
+                            return "fleet-board: no 'Outstanding:' line to move %s into" % uid, 0, 0
+                        _set_items(lines, f[0], "Parked", _without(f[1], uid))
+                        _set_items(lines, out[0], "Outstanding", out[1] + [uid])
+                        unparked += 1
+                    elif not hit("Outstanding"):
+                        return ("fleet-board: unpark %s, which is in no lane's Parked: and not "
+                                "already Outstanding:" % uid), 0, 0
+                else:
+                    live = hit("Parked") + hit("Outstanding")
+                    dropped_already = any(_has(f[1], uid) and "dropped by the owner" in
+                                          [x for x in f[1] if x.split()[0] == uid][0]
+                                          for b, f in found["Closed"] if f)
+                    if live:
+                        b = live[0][0]
+                        clo = _field_at(lines, b, "Closed")
+                        if not clo:
+                            return "fleet-board: no 'Closed:' line to record %s in" % uid, 0, 0
+                        for lab in ("Parked", "Outstanding"):
+                            f = _field_at(lines, b, lab)
+                            if f and _has(f[1], uid):
+                                _set_items(lines, f[0], lab, _without(f[1], uid))
+                        _set_items(lines, clo[0], "Closed",
+                                   clo[1] + ["%s (dropped by the owner %s)" % (uid, date)])
+                        dropped += 1
+                    elif not dropped_already:
+                        return ("fleet-board: drop %s, which is in no lane's Parked: or "
+                                "Outstanding: and is not already dropped" % uid), 0, 0
+            if finish:
+                at = next((i for i in range(blocks[0][0], blocks[-1][1])
+                           if re.match(r"^[ \t]*Run state:", lines[i])), None)
+                if at is None:
+                    return "fleet-board: %s has no 'Run state:' line in its Scoreboard" % path, 0, 0
+                waiting = any(f and f[1] for b in blocks for lab in ("Waiting", "Awaiting approval")
+                              for f in [_field_at(lines, b, lab)])
+                m = re.match(_FIELD % "Run state", lines[at])
+                state = "waiting-on-human" if waiting else (
+                    "settled %s \u2014 %d answered, %d unparked, 0 added, %d dropped" % (
+                        date, written_n, prior[0] + unparked, prior[1] + dropped))
+                lines[at] = m.group(1) + state + m.group(3) + m.group(4)
+            new = "".join(lines)
+            if new != text:
+                atomic_write(path, new, prefix=".fleet-objective-")
+            return None, unparked, dropped
+    except OSError as e:
+        raise Fail(EXIT_ERROR, "cannot rewrite objective %s: %s" % (path, e))
+
+
+def record_settled(program, run, b, ret_path):
+    """`board settled`: fold a WRITTEN settler return into the board and the objective's
+    scoreboard lines. -> (rc, last line to print or None); the caller writes the board."""
+    import settler_return
+    if b["state"] != "settle" or b["draft"] == "none":
+        return refuse(EXIT_BOARD, "fleet-board: %s is %s%s; settled applies to a settle run that "
+                                  "has a recorded draft" % (
+            run["slug"], b["state"], " with no draft" if b["state"] == "settle" else "")), None
+    block, rc = read_settler_return(ret_path, "WRITTEN", run)
+    if rc:
+        return rc, None
+    drafted = settler_return.parse(read_text(b["draft"], "drafted settler return"))[0]
+    if os.path.realpath(block["draft"]) != os.path.realpath(drafted["draft"] or ""):
+        print("BLOCKED: the return's DRAFT %s is not the recorded draft's %s" % (
+            block["draft"], drafted["draft"]))
+        print("BLOCKED")
+        return EXIT_INVALID, None
+    todos = [settler_return.parse_todo(t) for t in block["todos"]]
+    for verb, uid, _ in todos:
+        if verb == "add":
+            return refuse(EXIT_BOARD, "fleet-board: %s adds unit %s; settle it with /stu:settle %s" % (
+                run["slug"], uid, run["objective"])), None
+    ids = [int(x[1:]) for x in block["written"]]
+    union = sorted(set(b["written"]) | set(ids))
+    finish = not block["unanswered"]
+    prior = read_settle_counts(program, run["slug"], b["draft"])
+    date = stamp()[:10]
+    bad, u, d = edit_scoreboard(run["objective"], [(v, i) for v, i, _ in todos], len(union),
+                                prior, finish, date)
+    if bad:
+        return refuse(EXIT_BOARD, bad), None
+    b["written"] = union
+    if finish:
+        write_settle_counts(program, run["slug"], None, 0, 0)
+        b["state"] = "queued"
+        b["draft"], b["written"] = "none", []
+        return 0, "requeued %s" % run["slug"]
+    write_settle_counts(program, run["slug"], b["draft"], prior[0] + u, prior[1] + d)
+    return 0, "pending %s: %s" % (run["slug"], ", ".join(block["unanswered"]))
 
 
 def record_return(run, b, ret_path):

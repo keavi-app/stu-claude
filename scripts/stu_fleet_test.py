@@ -1249,6 +1249,132 @@ def test_board_v4_and_draft():
         check("%s resets draft and written" % how, (rc, field(out[0], "draft"), field(out[0], "written")),
               (0, "none", "none"))
 
+SB_PLAIN = ("Run state: stopped \u2014 BLOCKED: 1 \u2014 q\nCycles used: 4/4\nUnits issued: S1, S2, S3, S4\n"
+            "Closed: S1\nAwaiting approval: NONE\nWaiting: NONE\nParked: S2, S3\nOutstanding: S4\n"
+            "Last handoff: /x/h.md\n")
+SB_TAIL = "\n## Notes\nParked: S9\nRun state: untouched\n"
+SB_LANES = ("Run state: stopped \u2014 BLOCKED: 1 \u2014 q\nCycles used: 4/4\nUnits added: 0/3\n\n"
+            "Lane: one\nLane state: stopped \u2014 BLOCKED: q\nUnits issued: A1, A2\nClosed: NONE\n"
+            "Awaiting approval: NONE\nWaiting: NONE\nParked: A1\nOutstanding: A2\n\n"
+            "Lane: two\nLane state: running\nUnits issued: B1, B2\nClosed: B1\n"
+            "Awaiting approval: NONE\nWaiting: NONE\nParked: B2\nOutstanding: NONE\n")
+
+
+def settle_fixture(sb=SB_PLAIN, name="st", lanes=None, drafted=True):
+    o = objective(name, scoreboard=sb, mode="overnight" if lanes else "plain")
+    with open(o, "a") as f:
+        f.write(SB_TAIL)
+    program([("alpha", o, "none", "none") + ((lanes,) if lanes else ())], tail=settle_board())
+    d = write(os.path.join(PDIR, name + "-draft.txt"), drafted_text(o))
+    if drafted:
+        pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
+    return o, d
+
+
+def wret(o, name, written, unanswered, todos=()):
+    return write(os.path.join(PDIR, name + ".txt"), written_text(o, written, unanswered, todos))
+
+
+def settled(o, name, written, unanswered, todos=()):
+    return pfleet("board", "settled", PROG, "--run", "alpha", "--return", wret(o, name, written, unanswered, todos))
+
+
+def test_board_settled():
+    o, d = settle_fixture()
+    orig, prog0 = open(o, "rb").read(), open(PROG).read()
+    # refusals and BLOCKED, each leaving everything untouched
+    cases = (("an add", ("add S9 \u2014 a new export",), 13,
+              "REFUSED fleet-board: alpha adds unit S9; settle it with /stu:settle %s" % o),
+             ("add after a good todo", ("unpark S2", "add S9 \u2014 x"), 13, "adds unit S9"),
+             ("unpark of an unknown id", ("unpark S7",), 13, "unpark S7"),
+             ("unpark of a closed id", ("unpark S1",), 13, "unpark S1"),
+             ("drop of an unknown id", ("drop S7",), 13, "drop S7"),
+             ("drop of a merged id", ("drop S1",), 13, "drop S1"),
+             ("a second bad todo after a good one", ("unpark S2", "drop S7"), 13, "drop S7"))
+    for name, todos, code, needle in cases:
+        rc, out, err = settled(o, "s1", "R1, R2, R3", "none", todos)
+        check("%s refused" % name, (rc, needle in out[0], out[0].startswith("REFUSED fleet-board:"),
+              open(o, "rb").read() == orig, open(PROG).read() == prog0), (code, True, True, True, True))
+    check("the add refusal text exactly", settled(o, "s1", "R1, R2, R3", "none", ("add S9 \u2014 x",))[1],
+          ["REFUSED fleet-board: alpha adds unit S9; settle it with /stu:settle %s" % o])
+    other = objective("elsewhere")
+    for name, text in (("a DRAFTED return", drafted_text(o)),
+                       ("another objective", written_text(other, "R1, R2, R3", "none")),
+                       ("another DRAFT", written_text(o, "R1, R2, R3", "none", draft="/runs/other.md")),
+                       ("a malformed todo", written_text(o, "R1, R2, R3", "none", ("move S2",)))):
+        rc, out, err = pfleet("board", "settled", PROG, "--run", "alpha", "--return", write(os.path.join(PDIR, "bad.txt"), text))
+        check("%s is BLOCKED exit 1" % name, (rc, out[0].startswith("BLOCKED: "), out[-1],
+              open(o, "rb").read() == orig, open(PROG).read() == prog0), (1, True, "BLOCKED", True, True))
+    # no Scoreboard
+    nosb = o + ".nosb"
+    write(nosb, OH + "no scoreboard here\n")
+    program([("alpha", nosb, "none", "none")], tail=settle_board(dr=d))
+    p0 = open(PROG).read()
+    rc, out, err = settled(nosb, "s2", "R1, R2, R3", "none")
+    check("no Scoreboard refused 13", (rc, "Scoreboard" in out[0], open(PROG).read()), (13, True, p0))
+    # not settle, or no draft
+    for st, dr in (("settle", "none"), ("queued", d), ("live", "none"), ("owner", "none"), ("done", "none")):
+        program([("alpha", o, "none", "none")], tail=settle_board(st=st, dr=dr, p="none"))
+        rc, out, err = settled(o, "s3", "R1, R2, R3", "none")
+        check("settled refused 13 on %s/%s" % (st, dr), (rc, out[0].startswith("REFUSED fleet-board:"),
+              open(o, "rb").read() == orig), (13, True, True))
+    check("settled needs --return", pfleet("board", "settled", PROG, "--run", "alpha")[0], 2)
+
+    # partial answer: unpark S2, drop S3; stays settle with its draft
+    o, d = settle_fixture()
+    rc, out, err = settled(o, "p1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    check("partial exits 0 with pending last", (rc, out[-1]), (0, "pending alpha: R2, R3"))
+    check("partial board line", out[0], brd("alpha", "settle", c=2, l=1, p="1 \u2014 q", dr=d, w="1"))
+    want = orig.decode().replace("Parked: S2, S3\n", "Parked: NONE\n", 1).replace(
+        "Outstanding: S4\n", "Outstanding: S4, S2\n", 1).replace(
+        "Closed: S1\n", "Closed: S1, S3 (dropped by the owner 2023-11-14)\n", 1)
+    check("exactly three scoreboard lines changed, Run state untouched", open(o).read(), want)
+    check("next says brief again", pfleet("next", PROG)[1][0], "brief alpha")
+    mid = open(o, "rb").read()
+    rc, out, err = settled(o, "p2", "R1, R2, R3", "none", ("unpark S2", "drop S3"))
+    check("final settled requeues", (rc, out[-1], out[0]), (0, "requeued alpha", brd("alpha", "queued", c=2, l=1, p="1 \u2014 q")))
+    fin = open(o, "rb").read()
+    check("no-op repeats leave the lines; Run state carries the summed counts",
+          fin, mid.replace(b"Run state: stopped \xe2\x80\x94 BLOCKED: 1 \xe2\x80\x94 q",
+                           "Run state: settled 2023-11-14 \u2014 3 answered, 1 unparked, 0 added, 1 dropped".encode(), 1))
+    check("the Notes section untouched", b"## Notes\nParked: S9\nRun state: untouched\n" in fin, True)
+    check("sidecar cleared", "alpha" in (json.load(open(PROG + ".settle.json")) if os.path.exists(PROG + ".settle.json") else {}), False)
+
+    # Waiting keeps waiting-on-human
+    o, d = settle_fixture(sb=SB_PLAIN.replace("Waiting: NONE", "Waiting: S4 needs: merge acme/app#9"), name="wt")
+    rc, out, err = settled(o, "w1", "R1, R2, R3", "none", ("unpark S2",))
+    check("waiting lane gives waiting-on-human", (rc, out[-1], "Run state: waiting-on-human\n" in open(o).read()),
+          (0, "requeued alpha", True))
+    o, d = settle_fixture(sb=SB_PLAIN.replace("Awaiting approval: NONE", "Awaiting approval: S4@br@abc"), name="aw")
+    rc, out, err = settled(o, "w2", "R1, R2, R3", "none")
+    check("awaiting approval gives waiting-on-human", "Run state: waiting-on-human\n" in open(o).read(), True)
+    # everything answered with no todos: nothing to move
+    o, d = settle_fixture(name="nt")
+    rc, out, err = settled(o, "n1", "R1, R2, R3", "none")
+    check("no todos settles with 0 unparked", (rc, "Run state: settled 2023-11-14 \u2014 3 answered, 0 unparked, 0 added, 0 dropped\n" in open(o).read()),
+          (0, True))
+    # a drop of an outstanding unit
+    o, d = settle_fixture(name="do")
+    rc, out, err = settled(o, "d1", "R1, R2, R3", "none", ("drop S4",))
+    txt = open(o).read()
+    check("drop of an outstanding unit", (rc, "Outstanding: NONE\n" in txt,
+          "Closed: S1, S4 (dropped by the owner 2023-11-14)\n" in txt, "Units issued: S1, S2, S3, S4\n" in txt),
+          (0, True, True, True))
+    # overnight: two lanes, a global Run state
+    o, d = settle_fixture(sb=SB_LANES, name="ln", lanes="2")
+    rc, out, err = settled(o, "l1", "R1, R2, R3", "none", ("unpark A1", "drop B2", "unpark B2"))
+    check("an id dropped then unparked in one return", (rc, out[0].startswith("REFUSED")), (13, True))
+    rc, out, err = settled(o, "l1", "R1, R2, R3", "none", ("unpark A1", "drop B2"))
+    txt = open(o).read()
+    check("lane lines edited per lane", (rc, "Parked: NONE\nOutstanding: A2, A1\n" in txt,
+          "Closed: B1, B2 (dropped by the owner 2023-11-14)\nAwaiting approval: NONE\nWaiting: NONE\nParked: NONE\nOutstanding: NONE\n" in txt,
+          "Run state: settled 2023-11-14 \u2014 3 answered, 1 unparked, 0 added, 1 dropped\n" in txt), (0, True, True, True))
+    # a v3 board settles into v4
+    o, d = settle_fixture(name="v3")
+    program([("alpha", o, "none", "none")], tail="\n## Fleet board\n" + v3("alpha", "settle", c=2, l=1, p="1 \u2014 q") + "\n")
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
+    check("a v3 board takes a draft", (rc, field(out[0], "draft")), (0, d))
+
 
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
@@ -1258,7 +1384,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_board_v4_and_draft, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:
