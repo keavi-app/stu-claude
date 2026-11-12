@@ -7,6 +7,7 @@ Run: python3 scripts/stu_fleet_test.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -318,7 +319,8 @@ HEADER = "# Fleet program: demo\nOwner: pat\nSettle mode: draft\n"
 
 def program(runs, header=HEADER, tail=""):
     return write(PROG, header + "\n## Runs\n" + "".join(
-        "- %s: %s | after: %s | resources: %s\n" % r for r in runs) + tail)
+        "- %s: %s | after: %s | resources: %s%s\n" % (r[:4] + (
+            " | lanes: %s" % r[4] if len(r) > 4 else "",)) for r in runs) + tail)
 
 
 def pfleet(*args, **kw):
@@ -356,7 +358,7 @@ def test_resume_count():
 def test_program_check():
     a = objective("a")
     b = objective("b", mode="overnight", lanes=3)
-    program([("alpha", a, "none", "db"), ("beta", b, "alpha", "sim, db")],
+    program([("alpha", a, "none", "db"), ("beta", b, "alpha", "sim, db", 3)],
             header=HEADER + "Max live lanes: 6\nCycle budget: 20\nJudgment jobs: none\n"
                    "Stop at: 2026-11-12T18:00:00+00:00\nMerge lock: off\n",
             tail="\n## Judgment work\n- g1: groom | scope: the ledger | output: /out/g1.md | "
@@ -416,11 +418,19 @@ def test_program_check():
                             pfleet("board", "launch", PROG)[0]), (2, 2, 2))
 
 
-BOARD_HEAD = "- {s} | state: {st} | cycles: {c} | launches: {l} | from: {f} | handoff: {h} | stop: {p}"
+BOARD_HEAD = ("- {s} | state: {st} | cycles: {c} | launches: {l} | from: {f} | closed: {k} | "
+              "dry: {d} | nonce: {n} | handoff: {h} | stop: {p}")
+FLEET0 = "- fleet | judgment: 0 | notices: none"
+NONCE = "stu-testnonce01"
 
 
-def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none"):
-    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p)
+def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none"):
+    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n)
+
+
+def v1(s, st="queued", c=0, l=0, f=0, h="none", p="none"):
+    return "- %s | state: %s | cycles: %d | launches: %d | from: %d | handoff: %s | stop: %s" % (
+        s, st, c, l, f, h, p)
 
 
 def two_runs(extra_tail="", board=None):
@@ -434,17 +444,17 @@ def two_runs(extra_tail="", board=None):
 def test_board():
     a, b = two_runs()
     rc, out, err = pfleet("board", "show", PROG)
-    check("show defaults queued", (rc, out), (0, [brd("alpha"), brd("beta")]))
+    check("show defaults queued", (rc, out), (0, [brd("alpha"), brd("beta"), FLEET0]))
     check("show does not write", os.path.exists(PROG + ".lock"), False)
     before = open(PROG).read()
     check("show leaves the file", open(PROG).read(), before)
     # launch
-    rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
-    check("launch ok", (rc, out), (0, [brd("alpha", "live", l=1)]))
+    rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": NONCE})
+    check("launch ok", (rc, out), (0, [brd("alpha", "live", l=1, n=NONCE), "nonce: " + NONCE]), )
     txt = open(PROG).read()
     check("sections before the board untouched", txt.startswith(before.rstrip("\n")), True)
-    check("board section appended with every run", txt.endswith("## Fleet board\n%s\n%s\n" % (
-        brd("alpha", "live", l=1), brd("beta"))), True)
+    check("board section appended with every run", txt.endswith("## Fleet board\n%s\n%s\n%s\n" % (
+        brd("alpha", "live", l=1, n=NONCE), brd("beta"), FLEET0)), True)
     rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
     check("launch live refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
     check("refused launch wrote nothing", open(PROG).read(), txt)
@@ -452,7 +462,7 @@ def test_board():
     # record
     ret = run_ret(os.path.join(PDIR, "ret.txt"), a)
     rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)
-    check("record ok", (rc, out), (0, [brd("alpha", "relaunch", c=3, l=1, h=HANDOFF,
+    check("record ok", (rc, out), (0, [brd("alpha", "relaunch", c=3, l=1, h=HANDOFF, d=1, n=NONCE,
                                            p="10 — cycle cap exhausted")]))
     check("record on non-live refused", pfleet("board", "record", PROG, "--run", "alpha",
                                                "--return", ret)[0], 13)
@@ -531,11 +541,11 @@ def test_board_errors_and_preservation():
     write(PROG, HEADER + "\n## Runs\n- alpha: %s | after: none | resources: none\n\n"
           "## Fleet board        (coordinator writes)\n%s\n\n## Machine limits\nkeep  me \n" % (a, brd("alpha")))
     os.chmod(PROG, 0o640)
-    pfleet("board", "launch", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": NONCE})
     txt = open(PROG).read()
     check("heading and later section preserved", ("## Fleet board        (coordinator writes)\n" in txt,
           txt.endswith("\n\n## Machine limits\nkeep  me \n")), (True, True))
-    check("board line replaced", brd("alpha", "live", l=1) in txt, True)
+    check("board line replaced", brd("alpha", "live", l=1, n=NONCE) in txt, True)
     check("mode preserved", oct(os.stat(PROG).st_mode & 0o777), "0o640")
     leftovers = [f for f in os.listdir(PDIR) if f.startswith(".fleet-program-")]
     check("no temp files left", leftovers, [])
@@ -553,12 +563,12 @@ def test_spend():
             tail="\n## Fleet board\n" + brd("alpha", "done", c=5, l=2) + "\n" + brd("beta", "live", c=3, l=1) + "\n")
     rc, out, err = pfleet("spend", PROG)
     check("spend default budget is the sum of caps", (rc, out), (0, [
-        "run alpha: cycles 5, launches 2", "run beta: cycles 3, launches 1", "fleet: cycles 8",
-        "budget: 8/10 (80%)", "judgment-jobs: not counted yet"]))
+        "run alpha: cycles 5, launches 2, dry 0", "run beta: cycles 3, launches 1, dry 0",
+        "fleet: cycles 8", "budget: 8/10 (80%)", "judgment-jobs: 0/none", "stop-at: none (not passed)"]))
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: 40\n")
-    check("explicit budget", pfleet("spend", PROG)[1][-2], "budget: 0/40 (0%)")
+    check("explicit budget", pfleet("spend", PROG)[1][-3], "budget: 0/40 (0%)")
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: none\n")
-    check("budget none", pfleet("spend", PROG)[1][-2], "budget: 0/none")
+    check("budget none", pfleet("spend", PROG)[1][-3], "budget: 0/none")
 
 
 def test_next():
@@ -567,25 +577,27 @@ def test_next():
     b = objective("b")
     c = objective("c", mode="overnight", lanes=3)
     d = objective("d")
-    program([("alpha", a, "none", "db"), ("beta", b, "alpha", "none"), ("gamma", c, "none", "db, sim"),
+    program([("alpha", a, "none", "db"), ("beta", b, "alpha", "none"), ("gamma", c, "none", "db, sim", 3),
              ("delta", d, "none", "sim")])
     rc, out, err = pfleet("next", PROG)
     check("fresh fleet", (rc, out), (0, [
         "start alpha", "wait beta — after alpha", "wait gamma — resource db held by alpha",
-        "start delta", "hold: clear", "lanes: 0/4"]))
+        "start delta", "hold: clear", "lanes: 0/4", "budget: 0/16", "judgment-jobs: 0/none"]))
     # resources held by a live run; lane accounting
-    program([("alpha", a, "none", "db"), ("gamma", c, "none", "sim"), ("delta", d, "none", "sim"),
+    program([("alpha", a, "none", "db"), ("gamma", c, "none", "sim", 3), ("delta", d, "none", "sim"),
              ("eps", d, "none", "none")], tail="\n## Fleet board\n" + brd("alpha", "live") + "\n")
     rc, out, err = pfleet("next", PROG)
     check("overnight run counts its lanes, later start sees earlier start",
           out, ["live alpha", "start gamma", "wait delta — resource sim held by gamma",
-                "wait eps — lane cap 4/4", "hold: clear", "lanes: 1/4"])
+                "wait eps — lane cap 4/4", "hold: clear", "lanes: 1/4", "budget: 0/16",
+                "judgment-jobs: 0/none"])
     rc, out, err = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})
-    check("cap from config hook", (out[1], out[-1]), ("owner gamma — needs 3 lanes, cap 2", "lanes: 1/2"))
-    program([("alpha", a, "none", "db"), ("gamma", c, "none", "sim")],
+    check("cap from config hook", (out[1], out[-3]), ("owner gamma — needs 3 lanes, cap 2", "lanes: 1/2"))
+    program([("alpha", a, "none", "db"), ("gamma", c, "none", "sim", 3)],
             header=HEADER + "Max live lanes: 9\n", tail="\n## Fleet board\n" + brd("alpha", "live") + "\n")
     check("program cap overrides config", pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})[1],
-          ["live alpha", "start gamma", "hold: clear", "lanes: 1/9"])
+          ["live alpha", "start gamma", "hold: clear", "lanes: 1/9", "budget: 0/8",
+           "judgment-jobs: 0/none"])
     # board states
     program([("r1", a, "none", "none"), ("r2", a, "none", "none"), ("r3", a, "none", "none"),
              ("r4", a, "none", "none"), ("r5", a, "none", "none"), ("r6", a, "none", "none"),
@@ -598,13 +610,14 @@ def test_next():
     rc, out, err = pfleet("next", PROG)
     check("state lines", out, [
         "settle r1", "settle r2 owner-only", "settle r3 owner-only", "owner r4 — 4 — stuck",
-        "relaunch r5 — 10 — cap", "done r6", "start r7", "hold: clear", "lanes: 0/4"])
+        "relaunch r5 — 10 — cap", "done r6", "start r7", "hold: clear", "lanes: 0/4",
+        "budget: 0/28", "judgment-jobs: 0/none"])
     program([("alpha", a, "none", "none"), ("beta", b, "alpha", "none")],
             tail="\n## Fleet board\n" + brd("alpha", "done") + "\n")
     check("after done starts", pfleet("next", PROG)[1][:2], ["done alpha", "start beta"])
     # hold line
     check("hold set", pfleet("hold", "set", "--reason", "deploy first")[0], 0)
-    check("hold shown", pfleet("next", PROG)[1][-2:], ["hold: set — deploy first", "lanes: 0/4"])
+    check("hold shown", pfleet("next", PROG)[1][-4:-2], ["hold: set — deploy first", "lanes: 0/4"])
     reset()
     # lock release by observation
     pr(7, state="merged")
@@ -627,7 +640,7 @@ def test_next():
     rc, out, err = pfleet("next", PROG)
     check("unreachable forge: full output, exit 12, lock kept",
           (rc, out[0].startswith("lock: held by %s#10" % SLUG), out[-1], state()["lock"]["pr"]),
-          (12, True, "lanes: 0/4", 10))
+          (12, True, "judgment-jobs: 0/none", 10))
     reset()
     check("no state file is not an error", pfleet("next", PROG)[0], 0)
 
@@ -650,10 +663,10 @@ def test_review_fixes():
     check("next reads it back", pfleet("next", PROG)[0], 0)
     # a run needing more lanes than the cap
     big = objective("big", mode="overnight", lanes=3)
-    program([("big", big, "none", "none")])
+    program([("big", big, "none", "none", 3)])
     rc, out, err = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})
     check("oversize run goes to the owner", out[0], "owner big \u2014 needs 3 lanes, cap 2")
-    program([("big", big, "none", "none")], header=HEADER + "Max live lanes: 2\n")
+    program([("big", big, "none", "none", 3)], header=HEADER + "Max live lanes: 2\n")
     rc, out, err = pfleet("program", "check", PROG)
     check("check blocks oversize run", (rc, any("3 lanes" in x for x in out)), (1, True))
 
@@ -664,13 +677,320 @@ def test_fleet_usage():
     check("spend needs a path", pfleet("spend")[0], 2)
 
 
+OH = "# O\n\nWritten 2026-01-01. Mode: plain. Cycle cap: 4.\n\n"
+
+
+def field(line, name):
+    return [x.split(": ", 1)[1] for x in line.split(" | ") if x.startswith(name + ": ")][0]
+
+
+def test_declared_lanes():
+    a = objective("a")
+    c = objective("c", mode="overnight", lanes=1)
+    c3 = objective("c3", mode="overnight", lanes=3)
+
+    def blocked(name, runs, want, **kw):
+        program(runs, **kw)
+        rc, out, err = pfleet("program", "check", PROG)
+        check(name, (rc, any(want in x and "BLOCKED:" in x for x in out)), (1, True))
+
+    blocked("overnight without lanes", [("alpha", c, "none", "none")], "must declare '| lanes: <n>'")
+    blocked("plain with lanes 2", [("alpha", a, "none", "none", 2)], "plain objective runs one lane")
+    blocked("lanes zero", [("alpha", a, "none", "none", 0)], "lanes: must be a positive integer")
+    program([("alpha", a, "none", "none", 1)])
+    check("plain with lanes 1 ok", pfleet("program", "check", PROG)[0], 0)
+    program([("alpha", c, "none", "none", 3)])
+    rc, out, err = pfleet("program", "check", PROG)
+    check("declared beats counted", (rc, any("| lanes 3 |" in x for x in out)), (0, True))
+    program([("alpha", c3, "none", "none", 2)])
+    check("counted beats declared", any("| lanes 3 |" in x for x in pfleet("program", "check", PROG)[1]), True)
+    blocked("declared over Max live lanes", [("alpha", c, "none", "none", 3)], "declares 3 lanes",
+            header=HEADER + "Max live lanes: 2\n")
+    blocked("counted over Max live lanes", [("alpha", c3, "none", "none", 2)], "declares 3 lanes",
+            header=HEADER + "Max live lanes: 2\n")
+    rc, out, err = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "2"})
+    check("next refuses the invalid program", rc, 1)
+    blocked("fleet is a reserved slug", [("fleet", a, "none", "none")], "reserved")
+
+
+def test_closed_count():
+    cc = stu_fleet.closed_count
+    check("NONE is zero", cc("## Scoreboard\nClosed: NONE\n"), 0)
+    check("plain list", cc("## Scoreboard\nClosed: S1, S2 (merged), #3\n"), 3)
+    check("union across lanes", cc("## Scoreboard\n### Lane: A\nClosed: S1, S2\n### Lane: B\nClosed: S2, S3\n"), 3)
+    check("overnight with a NONE lane", cc("## Scoreboard\nLane: A\nClosed: NONE\nLane: B\nClosed: S9\n"), 1)
+    check("template text above the scoreboard ignored", cc("Closed: X, Y\n## Scoreboard\nClosed: NONE\n"), 0)
+    check("no Closed line", cc("# x\n"), 0)
+
+
+def test_board_v2_grammar():
+    a = objective("a")
+    b = objective("b")
+    prog_runs = [("alpha", a, "none", "none"), ("beta", b, "none", "none")]
+    # a v1 board reads as closed 0, dry 0, nonce none, and no fleet line reads judgment 0
+    program(prog_runs, tail="\n## Fleet board\n" + v1("alpha", "relaunch", c=2, l=1, h="/h.md", p="10 — cap") + "\n" +
+            v1("beta") + "\n")
+    rc, out, err = pfleet("board", "show", PROG)
+    check("v1 board migrates on read", (rc, out), (0, [
+        brd("alpha", "relaunch", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0]))
+    rc, out, err = pfleet("board", "requeue", PROG, "--run", "alpha")
+    check("next write emits v2 for every line", open(PROG).read().endswith(
+        "## Fleet board\n%s\n%s\n%s\n" % (brd("alpha", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0)), True)
+    # mixed v1 and v2, a fleet line with notices
+    program(prog_runs, tail="\n## Fleet board\n" + brd("alpha", "live", k=2, d=1, n="stu-x1234567") + "\n" +
+            v1("beta", "done", c=3) + "\n- fleet | judgment: 2 | notices: cycle-80,stop-at\n")
+    rc, out, err = pfleet("board", "show", PROG)
+    check("mixed board", (rc, out), (0, [brd("alpha", "live", k=2, d=1, n="stu-x1234567"),
+                                         brd("beta", "done", c=3),
+                                         "- fleet | judgment: 2 | notices: cycle-80,stop-at"]))
+    for name, tail in (
+            ("fleet line not last", brd("alpha") + "\n- fleet | judgment: 0 | notices: none\n" + brd("beta") + "\n"),
+            ("duplicate fleet line", FLEET0 + "\n" + FLEET0 + "\n"),
+            ("unknown notice id", "- fleet | judgment: 0 | notices: cycle-90\n"),
+            ("malformed fleet line", "- fleet | notices: none\n"),
+            ("v2 line with a bad nonce field", brd("alpha").replace("nonce: none", "nonse: none") + "\n")):
+        program(prog_runs, tail="\n## Fleet board\n" + tail)
+        check(name + " exits 3", pfleet("board", "show", PROG)[0], 3)
+
+
+def lifecycle(name="loop", scoreboard="Run state: running\nCycles used: 0/4\nClosed: NONE\n", header=HEADER):
+    o = objective(name, scoreboard=scoreboard)
+    program([("alpha", o, "none", "none")], header=header)
+    return o
+
+
+def test_loop_guard():
+    o = lifecycle()
+    ret = run_ret(os.path.join(PDIR, "lg.txt"), o)
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)
+    check("first dry launch relaunches", (field(out[0], "state"), field(out[0], "dry")), ("relaunch", "1"))
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)
+    check("second dry launch trips the guard", (field(out[0], "state"), field(out[0], "dry"),
+          field(out[0], "stop")),
+          ("owner", "2", "loop guard — 2 launches closed no unit; last stop: 10 — cycle cap exhausted"))
+    # a closed unit resets the count
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
+    check("launch snapshots closed", field(out[0], "closed"), "0")
+    with open(o, "a") as f:
+        f.write("Closed: S1, S2\n")
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)
+    check("new closed unit resets dry", (field(out[0], "state"), field(out[0], "dry")), ("relaunch", "0"))
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
+    check("closed snapshot is now 2", field(out[0], "closed"), "2")
+    # done, settle and owner outcomes keep their state while dry still updates
+    for nxt, cond, run, state, want in (("none", "none", "DONE", "settled 2026-01-01 — x", "done"),
+                                        ("settle", "1 — q", "STOPPED", "stopped — BLOCKED: q", "settle"),
+                                        ("owner", "4 — stuck", "STOPPED", "stopped — BLOCKED: q", "owner")):
+        o2 = lifecycle("lg2")
+        program([("alpha", o2, "none", "none")], tail="\n## Fleet board\n" +
+                brd("alpha", "live", d=5, n="stu-n123456") + "\n")
+        r = run_ret(os.path.join(PDIR, "lg2.txt"), o2, run=run, cond=cond, nxt=nxt, state=state, cycles="1/4")
+        rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", r)
+        check("guard leaves %s alone" % want, (field(out[0], "state"), field(out[0], "dry"),
+              field(out[0], "stop").startswith("loop guard")), (want, "6", False))
+
+
+def test_nonces():
+    o = lifecycle()
+    seen = set()
+    for i in range(4):
+        rc, out, err = pfleet("board", "launch", PROG, "--run", "alpha")
+        n = out[-1].split(": ")[1]
+        check("launch prints nonce last and stores it", (out[-1].startswith("nonce: stu-"), field(out[-2], "nonce")),
+              (True, n))
+        check("nonce matches agent_tree's rule", bool(re.match(r"^[A-Za-z0-9._-]{6,80}$", n)), True)
+        seen.add(n)
+        pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "n.txt"), o, nxt="owner",
+               cond="4 — x"))
+        pfleet("board", "requeue", PROG, "--run", "alpha")
+    check("never reused", len(seen), 4)
+    check("board show carries the nonce", field(pfleet("board", "show", PROG)[1][0], "nonce") in seen, True)
+
+
+def test_idle():
+    o = lifecycle(scoreboard="Run state: running\nCycles used: 3/4\nClosed: NONE\nLast handoff: /x/last.md\n"
+                             "Last handoff: /x/later.md\n")
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
+    check("idle on queued refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    check("idle needs --run", pfleet("board", "idle", PROG)[0], 2)
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
+    check("idle sets relaunch", (rc, field(out[0], "state"), field(out[0], "stop"), field(out[0], "handoff"),
+          field(out[0], "cycles"), field(out[0], "dry")), (0, "relaunch", "idle — no return", "/x/last.md", "3", "1"))
+    check("idle on relaunch refused", pfleet("board", "idle", PROG, "--run", "alpha")[0], 13)
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
+    check("idle applies the loop guard", (field(out[0], "state"), field(out[0], "stop")),
+          ("owner", "loop guard — 2 launches closed no unit; last stop: idle — no return"))
+    # no handoff -> none; negative delta refused and nothing written
+    o2 = lifecycle("idle2", scoreboard="Run state: settled 2026-01-02 — nothing to settle\nCycles used: 3/4\n")
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    with open(o2, "w") as f:
+        f.write(OH + "## Scoreboard\nRun state: running\nCycles used: 1/4\n")
+    before = open(PROG).read()
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
+    check("negative idle delta refused", (rc, "negative delta" in out[0], open(PROG).read()), (13, True, before))
+    with open(o2, "w") as f:
+        f.write(OH + "## Scoreboard\nRun state: running\nCycles used: 5/4\n")
+    rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
+    check("no Last handoff reads none; delta from the resume point", (rc, out),
+          0) if rc else check("no Last handoff reads none; delta from the resume point",
+          (field(out[0], "handoff"), field(out[0], "cycles")), ("none", "2"))
+
+
+SB = "Run state: stopped — BLOCKED: cap\nCycles used: 4/4\nClosed: NONE\nLast handoff: /x/h.md\n"
+
+
+def relaunch_setup(header=HEADER, scoreboard=SB, tail_text="\nNotes: Run state: unrelated\n"):
+    o = objective("rl", scoreboard=scoreboard)
+    with open(o, "a") as f:
+        f.write(tail_text)
+    program([("alpha", o, "none", "none")], header=header)
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "rl.txt"), o, cycles="4/4"))
+    return o
+
+
+def test_relaunch():
+    o = relaunch_setup(header=HEADER + "Cycle budget: 20\n")
+    check("next says relaunch", pfleet("next", PROG)[1][0], "relaunch alpha \u2014 10 \u2014 cycle cap exhausted")
+    before = open(o, "rb").read()
+    rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": NONCE})
+    after = open(o, "rb").read()
+    want = before.replace(b"Run state: stopped \xe2\x80\x94 BLOCKED: cap", b"Run state: fleet-relaunch 2023-11-14", 1)
+    check("relaunch exits 0 and prints the nonce last", (rc, out[-1]), (0, "nonce: " + NONCE))
+    check("only the Run state line changed", after, want)
+    check("board is live from 0, launches 2", (field(out[0], "state"), field(out[0], "from"), field(out[0], "launches"),
+          field(out[0], "cycles")), ("live", "0", "2", "4"))
+    check("objective lock file is the only extra", sorted(f for f in os.listdir(PDIR) if f.startswith("rl-objective")),
+          ["rl-objective.md", "rl-objective.md.lock"])
+    rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
+    check("relaunch on live refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    # a limit hit between next and relaunch refuses, objective untouched
+    o = relaunch_setup(header=HEADER + "Cycle budget: 20\n")
+    check("next says relaunch again", pfleet("next", PROG)[1][0].startswith("relaunch alpha"), True)
+    program([("alpha", o, "none", "none")], header=HEADER + "Cycle budget: 4\n",
+            tail="\n## Fleet board\n" + brd("alpha", "relaunch", c=4, l=1, h="/x/h.md", p="10 — cycle cap exhausted", d=1) + "\n")
+    frozen = open(o, "rb").read()
+    board_before = open(PROG).read()
+    rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
+    check("stale next cannot override the budget", (rc, "cycle budget spent 4/4" in out[0]), (13, True))
+    check("refusal wrote nothing", (open(o, "rb").read(), open(PROG).read()), (frozen, board_before))
+    program([("alpha", o, "none", "none")], header=HEADER + "Cycle budget: 20\nStop at: 2023-11-14T00:00:00+00:00\n",
+            tail="\n## Fleet board\n" + brd("alpha", "relaunch", c=4, l=1, p="10 — cap") + "\n")
+    rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
+    check("stop at refuses relaunch", (rc, "stop at 2023-11-14T00:00:00+00:00 passed" in out[0]), (13, True))
+    check("objective still untouched", open(o, "rb").read(), frozen)
+    # other refusals
+    program([("alpha", o, "none", "none")], tail="\n## Fleet board\n" + brd("alpha", "owner", p="4 — x") + "\n")
+    check("relaunch from owner refused", pfleet("board", "relaunch", PROG, "--run", "alpha")[0], 13)
+    for name, text in (("no Scoreboard heading", OH + "Run state: stopped\n"),
+                       ("no Run state line", OH + "## Scoreboard\nCycles used: 1/4\n"),
+                       ("Run state only above the Scoreboard", OH + "Run state: x\n\n## Scoreboard\nCycles used: 1/4\n")):
+        write(o, text)
+        program([("alpha", o, "none", "none")], tail="\n## Fleet board\n" + brd("alpha", "relaunch", p="10 — c") + "\n")
+        rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
+        check(name + " refused 13, objective untouched", (rc, open(o).read()), (13, text))
+
+
+def test_limits_and_next():
+    a = objective("la")
+    b = objective("lb")
+    two = [("alpha", a, "none", "none"), ("beta", b, "alpha", "none")]
+    # cycle budget spent: a queued start and a relaunch become owner lines; a live run is untouched
+    program([("alpha", a, "none", "none"), ("beta", b, "none", "none"), ("gamma", a, "none", "none")],
+            header=HEADER + "Cycle budget: 8\n",
+            tail="\n## Fleet board\n" + brd("alpha", "live", c=8, l=1) + "\n" +
+                 brd("gamma", "relaunch", p="10 — cap") + "\n")
+    rc, out, err = pfleet("next", PROG)
+    check("spent budget: owner for start and relaunch, live untouched", out[:3], [
+        "live alpha", "owner beta \u2014 cycle budget spent 8/8", "owner gamma \u2014 cycle budget spent 8/8"])
+    check("notices printed after the run lines, before hold", out[3:6], [
+        "notice: cycle-budget 80% (8/8)", "notice: cycle-budget 100% (8/8)", "hold: clear"])
+    check("budget lines last", out[-2:], ["budget: 8/8", "judgment-jobs: 0/none"])
+    rc, out2, err = pfleet("next", PROG)
+    check("each notice prints once across calls", [x for x in out2 if x.startswith("notice")], [])
+    check("fleet line records them", open(PROG).read().rstrip().endswith(
+        "- fleet | judgment: 0 | notices: cycle-80,cycle-100"), True)
+    # 80% only
+    program(two, header=HEADER + "Cycle budget: 10\n", tail="\n## Fleet board\n" + brd("alpha", "done", c=8) + "\n")
+    out = pfleet("next", PROG)[1]
+    check("80% notice, then the start is still allowed", (out[1], out[2]), (
+        "start beta", "notice: cycle-budget 80% (8/10)"))
+    check("80% second call silent", [x for x in pfleet("next", PROG)[1] if x.startswith("notice")], [])
+    # stop at: owner line, one notice, relaunch becomes owner, cycle budget first
+    program([("alpha", a, "none", "none"), ("beta", b, "none", "none")],
+            header=HEADER + "Stop at: 2023-11-14T00:00:00+00:00\n",
+            tail="\n## Fleet board\n" + brd("beta", "relaunch", p="10 — cap") + "\n")
+    out = pfleet("next", PROG)[1]
+    check("stop at passed", out[:3], ["owner alpha \u2014 stop at 2023-11-14T00:00:00+00:00 passed",
+                                      "owner beta \u2014 stop at 2023-11-14T00:00:00+00:00 passed",
+                                      "notice: stop-at passed (2023-11-14T00:00:00+00:00)"])
+    check("stop-at notice once", [x for x in pfleet("next", PROG)[1] if x.startswith("notice")], [])
+    program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: 3\nStop at: 2023-11-14T00:00:00+00:00\n",
+            tail="\n## Fleet board\n" + brd("alpha", "relaunch", c=3, p="10 — cap") + "\n")
+    check("cycle budget reported before stop at", pfleet("next", PROG)[1][0],
+          "owner alpha \u2014 cycle budget spent 3/3")
+    program([("alpha", a, "none", "none")], header=HEADER + "Stop at: 2099-01-01T00:00:00+00:00\n")
+    out = pfleet("next", PROG)[1]
+    check("stop at in the future is quiet", (out[0], [x for x in out if x.startswith("notice")]), ("start alpha", []))
+    # relaunch obeys after:, resources and lanes exactly as start does
+    program([("alpha", a, "none", "db"), ("beta", b, "alpha", "db"), ("gamma", a, "none", "db")],
+            tail="\n## Fleet board\n" + brd("alpha", "live") + "\n" + brd("beta", "relaunch", p="1 — x") + "\n" +
+                 brd("gamma", "relaunch", p="10 — cap") + "\n")
+    out = pfleet("next", PROG)[1]
+    check("relaunch waits on after: and resources", out[:3], [
+        "live alpha", "wait beta \u2014 after alpha", "wait gamma \u2014 resource db held by alpha"])
+    program([("alpha", a, "none", "none"), ("beta", b, "none", "none")],
+            tail="\n## Fleet board\n" + brd("alpha", "relaunch", p="10 — cap") + "\n" + brd("beta", "relaunch", p="10 — cap") + "\n")
+    out = pfleet("next", PROG, extra={"STU_FLEET_MAX_LANES": "1"})[1]
+    check("relaunch waits at the lane cap", out[:2], ["relaunch alpha \u2014 10 \u2014 cap", "wait beta \u2014 lane cap 1/1"])
+    # judgment jobs
+    j = "\n## Judgment work\n- g1: groom | scope: s | output: /o | feeds: none\n"
+    program([("alpha", a, "none", "none")], header=HEADER + "Judgment jobs: 5\n", tail=j)
+    check("judgment unknown job is BLOCKED exit 1", pfleet("board", "judgment", PROG, "--job", "nope")[0], 1)
+    check("judgment needs --job", pfleet("board", "judgment", PROG)[0], 2)
+    for i in range(1, 6):
+        rc, out, err = pfleet("board", "judgment", PROG, "--job", "g1")
+        check("judgment %d counted" % i, (rc, out), (0, ["judgment-jobs: %d/5" % i]))
+    out = pfleet("next", PROG)[1]
+    check("judgment notices at 80 and 100", [x for x in out if x.startswith("notice")],
+          ["notice: judgment-jobs 80% (5/5)", "notice: judgment-jobs 100% (5/5)"])
+    check("judgment line in next", out[-1], "judgment-jobs: 5/5")
+    rc, out, err = pfleet("board", "judgment", PROG, "--job", "g1")
+    check("spent judgment refused 13", (rc, out[0]), (13, "REFUSED fleet-board: judgment jobs spent 5/5"))
+    check("spend shows judgment", pfleet("spend", PROG)[1][-2], "judgment-jobs: 5/5")
+    program([("alpha", a, "none", "none")], header=HEADER + "Judgment jobs: 5\n", tail=j)
+    pfleet("board", "judgment", PROG, "--job", "g1")
+    check("judgment 20% has no notice", [x for x in pfleet("next", PROG)[1] if x.startswith("notice")], [])
+    program([("alpha", a, "none", "none")], header=HEADER + "Stop at: 2023-11-14T00:00:00+00:00\n", tail=j)
+    rc, out, err = pfleet("board", "judgment", PROG, "--job", "g1")
+    check("stop at refuses judgment", (rc, "stop at" in out[0]), (13, True))
+    program([("alpha", a, "none", "none")], tail=j)
+    check("no judgment limit counts freely", pfleet("board", "judgment", PROG, "--job", "g1")[1], ["judgment-jobs: 1/none"])
+    # spend
+    program([("alpha", a, "none", "none")], header=HEADER + "Stop at: 2099-01-01T00:00:00+00:00\n")
+    check("spend stop-at not passed", pfleet("spend", PROG)[1][-1], "stop-at: 2099-01-01T00:00:00+00:00 (not passed)")
+    program([("alpha", a, "none", "none")], header=HEADER + "Stop at: 2023-11-14T00:00:00+00:00\n")
+    check("spend stop-at passed", pfleet("spend", PROG)[1][-1], "stop-at: 2023-11-14T00:00:00+00:00 (passed)")
+    check("spend never writes", os.path.exists(PROG + ".lock") and "notices" not in open(PROG).read(), True)
+
+
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
           test_real_forge_through_fake_gh, test_fail_closed_on_bad_state, test_usage,
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_spend,
-          test_next, test_review_fixes, test_fleet_usage):
+          test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
+          test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
+          test_limits_and_next):
     t()
 
 if FAILURES:
