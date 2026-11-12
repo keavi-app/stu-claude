@@ -1800,12 +1800,103 @@ def cmd_next(sub, a):
     return code
 
 
+def drafted_runs(prog):
+    """-> [(run, board line, parsed drafted return)] for every run with a draft, in Runs order."""
+    import settler_return
+    out = []
+    for b in effective_board(prog):
+        if b["draft"] != "none":
+            run = find_run(prog, b["slug"])
+            out.append((run, b, settler_return.parse(read_text(b["draft"], "drafted settler return"))[0]))
+    return out
+
+
 def cmd_brief(sub, a):
-    raise Fail(EXIT_ERROR, "not built yet")
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    drafts = drafted_runs(prog)
+    if not drafts:
+        print("brief: none")
+        return 0
+    for run, b, d in drafts:
+        keep = []
+        for ln in (d["brief"] or "").splitlines():
+            m = re.match(r"^\s*(\d+)\.\s", ln)
+            if m and int(m.group(1)) in b["written"]:
+                continue
+            keep.append(ln)
+        while keep and (not keep[-1].strip() or keep[-1].startswith("Answer:")):
+            keep.pop()  # the run's own Answer: line; one line for the whole brief follows
+        print("\n".join(keep))
+        print()
+    if len(drafts) == 1:
+        print("Answer: %s: fine | accept 2 | reverse 2, 5 | talk about 3" % drafts[0][0]["slug"])
+    else:
+        print("Answer per run, one per line or separated by ';': <slug>: <answer>")
+    return 0
+
+
+ANSWER_WORDS = ("fine", "accept", "reverse", "talk")
 
 
 def cmd_answer(sub, a):
-    raise Fail(EXIT_ERROR, "not built yet")
+    need(a, "line")
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    drafts = drafted_runs(prog)
+    by_slug = {r["slug"]: (b, d) for r, b, d in drafts}
+    known = [r["slug"] for r in prog["runs"]]
+    problems, answers = [], {}
+    for seg in re.split(r"[\n;]", a["line"]):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = re.match(r"^(%s)\s*:\s*(.*)$" % SLUG_RE, seg)
+        if m and m.group(1).lower() not in ANSWER_WORDS:
+            slug, text = m.group(1), m.group(2).strip()
+        elif len(drafts) == 1:
+            slug, text = drafts[0][0]["slug"], seg
+        elif drafts:
+            problems.append("%r names no run; several runs have a draft, so prefix it with "
+                            "<slug>:" % seg)
+            continue
+        else:
+            problems.append("%r answers nothing: no run has a draft" % seg)
+            continue
+        if slug not in known:
+            problems.append("%s is not a run in this program" % slug)
+            continue
+        if slug not in by_slug:
+            problems.append("%s has no draft to answer" % slug)
+            continue
+        if slug in answers:
+            problems.append("%s is answered twice" % slug)
+            continue
+        answers[slug] = text
+        b, d = by_slug[slug]
+        n = int(d["rulings_n"])
+        for kind, nums in re.findall(r"\b(accept|reverse|talk about)\b\s+(\d+(?:\s*,\s*\d+)*)", text):
+            for num in re.findall(r"\d+", nums):
+                k = int(num)
+                if not 1 <= k <= n:
+                    problems.append("%s: %s %d is outside the draft's 1..%d" % (slug, kind, k, n))
+                elif k in b["written"]:
+                    problems.append("%s: %s %d is already written" % (slug, kind, k))
+    if problems:
+        for p in problems:
+            print("BLOCKED: %s" % p)
+        print("BLOCKED")
+        return EXIT_INVALID
+    for run, b, d in drafts:
+        if run["slug"] in answers:
+            print("answer %s | draft: %s | line: %s" % (run["slug"], d["draft"], answers[run["slug"]]))
+        else:
+            print("unanswered %s" % run["slug"])
+    return 0
 
 
 # ---- command line -----------------------------------------------------------------------

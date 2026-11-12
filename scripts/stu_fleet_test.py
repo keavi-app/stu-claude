@@ -1375,6 +1375,78 @@ def test_board_settled():
     rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
     check("a v3 board takes a draft", (rc, field(out[0], "draft")), (0, d))
 
+def two_drafts():
+    """alpha (3 rulings, R1 written) and beta (2 rulings) both with a recorded draft."""
+    oa = objective("ba")
+    ob = objective("bb")
+    program([("alpha", oa, "none", "none"), ("beta", ob, "none", "none"), ("gamma", objective("bc"), "none", "none")],
+            tail="\n## Fleet board\n" + "".join(x + "\n" for x in (
+                brd("alpha", "settle", p="1 \u2014 q"), brd("beta", "settle", p="1 \u2014 q"), brd("gamma"))))
+    da = write(os.path.join(PDIR, "ba-d.txt"), drafted_text(oa, draft="/runs/a/draft.md"))
+    db = write(os.path.join(PDIR, "bb-d.txt"), drafted_text(ob, draft="/runs/b/draft.md", n=2))
+    pfleet("board", "draft", PROG, "--run", "alpha", "--return", da)
+    pfleet("board", "draft", PROG, "--run", "beta", "--return", db)
+    return oa, ob, da, db
+
+
+def test_brief_and_answer():
+    program([("alpha", objective("bq0"), "none", "none")], tail=settle_board())
+    check("brief with no drafts", pfleet("brief", PROG)[:2], (0, ["brief: none"]))
+    check("answer with no drafts is BLOCKED", pfleet("answer", PROG, "--line", "fine")[:2],
+          (1, ["BLOCKED: 'fine' answers nothing: no run has a draft", "BLOCKED"]))
+    o, d = settle_fixture(name="bq")
+    before = open(PROG).read()
+    rc, out, err = pfleet("brief", PROG)
+    check("brief for one run: the block, a blank line, one Answer line", (rc, out), (0, [
+        "Run demo: 3 rulings drafted",
+        "1. Keep the label? -> recommend yes. Reverses if support sees confusion.",
+        "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]",
+        "3. Ship the export? -> recommend yes.", "",
+        "Answer: alpha: fine | accept 2 | reverse 2, 5 | talk about 3"]))
+    check("brief never writes", open(PROG).read(), before)
+    # written items vanish, numbering stays
+    rc, out, err = settled(o, "bw", "R1, R3", "R2")
+    rc, out, err = pfleet("brief", PROG)
+    check("brief hides written items and keeps numbering", out[1:3], [
+        "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]", ""])
+    check("two lines of the block gone", ("1. Keep" in "\n".join(out), "3. Ship" in "\n".join(out)), (False, False))
+    # answers, single run
+    rc, out, err = pfleet("answer", PROG, "--line", "accept 2")
+    check("single run, no prefix", (rc, out), (0, ["answer alpha | draft: /runs/demo/settle/draft.md | line: accept 2"]))
+    check("single run with prefix and extra words", pfleet("answer", PROG, "--line", "alpha: reverse 2 because the label is wrong")[1],
+          ["answer alpha | draft: /runs/demo/settle/draft.md | line: reverse 2 because the label is wrong"])
+    check("fine passes", pfleet("answer", PROG, "--line", "fine")[1][0].endswith("line: fine"), True)
+    for name, line, needle in (("number 0", "accept 0", "outside the draft's 1..3"),
+                               ("number past RULINGS", "reverse 2, 4", "reverse 4 is outside"),
+                               ("talk about past", "talk about 9", "talk about 9 is outside"),
+                               ("already written", "accept 1", "accept 1 is already written"),
+                               ("unknown slug", "ghost: fine", "ghost is not a run"),
+                               ("twice", "alpha: fine; alpha: accept 2", "alpha is answered twice")):
+        rc, out, err = pfleet("answer", PROG, "--line", line)
+        check("answer BLOCKED: %s" % name, (rc, out[-1], any(needle in x for x in out), len(out) >= 2), (1, "BLOCKED", True, True))
+    rc, out, err = pfleet("answer", PROG, "--line", "accept 1")
+    check("BLOCKED prints nothing but BLOCKED lines", all(x.startswith("BLOCKED") for x in out), True)
+    # several runs
+    oa, ob, da, db = two_drafts()
+    rc, out, err = pfleet("brief", PROG)
+    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if x.startswith("Run demo:")])),
+          (0, "Run demo: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
+    rc, out, err = pfleet("answer", PROG, "--line", "beta: reverse 1\nalpha: fine; ")
+    check("several runs answered in Runs order", (rc, out), (0, [
+        "answer alpha | draft: /runs/a/draft.md | line: fine", "answer beta | draft: /runs/b/draft.md | line: reverse 1"]))
+    rc, out, err = pfleet("answer", PROG, "--line", "alpha: accept 2")
+    check("an unanswered run is reported", (rc, out), (0, ["answer alpha | draft: /runs/a/draft.md | line: accept 2", "unanswered beta"]))
+    check("beta has 2 rulings", pfleet("answer", PROG, "--line", "alpha: fine; beta: accept 3")[1][:1],
+          ["BLOCKED: beta: accept 3 is outside the draft's 1..2"])
+    rc, out, err = pfleet("answer", PROG, "--line", "fine")
+    check("several runs, no prefix is BLOCKED", (rc, out[0].startswith("BLOCKED: 'fine' names no run")), (1, True))
+    rc, out, err = pfleet("answer", PROG, "--line", "gamma: fine")
+    check("a run with no draft is BLOCKED", (rc, out[0]), (1, "BLOCKED: gamma has no draft to answer"))
+    rc, out, err = pfleet("answer", PROG, "--line", "alpha: fine\nbeta: fine\nbeta: fine")
+    check("duplicate across newlines", (rc, out[0]), (1, "BLOCKED: beta is answered twice"))
+    check("answer needs --line", pfleet("answer", PROG)[0], 2)
+    check("answer and brief never write", ("brief" in open(PROG).read()), False)
+
 
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
@@ -1384,7 +1456,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:
