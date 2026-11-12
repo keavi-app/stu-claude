@@ -39,8 +39,11 @@ The seven operations:
    fix: set `merge_lock: on` (or `off`, to match the program) in the Stu config, or change the
    program's line. Do not edit either yourself.
 3. Run `stu-fleet board show <program path>` and `stu-fleet spend <program path>` and report
-   both to the owner in a few lines. This is the wave report; repeat it at the start of each
-   wave. `spend` reports cycles and launches only and **does not enforce anything yet**.
+   both to the owner in a few lines, plus `stu-fleet actuals <program path>` condensed to a few
+   lines (agents, output tokens, and the off-route share, if `actuals` prints one; `actuals: none
+   recorded` is just said). This is the wave report; repeat it at the start of each wave. The
+   `budget:` and `judgment-jobs:` lines go in it. `spend` and `actuals` only report; the limits
+   are enforced by `next` and the `board` commands (see "Limits" below).
 
 ## 2. The loop
 
@@ -50,32 +53,47 @@ nonzero exit from `stu-fleet` (1, 2, 3 or 13, from `program`, `board` or `next`)
 show its `REFUSED` or `BLOCKED` lines to the owner as they are and do nothing else until they
 answer. Act on the lines, then run `next` again after every state change.
 
-- `start <slug>`: run `stu-fleet board launch <program path> --run <slug>`, then launch a
-  supervisor (operation 1) for that run with a fresh `STU-SUPERVISED: <nonce>` line (a new
-  random string per launch, never reused) and the objective path in its prompt, so it runs
-  `/stu:run` in supervised mode. Keep its agent id and the nonce. Then wait (operation 3) with
-  **one deadline per supervisor**, armed alongside the launch; never one shared deadline.
+- `start <slug>`: run `stu-fleet board launch <program path> --run <slug>` (it accepts only a
+  `queued` run). Its **last stdout line** is `nonce: <nonce>`; launch a supervisor (operation 1)
+  for that run with `STU-SUPERVISED: <nonce>` using exactly that nonce, never one you generate,
+  and the objective path in its prompt, so it runs `/stu:run` in supervised mode. Keep its agent
+  id and the nonce. Then wait (operation 3) with **one deadline per supervisor**, armed alongside
+  the launch; never one shared deadline.
   **When the deadline fires,** check the supervisor's tree (operation 4). Alive: re-arm the
   deadline, with no bound on the number of re-arms, because a healthy supervisor legitimately
-  runs 4 to 7 hours or more. Idle (nothing live, no return): report it to the owner once and take
-  no other action; relaunch is not built yet. The run skill's repair message, single restart and
-  6-hour re-arm bound are for orchestrators and do not apply to supervisors.
+  runs 4 to 7 hours or more. Idle (nothing live and no return has arrived): first stop the old
+  supervisor (operation 5), and only after it is stopped run
+  `stu-fleet board idle <program path> --run <slug>`, then `next`. Never two supervisors on one
+  unit list: `board idle` comes only after the stop. A refusal (13) goes to the owner as printed.
+  The run skill's repair message, single restart and 6-hour re-arm bound are for orchestrators
+  and do not apply to supervisors.
 - `wait <slug> — <reason>`: nothing to do.
 - `live <slug>`: nothing to do.
 - `done <slug>`: nothing.
 - `owner <slug> — needs <n> lanes, cap <cap>`: the run needs more lanes than the cap, so it can
   never start. Report it to the owner (operation 7 or 6) with the two fixes: raise
   `fleet_max_lanes` in the Stu config or the program's `Max live lanes:`, or split the objective.
-  Never launch it. Lanes are counted from the objective's `Lane:` headings, minimum 1, so an
-  `overnight` objective that has not written its lanes yet counts as 1 and can later hold more
-  than the cap says; a launched run that turns out wider is the owner's to resize, not yours.
+  Never launch it. A Runs line declares `lanes: <n>`, required for an overnight objective (a
+  run's lane count is the larger of that and its `Lane:` headings, minimum 1).
+- `owner <slug> — cycle budget spent ...`, `owner <slug> — stop at ... passed` and
+  `owner <slug> — loop guard ...`: a limit. Send the line to the owner with the fix: only the
+  owner raises the cycle budget or `Stop at:` or edits the program, or looks at why two launches
+  closed no unit. You never raise a limit or edit the program. Live supervisors are never
+  stopped for a limit; only starts and relaunches are held.
 - `settle <slug>` and `settle <slug> owner-only`: **the settle brief loop is not built yet.**
   List it in the owner report (operation 7) with the objective path and the line
   `/stu:settle <objective path>`, and leave it unrequeued.
 - `owner <slug> — <stop>` from the board: a stop that goes straight to the owner (conditions 4,
   7, 8, 9 and 11 of the run skill, or a wait on a merge, tag or approval). Send it to the owner
   as it is. Never relaunch it and never settle around it.
-- `relaunch <slug> — <stop>`: **relaunch policy is not built yet.** Report it to the owner.
+- `relaunch <slug> — <stop>`: an instruction. Run
+  `stu-fleet board relaunch <program path> --run <slug>`; it re-checks the limits under its lock,
+  writes `Run state: fleet-relaunch <date>` into the objective (you never write the objective),
+  goes live and prints the nonce as its last line. Then launch a supervisor with that nonce,
+  exactly as for `start`, with its own deadline. A refusal (13) goes to the owner as printed.
+- `notice: ...`: a limit passed 80% or 100% (or Stop at passed). Tell the owner once, as printed;
+  the script prints each notice once ever.
+- `budget: ...` and `judgment-jobs: ...`: go in the wave report.
 - `lock: held by <pr> — <reason>; not released`: the merge lock holder could not be checked on
   the forge. Say so once in the wave report; the lock stays held and gates handle it.
 - `hold: set — <reason>`: the merge hold is set. Say so once in the wave report; gates refuse on
@@ -88,14 +106,15 @@ section 4). When one arrives, write the block to a file under `RUN_HOME` (the ru
 `RUN_HOME/runs/<slug>/`), then run
 `stu-fleet board record <program path> --run <slug> --return <file>`. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
-shows the board state `record` set.
+shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
+report it once in the wave report; it is never a stop and the record still succeeded.
 
 `requeue` (`stu-fleet board requeue`) happens only after the owner has settled or answered,
 never before, and never on your own judgment.
 
 ## 3. What you read, and what you do not
 
-You read board lines, supervisor return blocks, and `next` and `spend` output. Not diffs, logs,
+You read board lines, supervisor return blocks, and `next`, `spend` and `actuals` output. Not diffs, logs,
 handoffs or reports. A fact you need that is not on those goes to a `stu:verifier` (operation
 2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
 brief, review a diff, merge, or write an objective, scoreboard or the main checkout. The board is
@@ -109,14 +128,16 @@ still live (their slugs, agent ids and nonces) and nothing else the board holds.
 coordinator starts at "Startup", then `next`; for each live supervisor it re-arms one deadline
 (operation 3) and checks it is still alive (operation 4).
 
-## 5. Not built yet
+## 5. Judgment jobs
+
+Before any groom, audit or design dispatch (none exist yet), run
+`stu-fleet board judgment <program path> --job <slug>`; a refusal means do not dispatch, and show it to the owner as printed. Settler
+drafts and verifier or scout dispatches are never counted.
+
+## 6. Not built yet
 
 Stated here so nothing assumes it:
 
-- Liveness and relaunch: no idle-tree check or relaunch of a supervisor that stops silently, and
-  no relaunch policy. A supervisor with no return is found by its deadline and reported to the
-  owner, not restarted. (S10.)
-- Budget enforcement and the loop guard: `spend` reports and nothing refuses. (S10.)
 - The settle brief loop: settle and owner-only settle stops are listed for the owner. (S11.)
 - Judgment seats other than the settler and verifier (groom, audit, design).
 - Codex: there is no Codex binding for this skill; `codex/runtime.md` says `fleet: not bound yet`.
@@ -138,7 +159,7 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    the same arming as the run skill's "Liveness" (timer arming and `TaskStop` on return only).
    Keep its task id, and `TaskStop` it when the return is accepted. When it fires, take
    operation 4 and apply the supervisor rule in "The loop": re-arm with no bound while the tree is
-   alive, report once when it is idle. The run skill's repair, restart and 6-hour bound do not
+   alive, stop it (operation 5) and run `board idle`, as in "The loop". The run skill's repair, restart and 6-hour bound do not
    apply to supervisors.
 4. **List descendants:** `stu-tree --root <supervisor agent id>` (exit 0 means something in the
    tree is live). `ListAgents` is not available inside a subagent and is not used.
