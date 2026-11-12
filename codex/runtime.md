@@ -75,6 +75,8 @@ the literal `ESCALATION: condition <n> — <specific>` line, and increments `Mod
 choose only among caller-supported models/efforts. Price-based deep-pass selection applies
 only with current verified prices and available IDs; no provider-specific config value is
 silently treated as a Codex model. A named role never implies model metadata or hard limits.
+judgment-model: read through `stu-env section judgment-model` (empty means the caller's best
+supported model, never a guessed name); fleet seats are not bound yet.
 
 ## Waiting, liveness and budgets
 

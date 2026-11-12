@@ -26,7 +26,7 @@ SOURCES.update({'charter': 'skills/fix-campaign/orchestrator-charter.md',
 # needs deliberate adapter review; a new policy sentence must never be silently discarded.
 RUNTIME_REGIONS = {
     '### Liveness: one deadline timer per dispatch, not a poll\n': 'd33d92df2bf3371c137055438b71d6683eaf0ecd985d32ec78a0ae5c1f24fc7c',
-    '## Routing: which agent, which model\n': 'd1a7bd58144c0bdd9e04ab068db524faa002c9a6a45fa9b6a023bf7260971c85',
+    '## Routing: which agent, which model\n': '48967953e2a7859e475b66eae8078346f69b37725d393feb21a6d34de4f78428',
     '## Turn discipline\n': 'a36c37dbf7ccf144b58733f060c211b3fdb437d6d362a6d6a28f8054d91626f0',
     '**After a repair has been sent, a prose-only stop is still interim:**': '5263f78ffb0a85270ee60a1f230b3eb795d1efa9dfd6b8ff5ebe6edfac506b40',
     '## How to wait — never `sleep`\n': '0d2bb69da5f5937b79c49e0a63a42fb35d1c0c8413e866265b4d6998bed41b29',

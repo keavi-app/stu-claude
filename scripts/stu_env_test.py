@@ -668,6 +668,27 @@ def test_family_only_section_from_sibling():
         check("family-only section from home unchanged", out, "completion: ready\n")
 
 
+def test_judgment_model_family_only():
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, body="## judgment-model\nsonnet\n")
+        env = env_for(home, gh, **extra)
+        rc, out, err = run(lib, env, "section", "judgment-model")
+        check("judgment-model from sibling cwd reads family", (rc, out), (0, "sonnet\n"))
+        rc, out, err = run(app, env, "section", "judgment-model", "--repo", "lib")
+        check("judgment-model with --repo sibling reads family", (rc, out), (0, "sonnet\n"))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, body="## judgment-model @lib\nsonnet\n")
+        rc, out, err = run(app, env_for(home, gh, **extra))
+        check("judgment-model per repo refused", (rc, "judgment-model" in err), (3, True))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, lib_over={"judgment_model": "opus"})
+        check("judgment_model key per repo refused", run(app, env_for(home, gh, **extra))[0], 3)
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp)
+        rc, out, err = run(app, env_for(home, gh, **extra), "section", "judgment-model")
+        check("judgment-model absent prints nothing, exits 0", (rc, out), (0, ""))
+
+
 def test_exit_codes():
     with tempfile.TemporaryDirectory() as tmp:
         home, repo, gh = setup(tmp)
@@ -939,7 +960,7 @@ def test_merge_lock_key():
 
 for t in (test_review_round_one, test_flat_config_equivalence, test_flat_merge_mode, test_flat_frontmatter_row_keys,
           test_family_resolution, test_prefix_collision, test_two_claims,
-          test_mandatory_and_structure, test_sibling_isolation, test_family_only_section_from_sibling, test_exit_codes,
+          test_mandatory_and_structure, test_sibling_isolation, test_family_only_section_from_sibling, test_judgment_model_family_only, test_exit_codes,
           test_base_resolution, test_remotes_and_host, test_sections_records_commands,
           test_in_process_api, test_config_path_exported,
           test_defaults_from_main_checkout, test_resolves_main_checkout_from_worktree,

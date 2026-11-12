@@ -83,7 +83,7 @@ for home, `## verification-commands @<name>` for the others); the other row
 keys above are optional. A section
 that answers a question for one repo only is written `## <id> @<name>` (for example
 `## verification-commands @lib`), where <name> is a row; the unsuffixed section belongs to the
-home row. completion-mode, stop-condition-2 and deep-pass-model are family-only and cannot take
+home row. completion-mode, stop-condition-2, deep-pass-model and judgment-model are family-only and cannot take
 an `@<name>` suffix, and the keys owner, project, run_home, merge_lock and triage_extra stay in the
 frontmatter, never on a row.
 -->
@@ -442,6 +442,18 @@ For shape:
   As of <date>: `<model-id>`. Cache reads 0.5x the driver, input 2x, output 3x; wins above
   90% cache reads with output under 2% of input. Never `<sibling-id>` (cache reads priced
   4x). Mid tier is 0.2x the top tier.
+-->
+
+## judgment-model
+<!--
+Which one model should the judgment seats (settler, groomer/auditor, designer) run on? Give a
+runtime alias (`opus`, `sonnet`) or an exact model ID. Empty means `opus`: readers apply that
+default, so an unset section is never an error.
+
+The coordinator and supervisor never read this; they keep the model the run skill gives them.
+
+For shape:
+  opus
 -->
 
 ## product-taste
