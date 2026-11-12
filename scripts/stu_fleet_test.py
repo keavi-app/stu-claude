@@ -1375,6 +1375,47 @@ def test_board_settled():
     rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
     check("a v3 board takes a draft", (rc, field(out[0], "draft")), (0, d))
 
+
+def test_settled_crash_and_guards():
+    side = PROG + ".settle.json"
+    # crash after the objective write, before the board/sidecar write: the retry counts the same
+    for finishing in (True, False):
+        o, d = settle_fixture(name="cr%d" % finishing)
+        prog0 = open(PROG).read()
+        un = "none" if finishing else "R2, R3"
+        rc, out, err = settled(o, "c1", "R1, R2, R3" if finishing else "R1", un, ("unpark S2", "drop S3"))
+        if os.path.exists(side):
+            os.remove(side)
+        write(PROG, prog0)
+        rc, out, err = settled(o, "c1", "R1, R2, R3" if finishing else "R1", un, ("unpark S2", "drop S3"))
+        if not finishing:
+            rc, out, err = settled(o, "c2", "R1, R2, R3", "none", ("unpark S2", "drop S3"))
+        check("retry after a crash (finishing=%s) keeps the counts" % finishing,
+              (rc, "Run state: settled 2023-11-14 — 3 answered, 1 unparked, 0 added, 1 dropped\n" in open(o).read()),
+              (0, True))
+    # a retried identical partial call is idempotent on the sidecar
+    o, d = settle_fixture(name="cs")
+    settled(o, "s1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    first = open(side).read()
+    settled(o, "s1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    check("sidecar holds id sets, stable on retry", (open(side).read(), json.load(open(side))["alpha"]["unparked"]),
+          (first, ["S2"]))
+    # Run state: running refuses before writing
+    o, d = settle_fixture(sb=SB_PLAIN.replace("stopped — BLOCKED: 1 — q", "running"), name="rn")
+    orig, prog0 = open(o, "rb").read(), open(PROG).read()
+    rc, out, err = settled(o, "r1", "R1, R2, R3", "none", ("unpark S2",))
+    check("running refused 13, nothing written", (rc, out[0].startswith("REFUSED fleet-board:"), "running" in out[0],
+          open(o, "rb").read() == orig, open(PROG).read() == prog0), (13, True, True, True, True))
+    # drop of an id already dropped in Closed: with a stale Parked: entry
+    sb = SB_PLAIN.replace("Closed: S1\n", "Closed: S1, S3 (dropped by the owner 2023-11-01)\n")
+    o, d = settle_fixture(sb=sb, name="dd")
+    rc, out, err = settled(o, "dd1", "R1, R2, R3", "none", ("drop S3",))
+    txt = open(o).read()
+    check("drop of an already-dropped id only cleans the stale list", (rc, "Parked: S2\n" in txt,
+          txt.count("S3 (dropped"), "Closed: S1, S3 (dropped by the owner 2023-11-01)\n" in txt,
+          "0 unparked, 0 added, 1 dropped" in txt), (0, True, 1, True, True))
+
+
 def two_drafts():
     """alpha (3 rulings, R1 written) and beta (2 rulings) both with a recorded draft."""
     oa = objective("ba")
@@ -1456,7 +1497,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:

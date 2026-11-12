@@ -256,7 +256,9 @@ the owner's reply into per-run segments and checks the item numbers; the settler
 returns a `WRITTEN` block and `board settled` applies it: it moves `unpark` and `drop` units on
 the scoreboard, refuses an `add` (new units need the interactive `/stu:settle`), writes `Run
 state:`, and requeues the run once no question is unanswered. A partial answer leaves the run in
-`settle` with its draft, and `next` asks for the brief again.
+`settle` with its draft, and `next` asks for the brief again. Between those calls the ids already
+named by `unpark` and `drop` live in the sidecar `<program>.settle.json`, cleared when the draft is
+replaced or the settle finishes.
 
 ### Auto-narrow mode (opt-in per program)
 
