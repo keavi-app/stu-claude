@@ -15,6 +15,12 @@
       Checks a `stu:settler` return block against the schema in handoff-format.md, "Settler
       return". One `SETTLER BLOCKED malformed: <problem>` line per problem, then `BLOCKED`
       (exit 1); a well-formed block prints `SETTLER OK <status>` and `OK`. It reads no objective.
+  stu-run-check --groomer-return PATH [--job SLUG] [--kind groom|audit]
+  stu-run-check --designer-return PATH [--job SLUG]
+      The same for a `stu:groomer` or `stu:designer` return ("Groomer return", "Designer
+      return"): `GROOMER|DESIGNER BLOCKED malformed: <problem>` lines then `BLOCKED` (exit 1), or
+      `GROOMER|DESIGNER OK <status>` then `OK`. --job makes a JOB line that names another job
+      malformed; --kind does the same for a groomer KIND line.
 
   stu-run-check --supervisor-return PATH
       Validates the "Supervisor return" block a supervised `/stu:run` ends with (no objective
@@ -210,6 +216,7 @@ import push_policy  # noqa: E402
 import stu_env  # noqa: E402
 import stu_forge  # noqa: E402
 import settler_return  # noqa: E402
+import judgment_return  # noqa: E402
 
 GH_VERBS = ("pr-state", "claim-state", "landed")
 PR_ENTRY = re.compile(r"^([^#@\s/]+/[^#@\s/]+)#([0-9]+)@(\S*)$")
@@ -1126,8 +1133,38 @@ def run_settler_return(argv):
     return ["SETTLER BLOCKED malformed: %s" % p for p in problems], True
 
 
+def run_judgment_return(argv):
+    """`--groomer-return PATH [--job SLUG] [--kind K]` or `--designer-return PATH [--job SLUG]`."""
+    groomer = argv[0] == "--groomer-return"
+    word = "GROOMER" if groomer else "DESIGNER"
+    flags = ("--job", "--kind") if groomer else ("--job",)
+    usage = "usage: stu-run-check %s PATH [--job SLUG]%s" % (
+        argv[0], " [--kind groom|audit]" if groomer else "")
+    if len(argv) < 2 or len(argv) % 2:
+        raise ToolError("usage", usage)
+    opts = {}
+    for i in range(2, len(argv), 2):
+        if argv[i] not in flags or argv[i] in opts:
+            raise ToolError("usage", usage)
+        opts[argv[i]] = argv[i + 1]
+    text = read_text(argv[1], "%s return" % word.lower())
+    if groomer:
+        block, problems = judgment_return.check_groomer(text, opts.get("--job"), opts.get("--kind"))
+    else:
+        block, problems = judgment_return.check_designer(text, opts.get("--job"))
+    if not problems:
+        return ["%s OK %s" % (word, block["status"])], False
+    return ["%s BLOCKED malformed: %s" % (word, p) for p in problems], True
+
+
 def main(argv):
     try:
+        if argv and argv[0] in ("--groomer-return", "--designer-return"):
+            lines, blocked = run_judgment_return(argv)
+            for ln in lines:
+                print(ln)
+            print("BLOCKED" if blocked else "OK")
+            return 1 if blocked else 0
         if argv and argv[0] == "--settler-return":
             lines, blocked = run_settler_return(argv)
             for ln in lines:

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.19
+
+- The fleet board now tracks judgment jobs. Each line under `## Judgment work` gets a job line
+  (queued, live, verdict, owner or done), and `stu-fleet next` prints `judge <slug>` for a queued
+  job, `owner job ...` when a job needs the owner or judgment work is paused, and `verdict job ...`
+  when a design round waits for an answer. `feeds: <run>` now means the job writes that run's
+  objective: the run waits (`wait <run> — fed by <job>`) instead of failing the program check.
+- New `stu-fleet board judged` (folds a groomer or designer return), `board verdict` (writes the
+  owner's answer to the round's `VERDICT.md`), and `--job` forms of `board requeue` and `board idle`.
+  A usage-limit return pauses all judgment jobs until the owner lifts it with `board requeue --job`.
+- Groomer and designer return blocks are defined in the handoff format, and `stu-run-check` has
+  `--groomer-return` and `--designer-return` to check them. The groomer and designer agents
+  themselves are not built yet.
+
 ## 0.2.18
 
 - `/stu:fleet` now runs the settle brief loop. A run in `settle` gets a `stu:settler` draft, the

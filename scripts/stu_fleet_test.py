@@ -1146,10 +1146,15 @@ def test_limits_and_next():
     for i in range(1, 6):
         rc, out, err = pfleet("board", "judgment", PROG, "--job", "g1")
         check("judgment %d counted" % i, (rc, out), (0, ["judgment-jobs: %d/5" % i]))
+        if i < 5:  # a job takes one dispatch per round: stop it and requeue it
+            pfleet("board", "idle", PROG, "--job", "g1")
+            pfleet("board", "requeue", PROG, "--job", "g1")
     out = pfleet("next", PROG)[1]
     check("judgment notices at 80 and 100", [x for x in out if x.startswith("notice")],
           ["notice: judgment-jobs 80% (5/5)", "notice: judgment-jobs 100% (5/5)"])
     check("judgment line in next", out[-1], "judgment-jobs: 5/5")
+    pfleet("board", "idle", PROG, "--job", "g1")
+    pfleet("board", "requeue", PROG, "--job", "g1")
     rc, out, err = pfleet("board", "judgment", PROG, "--job", "g1")
     check("spent judgment refused 13", (rc, out[0]), (13, "REFUSED fleet-board: judgment jobs spent 5/5"))
     check("spend shows judgment", pfleet("spend", PROG)[1][-2], "judgment-jobs: 5/5")
@@ -1489,6 +1494,181 @@ def test_brief_and_answer():
     check("answer and brief never write", ("brief" in open(PROG).read()), False)
 
 
+def jobline(slug, state="queued", d=0, out="none", stop="none"):
+    return "- job %s | state: %s | dispatches: %d | output: %s | stop: %s" % (slug, state, d, out, stop)
+
+
+GROOM_RET = ("GROOMER: DONE \u2014 filed\nJOB: {job}\nKIND: groom\nOUTPUT: /out/{job}.md\n"
+             "ISSUES: 1\nOBJECTIVES: {obj}\nLEDGER: none\nNOT-REACHED: 0\n")
+DESIGN_RET = ("DESIGNER: READY \u2014 drawn\nJOB: d1\nROUND: 1\nOUTPUT: {out}\n"
+              "ARTIFACTS: /x/a.png\nDECISION: which one\nD1: a | first (recommended)\nD2: b | second\n"
+              "NOT-REACHED: 0\n")
+
+
+def jobs_of(path=None):
+    return [ln for ln in open(path or PROG).read().splitlines() if ln.startswith("- job ")]
+
+
+def test_judgment_jobs():
+    a = objective("ja")
+    fedobj = os.path.join(PDIR, "fed-objective.md")
+    if os.path.exists(fedobj):
+        os.remove(fedobj)
+    tail = ("\n## Judgment work\n- g1: groom | scope: s | output: /out | feeds: none\n"
+            "- g2: groom | scope: s | output: /out | feeds: beta\n"
+            "- d1: design | scope: s | output: " + PDIR + " | feeds: none\n")
+    program([("alpha", a, "none", "none"), ("beta", fedobj, "none", "none")], tail=tail)
+    rc, out, err = pfleet("program", "check", PROG)
+    check("a fed run's missing objective is info, not a problem", rc, 0)
+    check("program check says pending", "run beta: objective pending (fed by g2)" in out, True)
+    out = pfleet("next", PROG)[1]
+    check("v4 board reads every job queued; fed run waits", out[:5], [
+        "start alpha", "wait beta \u2014 fed by g2 (queued)", "judge g1", "judge g2", "judge d1"])
+    check("a read writes no job lines", jobs_of(), [])
+    # v4 -> v5 on first write
+    check("judgment counts", pfleet("board", "judgment", PROG, "--job", "g1")[1], ["judgment-jobs: 1/none"])
+    check("v5 job lines written for every job", jobs_of(), [
+        jobline("g1", "live", 1), jobline("g2"), jobline("d1")])
+    check("show prints job lines", [x for x in pfleet("board", "show", PROG)[1] if x.startswith("- job")],
+          jobs_of())
+    check("live job is not re-dispatched", pfleet("board", "judgment", PROG, "--job", "g1")[0], 13)
+    check("next shows live job", "live job g1" in pfleet("next", PROG)[1], True)
+    # judged: not live, bad returns, then DONE
+    check("judged on a queued job refused", pfleet("board", "judged", PROG, "--job", "g2",
+          "--return", write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="g2", obj=fedobj)))[0], 13)
+    check("judged needs --return", pfleet("board", "judged", PROG, "--job", "g1")[0], 2)
+    bad = write(os.path.join(PDIR, "r.txt"), "GROOMER: DONE \u2014 x\n")
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "g1", "--return", bad)
+    check("a bad return is BLOCKED exit 1 and changes nothing", (rc, out[-1], jobs_of()[0]),
+          (1, "BLOCKED", jobline("g1", "live", 1)))
+    wrong = write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="zz", obj="none"))
+    check("a return for another job is BLOCKED", pfleet("board", "judged", PROG, "--job", "g1",
+          "--return", wrong)[0], 1)
+    ok = write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="g1", obj="none"))
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "g1", "--return", ok)
+    check("groomer DONE -> done with output", (rc, out), (0, [jobline("g1", "done", 1, "/out/g1.md")]))
+    check("a done job is printed done", "done job g1" in pfleet("next", PROG)[1], True)
+    # fed job: DONE must list the fed objective
+    pfleet("board", "judgment", PROG, "--job", "g2")
+    nolist = write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="g2", obj="none"))
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "g2", "--return", nolist)
+    check("a fed job's DONE must list the objective", (rc, "OBJECTIVES must list" in out[0]), (1, True))
+    listed = write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="g2", obj=fedobj))
+    pfleet("board", "judged", PROG, "--job", "g2", "--return", listed)
+    out = pfleet("next", PROG)[1]
+    check("done feeder with no objective: owner", out[1].startswith(
+        "owner beta \u2014 fed by g2, objective missing or invalid:"), True)
+    objective("fed")
+    out = pfleet("next", PROG)[1]
+    check("done feeder with a valid objective: the run starts", out[1], "start beta")
+    # SPLIT, BLOCKED, usage limit, requeue
+    tail2 = ("\n## Judgment work\n- g1: groom | scope: s | output: /out | feeds: none\n"
+             "- g2: audit | scope: s | output: /out | feeds: none\n")
+    program([("alpha", a, "none", "none")], tail=tail2)
+    pfleet("board", "judgment", PROG, "--job", "g1")
+    split = write(os.path.join(PDIR, "r.txt"), "GROOMER: SPLIT \u2014 wide\nJOB: g1\nKIND: groom\n"
+                  "OUTPUT: /out/g1.md\nISSUES: none\nOBJECTIVES: none\nLEDGER: none\nNOT-REACHED: 2\n"
+                  "SPLIT: 2\nS1: one\nS2: two\n")
+    check("SPLIT -> owner", pfleet("board", "judged", PROG, "--job", "g1", "--return", split)[1],
+          [jobline("g1", "owner", 1, "/out/g1.md", "split into 2 scopes; add them as Judgment work lines")])
+    check("next shows the owner job", "owner job g1 \u2014 split into 2 scopes; add them as Judgment "
+          "work lines" in pfleet("next", PROG)[1], True)
+    check("requeue --job: owner -> queued", pfleet("board", "requeue", PROG, "--job", "g1")[1],
+          [jobline("g1", "queued", 1, "/out/g1.md")])
+    check("requeue a queued job refused", pfleet("board", "requeue", PROG, "--job", "g1")[0], 13)
+    check("--run and --job are exclusive", pfleet("board", "requeue", PROG, "--run", "alpha",
+          "--job", "g1")[0], 2)
+    check("requeue needs --run or --job", pfleet("board", "requeue", PROG)[0], 2)
+    pfleet("board", "judgment", PROG, "--job", "g1")
+    blocked = write(os.path.join(PDIR, "r.txt"), "GROOMER: BLOCKED \u2014 no repo\n")
+    check("BLOCKED -> owner with the reason", pfleet("board", "judged", PROG, "--job", "g1",
+          "--return", blocked)[1], [jobline("g1", "owner", 2, "/out/g1.md", "BLOCKED \u2014 no repo")])
+    pfleet("board", "requeue", PROG, "--job", "g1")
+    pfleet("board", "judgment", PROG, "--job", "g1")
+    cap = write(os.path.join(PDIR, "r.txt"), "GROOMER: BLOCKED \u2014 usage limit\n")
+    out = pfleet("board", "judged", PROG, "--job", "g1", "--return", cap)[1]
+    check("usage limit -> queued with the stop", out, [jobline("g1", "queued", 3, "/out/g1.md", "usage limit")])
+    out = pfleet("next", PROG)[1]
+    check("usage limit pauses every queued job", [x for x in out if x.startswith("owner job")], [
+        "owner job g1 \u2014 usage limit; requeue this job to lift the pause for all judgment work",
+        "owner job g2 \u2014 usage limit; groom, audit and design paused"])
+    check("a dispatch is refused while paused", pfleet("board", "judgment", PROG, "--job", "g2")[0], 13)
+    check("requeue --job lifts the pause", pfleet("board", "requeue", PROG, "--job", "g1")[1],
+          [jobline("g1", "queued", 3, "/out/g1.md")])
+    check("after the lift both queue again", [x for x in pfleet("next", PROG)[1] if x.startswith("judge")], ["judge g1", "judge g2"])
+    # idle
+    check("idle --job on a queued job refused", pfleet("board", "idle", PROG, "--job", "g1")[0], 13)
+    pfleet("board", "judgment", PROG, "--job", "g2")
+    check("idle --job: live -> owner", pfleet("board", "idle", PROG, "--job", "g2")[1],
+          [jobline("g2", "owner", 1, "none", "idle; stopped")])
+    check("unknown job on judged is BLOCKED exit 1", pfleet("board", "judged", PROG, "--job", "nope",
+          "--return", ok)[0], 1)
+
+
+def test_design_verdict_loop():
+    a = objective("jb")
+    rdir = os.path.join(PDIR, "round1")
+    os.makedirs(rdir, exist_ok=True)
+    vf = os.path.join(rdir, "VERDICT.md")
+    if os.path.exists(vf):
+        os.remove(vf)
+    tail = "\n## Judgment work\n- d1: design | scope: s | output: " + rdir + " | feeds: none\n"
+    program([("alpha", a, "none", "none")], header=HEADER + "Judgment jobs: 2\n", tail=tail)
+    check("verdict on a queued job refused", pfleet("board", "verdict", PROG, "--job", "d1",
+          "--line", "x")[0], 13)
+    pfleet("board", "judgment", PROG, "--job", "d1")
+    ret = write(os.path.join(PDIR, "dr.txt"), DESIGN_RET.format(out=rdir))
+    check("designer READY -> verdict", pfleet("board", "judged", PROG, "--job", "d1", "--return", ret)[1],
+          [jobline("d1", "verdict", 1, rdir)])
+    check("next shows the verdict job", "verdict job d1 \u2014 " + rdir in pfleet("next", PROG)[1], True)
+    check("verdict needs --line", pfleet("board", "verdict", PROG, "--job", "d1")[0], 2)
+    check("verdict without --done queues the next round",
+          pfleet("board", "verdict", PROG, "--job", "d1", "--line", "option 2, wider")[1],
+          [jobline("d1", "queued", 1, rdir)])
+    check("VERDICT.md has the dated line", open(vf).read(), "2023-11-14 \u2014 option 2, wider\n")
+    pfleet("board", "judgment", PROG, "--job", "d1")
+    pfleet("board", "judged", PROG, "--job", "d1", "--return", ret)
+    check("--done finishes the job", pfleet("board", "verdict", PROG, "--job", "d1",
+          "--line", "approved", "--done")[1], [jobline("d1", "done", 2, rdir)])
+    check("VERDICT.md is appended, not replaced", open(vf).read().splitlines()[-1],
+          "2023-11-14 \u2014 approved")
+    check("judgment count is one per round", pfleet("next", PROG)[1][-1], "judgment-jobs: 2/2")
+    # a job whose output is not an existing directory
+    tail = "\n## Judgment work\n- d1: design | scope: s | output: /nonexistent/x | feeds: none\n"
+    program([("alpha", a, "none", "none")], tail=tail)
+    pfleet("board", "judgment", PROG, "--job", "d1")
+    shown = pfleet("board", "show", PROG)[1]
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "d1", "--return",
+           write(os.path.join(PDIR, "dr.txt"), DESIGN_RET.format(out="/nonexistent/x")))
+    check("READY with a missing OUTPUT directory is BLOCKED exit 1", rc, 1)
+    check("BLOCKED names the output", any(x.startswith("BLOCKED: OUTPUT /nonexistent/x") for x in out), True)
+    check("the job stays live, nothing written", pfleet("board", "show", PROG)[1], shown)
+    # requeue from verdict is the escape hatch
+    pfleet("board", "judged", PROG, "--job", "d1", "--return",
+           write(os.path.join(PDIR, "dr.txt"), DESIGN_RET.format(out=rdir)))
+    check("requeue --job: verdict -> queued, output kept", pfleet("board", "requeue", PROG, "--job", "d1")[1],
+          [jobline("d1", "queued", 1, rdir)])
+
+
+def test_job_grammar():
+    a = objective("jc")
+    program([("alpha", a, "none", "none")],
+            tail="\n## Judgment work\n- alpha: groom | scope: s | output: /o | feeds: none\n")
+    rc, out, err = pfleet("program", "check", PROG)
+    check("a job slug equal to a run slug is a problem", (rc, any("same slug as a run" in x for x in out)), (1, True))
+    program([("alpha", a, "none", "none")],
+            tail="\n## Judgment work\n- fleet: groom | scope: s | output: /o | feeds: none\n")
+    check("a job slug fleet is a problem", pfleet("program", "check", PROG)[0], 1)
+    program([("alpha", a, "none", "none")],
+            tail="\n## Judgment work\n- g1: groom | scope: s | output: /o | feeds: none\n"
+                 "\n## Fleet board\n" + jobline("g1", "bogus") + "\n")
+    check("an unknown job state is a malformed line (3)", pfleet("next", PROG)[0], 3)
+    program([("alpha", a, "none", "none")],
+            tail="\n## Judgment work\n- g1: groom | scope: s | output: /o | feeds: none\n"
+                 "\n## Fleet board\n" + jobline("zz") + "\n")
+    check("a job line for no Judgment work line is rejected (3)", pfleet("next", PROG)[0], 3)
+
+
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
@@ -1497,7 +1677,8 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates,
+          test_judgment_jobs, test_design_verdict_loop, test_job_grammar):
     t()
 
 if FAILURES:

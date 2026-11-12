@@ -23,7 +23,18 @@
   stu-fleet board relaunch PROGRAM --run SLUG
                                         relaunch a run the policy allows now; prints the new nonce
   stu-fleet board judgment PROGRAM --job SLUG
-                                        count one groom, audit or design dispatch
+                                        a queued groom, audit or design job -> live; counts one dispatch
+  stu-fleet board judged PROGRAM --job SLUG --return FILE
+                                        fold a live job's GROOMER or DESIGNER return (exit 1 unless it
+                                        validates): done, owner, verdict, or queued on a usage limit
+  stu-fleet board verdict PROGRAM --job SLUG --line TEXT [--done]
+                                        append the owner's line, dated, to <output>/VERDICT.md; a verdict
+                                        job -> done (--done) or queued (the next round)
+  stu-fleet board requeue PROGRAM --job SLUG
+                                        owner or verdict -> queued; requeuing the one job marked
+                                        `usage limit` lifts the pause for every judgment job
+  stu-fleet board idle PROGRAM --job SLUG
+                                        a live job's seat found idle and stopped -> owner
   stu-fleet spend PROGRAM               cycles, launches, dry launches, agents and output tokens per
                                         run; budget, judgment jobs and Stop at
   stu-fleet actuals PROGRAM             read-only: per run and fleet, launches, agents, output tokens
@@ -50,6 +61,29 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
     handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
   - fleet | judgment: <n> | agents: <n> | out: <n> | notices: <none|comma list of cycle-80,
     cycle-100,judgment-80,judgment-100,stop-at>
+
+After the run lines and before the fleet line come the job lines (v5), one per `## Judgment work`
+line, in that order:
+
+  - job <slug> | state: <queued|live|verdict|owner|done> | dispatches: <n> | output: <abs path|none> |
+    stop: <none|one line>
+
+A v4 board (no job lines) reads as every job queued, dispatches 0; the next write emits v5. A job
+line for a slug not under Judgment work, a run line after a job line, or a duplicate is exit 3. A
+job slug equal to a run slug or `fleet` is a `program check` problem. `feeds: <run>` means the job
+writes that run's objective: `program check` reports `run <slug>: objective pending (fed by <job>)`
+instead of blocking a missing objective, `next` prints `wait <run> — fed by <job> (<state>)` until the
+job is done, then `owner <run> — fed by <job>, objective missing or invalid: <detail>` if the file
+fails the objective checks. `next` prints each job after the run lines: `judge <slug>` (queued, limits
+allow), `owner job <slug> — <reason>` (owner state, spent judgment jobs, Stop at passed, or the
+usage-limit pause: every queued job prints it, the one job marked `usage limit` says to requeue it),
+`verdict job <slug> — <output>`, `live job <slug>`,
+`done job <slug>`. `board judgment` is refused (13) on a job that is not queued or while paused;
+`judged` on a job that is not live; `verdict` on a job not in verdict or whose output is not an
+existing absolute directory; `requeue --job` on a job that is none of owner, verdict or the
+marked usage-limit job; `judged` on a designer READY whose OUTPUT is not an existing directory
+(exit 1, BLOCKED, the job stays live, nothing written); `idle --job`
+on a job that is not live. `--run` and `--job` are mutually exclusive (exit 2).
 
 (one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
 named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
@@ -541,6 +575,8 @@ HEADER_KEYS = ("Owner", "Max live lanes", "Cycle budget", "Judgment jobs", "Stop
                "Settle mode", "Merge lock")
 STOP_AT_RE = r"\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?(?:Z|[+-]\d\d:\d\d)"
 JUDGMENT_KINDS = ("groom", "audit", "design")
+JOB_STATES = ("queued", "live", "verdict", "owner", "done")
+USAGE_LIMIT_STOP = "usage limit"
 SEC_RUNS, SEC_JUDGMENT, SEC_EXCLUDED, SEC_LIMITS, SEC_BOARD = (
     "runs", "judgment", "excluded", "limits", "board")
 
@@ -655,6 +691,24 @@ def parse_board_line(ln, where):
     raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
 
 
+JOB_LINE = (r"- job (%s) \| state: (\S+) \| dispatches: (\d+) \| output: (.+?) \| stop: (.+)"
+            % SLUG_RE)
+
+
+def parse_job_line(ln, where):
+    m = re.fullmatch(JOB_LINE, ln.rstrip("\n"))
+    if not m or m.group(2) not in JOB_STATES:
+        raise Fail(EXIT_ERROR, "%s: malformed job line %r; fix or delete it" % (where, ln.strip()))
+    return {"slug": m.group(1), "state": m.group(2), "dispatches": int(m.group(3)),
+            "output": m.group(4), "stop": m.group(5)}
+
+
+def job_line(j):
+    clean = lambda v: str(v).replace("|", "/").replace("\n", " ")
+    return "- job %s | state: %s | dispatches: %d | output: %s | stop: %s" % (
+        j["slug"], j["state"], j["dispatches"], clean(j["output"]) or "none", clean(j["stop"]) or "none")
+
+
 def parse_fleet_line(ln, where):
     m = re.fullmatch(FLEET_LINE, ln.rstrip("\n"))
     notices = [] if not m or m.group(4) == "none" else m.group(4).split(",")
@@ -686,7 +740,8 @@ def parse_program(text):
     prog["problems"]. Raises Fail(EXIT_ERROR) for a malformed or foreign board line."""
     lines = text.splitlines(keepends=True)
     prog = {"name": "", "header": {}, "runs": [], "judgment": [], "board": {}, "problems": [],
-            "board_span": None, "lines": lines, "fleet": {"judgment": 0, "notices": []}}
+            "board_span": None, "lines": lines, "fleet": {"judgment": 0, "notices": []},
+            "jobboard": {}}
     fleet_seen = False
     bad = prog["problems"]
 
@@ -756,6 +811,16 @@ def parse_program(text):
                 prog["fleet"] = parse_fleet_line(ln, "line %d" % n)
                 fleet_seen = True
                 continue
+            if re.match(r"- job ", ln):
+                j = parse_job_line(ln, "line %d" % n)
+                if j["slug"] in prog["jobboard"]:
+                    raise Fail(EXIT_ERROR, "line %d: board names job %s twice; delete one line"
+                               % (n, j["slug"]))
+                prog["jobboard"][j["slug"]] = j
+                continue
+            if prog["jobboard"]:
+                raise Fail(EXIT_ERROR, "line %d: a run line comes after a job line; the job lines "
+                                       "follow the run lines" % n)
             b = parse_board_line(ln, "line %d" % n)
             if b["slug"] in prog["board"]:
                 raise Fail(EXIT_ERROR, "line %d: board names %s twice; delete one line" % (n, b["slug"]))
@@ -767,6 +832,10 @@ def parse_program(text):
         if slug not in [r["slug"] for r in prog["runs"]]:
             raise Fail(EXIT_ERROR, "board line for %r, which is not in Runs; delete the line "
                                    "or add the run" % slug)
+    for slug in prog["jobboard"]:
+        if slug not in [j["slug"] for j in prog["judgment"]]:
+            raise Fail(EXIT_ERROR, "board line for job %r, which is not under Judgment work; "
+                                   "delete the line or add the job" % slug)
     return prog
 
 
@@ -803,36 +872,53 @@ def validate_program(prog, block):
     if not prog["runs"]:
         block(1, "no runs: add '- <slug>: <objective path> | after: none | resources: none' "
                  "under '## Runs'")
+    fed = {}
+    for j in prog["judgment"]:
+        if j["feeds"] != "none":
+            fed.setdefault(j["feeds"], []).append(j["slug"])
     for r in prog["runs"]:
         if r["slug"] == "fleet":
             block(r["line"], "run slug 'fleet' is reserved for the board's fleet line")
         r["cap"], r["lanes"], r["mode"] = None, max(1, r["declared"] or 1), "plain"
+        # a run some judgment line feeds waits for its objective: what is wrong with the file is
+        # kept for `next` (r["obj_problem"]) instead of blocking the program
+        r["fed_by"], r["obj_problem"], r["pending"] = fed.get(r["slug"], []), None, False
+        deferred = []
+
+        def flag(detail, r=r, deferred=deferred):
+            if r["fed_by"]:
+                deferred.append(detail)
+            else:
+                block(r["line"], "run %s: %s" % (r["slug"], detail))
+
         if not r["objective"].startswith("/"):
             block(r["line"], "run %s: objective path %r is not absolute" % (r["slug"], r["objective"]))
         elif not os.path.isfile(r["objective"]):
-            block(r["line"], "run %s: objective %s does not exist" % (r["slug"], r["objective"]))
+            r["pending"] = True
+            flag("objective %s does not exist" % r["objective"])
         else:
             try:
                 r["cap"], counted, r["mode"] = objective_facts(r["objective"])
                 r["lanes"] = max(r["declared"] or 0, counted, 1)
             except Fail as e:
-                block(r["line"], "run %s: %s" % (r["slug"], e.msg))
+                flag(e.msg)
             else:
                 if r["declared"] is not None and r["declared"] < 1:
-                    block(r["line"], "run %s: lanes: must be a positive integer" % r["slug"])
+                    flag("lanes: must be a positive integer")
                 elif r["mode"] == "overnight" and r["declared"] is None:
-                    block(r["line"], "run %s: its objective is Mode: overnight, so the Runs line "
-                                     "must declare '| lanes: <n>'" % r["slug"])
+                    flag("its objective is Mode: overnight, so the Runs line "
+                         "must declare '| lanes: <n>'")
                 elif r["mode"] == "plain" and r["declared"] not in (None, 1):
-                    block(r["line"], "run %s: a plain objective runs one lane, but the Runs line "
-                                     "declares lanes: %d" % (r["slug"], r["declared"]))
+                    flag("a plain objective runs one lane, but the Runs line "
+                         "declares lanes: %d" % r["declared"])
                 if r["cap"] is None:
-                    block(r["line"], "run %s: objective has no 'Cycle cap: <n>' line; a fleet "
-                                     "objective states its cap (startup stop)" % r["slug"])
+                    flag("objective has no 'Cycle cap: <n>' line; a fleet "
+                         "objective states its cap (startup stop)")
         mx = h.get("Max live lanes")
         if mx and pos(mx[0]) and r["lanes"] > int(mx[0]):
-            block(r["line"], "run %s: its objective declares %d lanes but Max live lanes: is %s; "
-                             "raise the cap or cut the lanes" % (r["slug"], r["lanes"], mx[0]))
+            flag("its objective declares %d lanes but Max live lanes: is %s; "
+                 "raise the cap or cut the lanes" % (r["lanes"], mx[0]))
+        r["obj_problem"] = "; ".join(deferred) or None
         for a in r["after"]:
             if a not in slugs:
                 block(r["line"], "run %s: after: names %r, which is not a run" % (r["slug"], a))
@@ -846,6 +932,10 @@ def validate_program(prog, block):
         if j["slug"] in judged:
             block(j["line"], "judgment job %s appears twice" % j["slug"])
         judged[j["slug"]] = True
+        if j["slug"] in slugs:
+            block(j["line"], "judgment job %s has the same slug as a run" % j["slug"])
+        if j["slug"] == "fleet":
+            block(j["line"], "judgment job slug 'fleet' is reserved for the board's fleet line")
         if j["feeds"] != "none" and j["feeds"] not in slugs:
             block(j["line"], "judgment job %s: feeds: names %r, which is not a run" % (
                 j["slug"], j["feeds"]))
@@ -904,10 +994,19 @@ def effective_board(prog):
     return out
 
 
-def render_program(prog, board, fleet):
-    """The program file text with its Fleet board section replaced by `board` and the fleet line."""
+def effective_jobs(prog):
+    """Job lines in Judgment work order, a queued line for every job that has none (a v4 board)."""
+    return [prog["jobboard"].get(j["slug"]) or {
+        "slug": j["slug"], "state": "queued", "dispatches": 0, "output": "none", "stop": "none"}
+        for j in prog["judgment"]]
+
+
+def render_program(prog, board, fleet, jobs=()):
+    """The program file text with its Fleet board section replaced by `board`, the job lines
+    `jobs` and the fleet line."""
     lines = list(prog["lines"])
-    body = [board_line(b) + "\n" for b in board] + [fleet_line(fleet, board) + "\n"]
+    body = ([board_line(b) + "\n" for b in board] + [job_line(j) + "\n" for j in jobs] +
+            [fleet_line(fleet, board) + "\n"])
     if prog["board_span"] is None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
@@ -937,9 +1036,10 @@ class ProgramLocked:
             raise
         return self
 
-    def write(self, board):
-        atomic_write(self.path, render_program(self.prog, board, self.prog["fleet"]),
-                     prefix=".fleet-program-")
+    def write(self, board, jobs=None):
+        atomic_write(self.path, render_program(
+            self.prog, board, self.prog["fleet"],
+            effective_jobs(self.prog) if jobs is None else jobs), prefix=".fleet-program-")
 
     def __exit__(self, *exc):
         self.fh.close()
@@ -1049,7 +1149,10 @@ def limits(prog, board, fleet):
     h = {k: v[0] for k, v in prog["header"].items()}
     used = sum(b["cycles"] for b in board)
     raw = h.get("Cycle budget")
-    limit = None if raw == "none" else int(raw) if raw else sum(r["cap"] for r in prog["runs"])
+    # a run whose objective a judgment job has yet to write has no cap to add; with nothing known
+    # there is no default limit yet (the budget is never 0)
+    caps = sum(r["cap"] or 0 for r in prog["runs"])
+    limit = None if raw == "none" else int(raw) if raw else caps or None
     jraw = h.get("Judgment jobs", "none")
     jlimit = None if jraw == "none" else int(jraw)
     stop = h.get("Stop at")
@@ -1080,6 +1183,7 @@ def decide(prog, board, cap, lim):
     """The one policy: -> [(slug, word, text)] in Runs order, and the live lane count.
     word is start|wait|settle|owner|relaunch|live|done."""
     runs = {r["slug"]: r for r in prog["runs"]}
+    jobmap = {j["slug"]: j for j in effective_jobs(prog)}
     live, held = 0, {}
     for slug, b in board.items():
         if b["state"] == "live":
@@ -1090,7 +1194,10 @@ def decide(prog, board, cap, lim):
     out = []
     for r in prog["runs"]:
         b, slug = board[r["slug"]], r["slug"]
-        if b["state"] in ("queued", "relaunch"):
+        hold = fed_hold(r, jobmap) if b["state"] == "queued" else None
+        if hold:
+            out.append((slug,) + hold)
+        elif b["state"] in ("queued", "relaunch"):
             pending = [x for x in r["after"] if board[x]["state"] != "done"]
             clash = [(x, held[x]) for x in r["resources"] if x in held]
             word = "start" if b["state"] == "queued" else "relaunch"
@@ -1118,6 +1225,49 @@ def decide(prog, board, cap, lim):
         else:
             out.append((slug, b["state"], ""))
     return out, shown_live
+
+
+def fed_hold(r, jobs):
+    """-> (word, text) when a run fed by judgment jobs cannot start yet, else None. `jobs` maps a
+    job slug to its board line. wait while a feeding job is not done; once they are, owner when
+    the objective is missing or fails an objective check."""
+    notdone = [j for j in r["fed_by"] if jobs[j]["state"] != "done"]
+    if notdone:
+        return "wait", "fed by %s (%s)" % (notdone[0], jobs[notdone[0]]["state"])
+    if r["obj_problem"]:
+        return "owner", "fed by %s, objective missing or invalid: %s" % (
+            r["fed_by"][0], r["obj_problem"])
+    return None
+
+
+def decide_jobs(prog, lim):
+    """-> the `next` lines for the judgment jobs, in Judgment work order. A queued job is
+    `judge <slug>` unless a usage limit paused judgment work, judgment jobs are spent or Stop at
+    passed. Jobs take no lane and name no resources."""
+    jobs = effective_jobs(prog)
+    paused = any(j["state"] == "queued" and j["stop"] == USAGE_LIMIT_STOP for j in jobs)
+    out = []
+    for j in jobs:
+        slug, st = j["slug"], j["state"]
+        if st == "queued":
+            if paused and j["stop"] == USAGE_LIMIT_STOP:
+                out.append("owner job %s \u2014 usage limit; requeue this job to lift the pause "
+                           "for all judgment work" % slug)
+            elif paused:
+                out.append("owner job %s \u2014 usage limit; groom, audit and design paused" % slug)
+            elif lim["judgment"][2]:
+                out.append("owner job %s \u2014 judgment jobs spent %s" % (slug, fmt_limit(lim["judgment"])))
+            elif lim["stop"][1]:
+                out.append("owner job %s \u2014 stop at %s passed" % (slug, lim["stop"][0]))
+            else:
+                out.append("judge %s" % slug)
+        elif st == "owner":
+            out.append("owner job %s \u2014 %s" % (slug, j["stop"]))
+        elif st == "verdict":
+            out.append("verdict job %s \u2014 %s" % (slug, j["output"]))
+        else:
+            out.append("%s job %s" % (st, slug))
+    return out
 
 
 def decision_line(slug, word, text):
@@ -1162,6 +1312,11 @@ def cmd_program(sub, a):
     print("stop-at: %s" % h.get("Stop at", "none"))
     print("merge-lock: %s" % h.get("Merge lock", "on"))
     for r in prog["runs"]:
+        if r["obj_problem"]:
+            print("run %s: objective %s (fed by %s)%s" % (
+                r["slug"], "pending" if r["pending"] else "invalid", r["fed_by"][0],
+                "" if r["pending"] else ": " + r["obj_problem"]))
+            continue
         print("run %s: objective %s | cap %d | lanes %d | after %s | resources %s" % (
             r["slug"], r["objective"], r["cap"], r["lanes"], ",".join(r["after"]) or "none",
             ",".join(r["resources"]) or "none"))
@@ -1242,10 +1397,14 @@ def cmd_board(sub, a):
             return rc
         for b in effective_board(prog):
             print(board_line(b))
+        for j in effective_jobs(prog):
+            print(job_line(j))
         print(fleet_line(prog["fleet"], effective_board(prog)))
         return 0
-    if sub == "judgment":
-        return cmd_judgment(a)
+    if sub in ("judgment", "judged", "verdict") or (sub in ("requeue", "idle") and "job" in a):
+        if "run" in a:
+            raise Fail(EXIT_USAGE, "--run and --job are mutually exclusive")
+        return cmd_job(sub, a)
     need(a, "run")
     if sub in ("record", "draft", "settled"):
         need(a, "return")
@@ -1266,6 +1425,9 @@ def cmd_board(sub, a):
                        "settle": "requeue it first", "owner": "requeue it first"}[b["state"]]
                 return refuse(EXIT_BOARD, "fleet-board: %s is %s, not queued; %s" % (
                     run["slug"], b["state"], why))
+            held = fed_hold(run, {j["slug"]: j for j in effective_jobs(prog)})
+            if held:
+                return refuse(EXIT_BOARD, "fleet-board: %s" % decision_line(run["slug"], *held))
             nonce = begin_launch(run, b)
         elif sub == "relaunch":
             if b["state"] != "relaunch":
@@ -1499,26 +1661,129 @@ def cmd_actuals(sub, a):
     return 0
 
 
-def cmd_judgment(a):
+def job_paused(jobs):
+    """True while any queued job carries the usage-limit stop (the Cap fallback pause)."""
+    return any(j["state"] == "queued" and j["stop"] == USAGE_LIMIT_STOP for j in jobs)
+
+
+def _job_refuse(j, why):
+    return refuse(EXIT_BOARD, "fleet-board: job %s is %s, %s" % (j["slug"], j["state"], why))
+
+
+def fold_judged(prog, spec, job, ret_path):
+    """Validate the return for `spec` and fold it into `job`. -> rc after printing problems, or 0."""
+    import judgment_return
+    text = read_text(ret_path, "judgment return")
+    if spec["kind"] == "design":
+        block, problems = judgment_return.check_designer(text, spec["slug"])
+    else:
+        block, problems = judgment_return.check_groomer(text, spec["slug"], spec["kind"])
+    if (not problems and block["status"] == "DONE" and spec["feeds"] != "none"):
+        run = [r for r in prog["runs"] if r["slug"] == spec["feeds"]]
+        listed = [p for p in re.split(r"\s*,\s*", block["fields"].get("OBJECTIVES", "")) if p]
+        if run and not any(os.path.realpath(p) == os.path.realpath(run[0]["objective"])
+                           for p in listed):
+            problems.append("the job feeds run %s, so OBJECTIVES must list %s" % (
+                spec["feeds"], run[0]["objective"]))
+    if (not problems and spec["kind"] == "design" and block["status"] == "READY"):
+        o = block["fields"].get("OUTPUT", "none")
+        if not os.path.isabs(o) or not os.path.isdir(o):
+            problems.append("OUTPUT %s is not an existing directory; board verdict could never "
+                            "write VERDICT.md there" % o)
+    if problems:
+        for p in problems:
+            print("BLOCKED: %s" % p)
+        print("BLOCKED")
+        return EXIT_INVALID
+    st = block["status"]
+    out = block["fields"].get("OUTPUT", "none")
+    if st == "DONE":
+        job["state"], job["output"], job["stop"] = "done", out, "none"
+    elif st == "SPLIT":
+        job["state"], job["output"] = "owner", out
+        job["stop"] = "split into %d scopes; add them as Judgment work lines" % len(block["scopes"])
+    elif st == "READY":
+        job["state"], job["output"], job["stop"] = "verdict", out, "none"
+    elif judgment_return.is_usage_limit(block["summary"]):
+        job["state"], job["stop"] = "queued", USAGE_LIMIT_STOP
+    else:
+        job["state"], job["stop"] = "owner", "BLOCKED — %s" % block["summary"]
+    return 0
+
+
+def cmd_job(sub, a):
     need(a, "job")
+    if sub == "judged":
+        need(a, "return")
+    if sub == "verdict":
+        need(a, "line")
     with ProgramLocked(a["program"]) as st:
         prog = st.prog
         rc = need_valid(prog)
         if rc:
             return rc
-        if a["job"] not in [j["slug"] for j in prog["judgment"]]:
+        specs = [j for j in prog["judgment"] if j["slug"] == a["job"]]
+        if not specs:
             print("BLOCKED: %s is not a line under '## Judgment work'" % a["job"])
             return EXIT_INVALID
+        spec = specs[0]
         board = effective_board(prog)
-        lim = limits(prog, board, prog["fleet"])
-        if lim["judgment"][2]:
-            return refuse(EXIT_BOARD, "fleet-board: judgment jobs spent %s" % fmt_limit(lim["judgment"]))
-        if lim["stop"][1]:
-            return refuse(EXIT_BOARD, "fleet-board: stop at %s passed" % lim["stop"][0])
-        prog["fleet"]["judgment"] += 1
-        st.write(board)
-        print("judgment-jobs: %d/%s" % (prog["fleet"]["judgment"],
-                                        "none" if lim["judgment"][1] is None else lim["judgment"][1]))
+        jobs = effective_jobs(prog)
+        job = [j for j in jobs if j["slug"] == spec["slug"]][0]
+        if sub == "judgment":
+            if job["state"] != "queued":
+                return _job_refuse(job, "not queued")
+            if job_paused(jobs):
+                return refuse(EXIT_BOARD, "fleet-board: judgment jobs are paused on a usage limit; "
+                                          "board requeue --job lifts it")
+            lim = limits(prog, board, prog["fleet"])
+            if lim["judgment"][2]:
+                return refuse(EXIT_BOARD, "fleet-board: judgment jobs spent %s" % fmt_limit(lim["judgment"]))
+            if lim["stop"][1]:
+                return refuse(EXIT_BOARD, "fleet-board: stop at %s passed" % lim["stop"][0])
+            job["state"], job["stop"] = "live", "none"
+            job["dispatches"] += 1
+            prog["fleet"]["judgment"] += 1
+            st.write(board, jobs)
+            print("judgment-jobs: %d/%s" % (prog["fleet"]["judgment"],
+                                            "none" if lim["judgment"][1] is None else lim["judgment"][1]))
+            return 0
+        if sub == "judged":
+            if job["state"] != "live":
+                return _job_refuse(job, "not live; only a live job takes a return")
+            rc = fold_judged(prog, spec, job, a["return"])
+            if rc:
+                return rc
+        elif sub == "verdict":
+            if job["state"] != "verdict":
+                return _job_refuse(job, "not verdict; only a job awaiting the owner takes a verdict")
+            out = job["output"]
+            if not os.path.isabs(out) or not os.path.isdir(out):
+                return _job_refuse(job, "its output %s is not an existing absolute directory" % out)
+            path = os.path.join(out, "VERDICT.md")
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write("%s — %s\n" % (stamp()[:10], a["line"]))
+            except OSError as e:
+                raise Fail(EXIT_ERROR, "cannot write %s: %s" % (path, e))
+            job["state"], job["stop"] = ("done" if a.get("done") else "queued"), "none"
+        elif sub == "requeue":
+            if job["state"] == "owner":
+                job["state"], job["stop"] = "queued", "none"
+            elif job["state"] == "verdict":
+                job["state"], job["stop"] = "queued", "none"  # escape hatch; output kept
+            elif job["state"] == "queued" and job["stop"] == USAGE_LIMIT_STOP:
+                job["stop"] = "none"
+            else:
+                return _job_refuse(job, "not owner, verdict or paused; nothing to requeue")
+        elif sub == "idle":
+            if job["state"] != "live":
+                return _job_refuse(job, "not live; nothing is idle")
+            job["state"], job["stop"] = "owner", "idle; stopped"
+        else:
+            raise Fail(EXIT_USAGE, "unknown board subcommand %s" % sub)
+        st.write(board, jobs)
+        print(job_line(job))
         return 0
 
 
@@ -1876,6 +2141,7 @@ def cmd_next(sub, a):
         fresh = []
     decided, shown_live = decide(prog, {b["slug"]: b for b in board}, cap, lim)
     lines += [decision_line(*d) for d in decided]
+    lines += decide_jobs(prog, lim)
     lines += [text for _, text in fresh]
     lines.append("hold: set \u2014 %s" % hold["reason"] if hold else "hold: clear")
     lines.append("lanes: %d/%d" % (shown_live, cap))
@@ -2000,10 +2266,12 @@ PROGRAM_SPEC = {
     ("board", "show"): ((), ()),
     ("board", "launch"): (("run",), ()),
     ("board", "record"): (("run", "return"), ()),
-    ("board", "requeue"): (("run",), ()),
-    ("board", "idle"): (("run",), ()),
+    ("board", "requeue"): (("run", "job"), ()),
+    ("board", "idle"): (("run", "job"), ()),
     ("board", "relaunch"): (("run",), ()),
     ("board", "judgment"): (("job",), ()),
+    ("board", "judged"): (("job", "return"), ()),
+    ("board", "verdict"): (("job", "line"), ("done",)),
     ("board", "draft"): (("run", "return"), ()),
     ("board", "settled"): (("run", "return"), ()),
     ("brief", None): ((), ()),
@@ -2013,7 +2281,7 @@ PROGRAM_SPEC = {
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|draft|settled P [flags] | spend P | actuals P | next P | "
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|judged|verdict|draft|settled P [flags] | spend P | actuals P | next P | "
          "brief P | answer P --line TEXT")
 
 

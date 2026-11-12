@@ -67,7 +67,35 @@ answer. Act on the lines, then run `next` again after every state change.
   unit list: `board idle` comes only after the stop. A refusal (13) goes to the owner as printed.
   The run skill's repair message, single restart and 6-hour re-arm bound are for orchestrators
   and do not apply to supervisors.
-- `wait <slug> — <reason>`: nothing to do.
+- `wait <slug> — <reason>`: nothing to do. `wait <run> — fed by <job> (<state>)` is the same: a
+  groom or audit job is still to write that run's objective, and the run starts only after it.
+- `judge <slug>`: a queued judgment job. Run `stu-fleet board judgment <program path> --job <slug>`;
+  a refusal (13) goes to the owner as printed and nothing is dispatched. On success dispatch the
+  seat (operation 2) for the job's kind (groom or audit: the groomer; design: the designer) with
+  the program line's scope, output and feeds, the objective path it must write when the job feeds
+  a run, and the repo row. Wait (operation 3) with one deadline per job. When the return arrives
+  save it under `RUN_HOME/runs/<slug>/` (so a fresh coordinator can read a designer's DECISION),
+  then run `stu-fleet board judged <program path> --job <slug> --return <file>`. Exit 1: show the
+  `BLOCKED` lines to the owner and leave the job. When the deadline fires, check the tree
+  (operation 4); alive: re-arm; idle: stop it (operation 5), then
+  `stu-fleet board idle <program path> --job <slug>`. Seat agents are never relaunched on their
+  own. A usage-limit return pauses all judgment work: tell the owner once, as `next` prints it.
+  Only the job that returned the limit is marked; `next` names it (`owner job <slug> — usage limit;
+  requeue this job ...`) and the other queued jobs say `groom, audit and design paused`. When the owner says the limit is
+  lifted, run `stu-fleet board requeue <program path> --job <slug>` for that one marked job: it
+  lifts the pause for all, and no other job needs a requeue. A designer READY whose OUTPUT is not
+  an existing directory is refused at `judged` (the job stays live). A job stuck in `verdict` can
+  be sent back with `board requeue --job` (its output is kept). Several `judge` lines in one message are dispatched together.
+- `owner job <slug> — <reason>`: a judgment job that waits on the owner (a split to add as
+  Judgment work lines, a BLOCKED seat, a spent limit, the usage-limit pause). Send it to the owner
+  in the wave brief as printed. After they fix the scope, run
+  `stu-fleet board requeue <program path> --job <slug>`.
+- `verdict job <slug> — <output>`: a designer round waits on the owner. Put its DECISION and
+  options (from the saved return) in the wave brief, artifacts by path, in the same message as
+  any settle brief. Their answer goes through
+  `stu-fleet board verdict <program path> --job <slug> --line "<answer verbatim>"`, with `--done`
+  when they approve; without it the job queues for the next round.
+- `live job <slug>` and `done job <slug>`: nothing to do.
 - `live <slug>`: nothing to do.
 - `done <slug>`: nothing.
 - `owner <slug> — needs <n> lanes, cap <cap>`: the run needs more lanes than the cap, so it can
@@ -171,15 +199,17 @@ coordinator starts at "Startup", then `next`; for each live supervisor it re-arm
 
 ## 5. Judgment jobs
 
-Before any groom, audit or design dispatch (none exist yet), run
-`stu-fleet board judgment <program path> --job <slug>`; a refusal means do not dispatch, and show it to the owner as printed. Settler
+A groom, audit or design dispatch happens only from a `judge <slug>` line, after
+`stu-fleet board judgment <program path> --job <slug>` succeeds (section 2); a refusal means do
+not dispatch, and show it to the owner as printed. Settler
 drafts and verifier or scout dispatches are never counted.
 
 ## 6. Not built yet
 
 Stated here so nothing assumes it:
 
-- Judgment seats other than the settler and verifier (groom, audit, design).
+- The groomer and designer agents themselves (S12b and S13 add them); the board, `next` and the
+  return checks that schedule them exist.
 - Auto-narrow settle mode (a program that asks for it behaves as draft mode).
 - Codex: there is no Codex binding for this skill; `codex/runtime.md` says `fleet: not bound yet`.
 
@@ -192,7 +222,8 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    `run_in_background: true`, and a prompt of the `STU-SUPERVISED: <nonce>` line plus the
    objective path. No `model` is passed: a supervisor inherits the launcher's model.
 2. **Dispatch a seat:** an `Agent` call with the seat's `stu:` type (`stu:verifier`,
-   `stu:settler`, `stu:scout`) and its `model`. The settler's model is the value of
+   `stu:settler`, `stu:scout`, and `stu:groomer` and `stu:designer` once S12b and S13 land them)
+   and its `model`. The settler's, groomer's and designer's model is the value of
    `stu-env section judgment-model`; empty means `opus`. Verifier and scout use the models the run
    skill's routing table gives them.
 3. **Wait:** the completion notification of the background `Agent` call, plus one background

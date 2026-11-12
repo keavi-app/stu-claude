@@ -1,6 +1,6 @@
 # Stu fleet mode and judgment seats
 
-Status: design, partly built (S1 to S11). Base: the 0.2.2 line. The owner's decisions are listed
+Status: design, partly built (S1 to S11 and S12a). Base: the 0.2.2 line. The owner's decisions are listed
 under "Decisions". The nesting spike (S3) chose subagent supervisors, with two binding changes for
 S8; findings in `design-rationale.md`, "Fleet nesting spike".
 
@@ -290,6 +290,58 @@ drafted for the brief as above.
   note was missed and the change reached a deployed environment first.
 - The coordinator, not the settler, writes `Run state:` for a supervisor found dead.
 
+## Judgment jobs on the board (S12a)
+
+Each `## Judgment work` line is a job with one job line on the board (v5), after the run lines
+and before the fleet line, in Judgment work order:
+
+```
+- job <slug> | state: <queued|live|verdict|owner|done> | dispatches: <n> | output: <abs path|none> | stop: <none|one line>
+```
+
+A v4 board (no job lines) reads as every job `queued`, dispatches 0; the next write emits v5.
+Commands: `board judgment --job` (queued -> live), `board judged --job --return` (live -> done,
+owner, verdict, or queued on a usage limit), `board verdict --job --line [--done]` (verdict ->
+done or queued), `board requeue --job` (owner -> queued), `board idle --job` (live -> owner).
+`next` prints `judge <slug>`, `wait <run> — fed by <job> (<state>)`, `owner job <slug> — <reason>`,
+`verdict job <slug> — <output>`, `live job <slug>`, `done job <slug>`. The return schemas are in
+`skills/run/handoff-format.md` sections 6 and 7.
+
+Decisions taken in S12a, each with what would reverse it:
+
+1. **One job line per Judgment work line.** A job slug equal to a run slug, or `fleet`, is a
+   `program check` problem. Reverses if jobs need their own section or several dispatch records.
+2. **`feeds: <run>` means the job writes that run's objective file** at the Runs line's path, and
+   the run waits for it. `program check` reports `objective pending (fed by <job>)` as info; `next`
+   prints `wait` until the job is done, then applies every objective check, else `owner <run> — fed
+   by <job>, objective missing or invalid: <detail>`. A job never edits an existing objective or
+   scoreboard. Reverses if owners want a groomer to extend a live run's units; that would go
+   through `add` in `/stu:settle`, not here.
+3. **`next` prints `judge <slug>`** for each queued job when judgment jobs are not spent and Stop
+   at has not passed, else an `owner job` line. Jobs take no lane and name no resources. Reverses
+   if a seat starts needing a worktree.
+4. **`board judgment` requires a queued job** and moves it to live, counting one dispatch and one
+   judgment job. Reverses if a job should be dispatchable while live (parallel seats).
+5. **`board judged` validates the return and folds it**: groomer DONE -> done, SPLIT -> owner,
+   designer READY -> verdict, BLOCKED -> owner, a usage-limit BLOCKED -> queued with stop `usage
+   limit` and every queued job prints `owner job` until the owner lifts it (the Cap fallback; tell
+   the owner once). A fed job's DONE must list the fed objective. Reverses if a usage limit should
+   hold only the seat kind that hit it.
+6. **`board verdict` appends the owner's line, dated, to `<output>/VERDICT.md`** before it moves
+   the job (a crash duplicates a line, never loses one); `--done` -> done, else queued for the next
+   round. A design job loops round by round, one judgment-job count per round. Reverses if rounds
+   should not count against the judgment limit.
+7. **`board requeue --job`**: owner -> queued, and verdict -> queued (an escape hatch for a job
+   whose round cannot take a verdict; output kept). `board judged` also refuses a designer READY
+   whose OUTPUT is not an existing directory, so a job never reaches an unusable verdict. It also lifts a usage-limit pause: on a queued job
+   whose stop is `usage limit` it clears the stop. (Decision 5 returns the job to queued, so
+   without this the pause could never be lifted.) Reverses if the pause should lift by itself on a
+   later dispatch.
+8. **`board idle --job`**: a live job whose seat was found idle and stopped -> owner, stop `idle;
+   stopped`. Seats are never relaunched automatically. Reverses if a seat is cheap enough to retry.
+9. **`next` prints `verdict job <slug> — <output>`** for a job in verdict, so the coordinator can
+   find the round to put before the owner. Reverses if the wave brief should carry it instead.
+
 ## Merge hold and lock
 
 Stu serialises merges inside one supervisor. A fleet has several, merging into a base branch
@@ -438,8 +490,9 @@ Codex note in the same PR.
 | S9 | Fleet: program file, board, `stu-fleet` `board`, `spend` and `next` (extending S4's script), `fleet_max_lanes` key, runtime-binding lint | S4, S8 |
 | S10 | Fleet: liveness and relaunch, budget limits and loop guard, actuals on the board | S9 |
 | S11 | Fleet: settle brief loop | S7, S10 |
-| S12 | `stu:groomer` | S5 |
-| S13 | `stu:designer` | S5 |
+| S12a | Judgment jobs on the board (v5 job lines), `next` schedules them, `board judged`/`verdict`, groomer and designer return schemas and their `stu-run-check` modes, the fleet skill's handling | S5, S11 |
+| S12b | `stu:groomer`, the agent; plugs into S12a | S12a |
+| S13 | `stu:designer`, the agent; plugs into S12a (its round loop is `board verdict`) | S12a |
 | S14 | Auto-narrow settle mode | S11, after a few weeks of draft-mode briefs |
 
 S1, S2 and S4 help today's hand-run coordinators at once. S7 alone removes most settle sessions:
