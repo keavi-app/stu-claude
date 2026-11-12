@@ -24,8 +24,10 @@
                                         relaunch a run the policy allows now; prints the new nonce
   stu-fleet board judgment PROGRAM --job SLUG
                                         count one groom, audit or design dispatch
-  stu-fleet spend PROGRAM               cycles, launches and dry launches per run; budget, judgment
-                                        jobs and Stop at
+  stu-fleet spend PROGRAM               cycles, launches, dry launches, agents and output tokens per
+                                        run; budget, judgment jobs and Stop at
+  stu-fleet actuals PROGRAM             read-only: per run and fleet, launches, agents, output tokens
+                                        and a seat/model table from the detail log
   stu-fleet next PROGRAM                one decision line per run, notices, hold, lanes, limits
 
 State: <RUN_HOME>/merge-hold.json (override: STU_FLEET_FILE), RUN_HOME from stu-env. Every
@@ -36,15 +38,15 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
 `## Fleet board` section, one run line per run in Runs order, then one fleet line, always last:
 
   - <slug> | state: <queued|live|settle|relaunch|owner|done> | cycles: <n> | launches: <n> |
-    from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | handoff: <abs path|none> |
-    stop: <none|STOP-CONDITION verbatim>
-  - fleet | judgment: <n> | notices: <none|comma list of cycle-80,cycle-100,judgment-80,
-    judgment-100,stop-at>
+    from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | agents: <n> | out: <n> |
+    handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
+  - fleet | judgment: <n> | agents: <n> | out: <n> | notices: <none|comma list of cycle-80,
+    cycle-100,judgment-80,judgment-100,stop-at>
 
 (one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
 named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
-and nonce) reads as closed 0, dry 0, nonce none, and a missing fleet line as judgment 0, notices
-none; the next write emits v2. Anything else malformed, a fleet line that is not last, a
+and nonce) reads as closed 0, dry 0, nonce none, a v2 line (no agents, out) as agents 0, out 0,
+and a missing fleet line as judgment 0, notices none; the next write emits v3. Anything else malformed, a fleet line that is not last, a
 duplicate, or an unknown notice id is exit 3. Only stu-fleet writes the section: under an
 exclusive flock on `<program>.lock`, replacing the program file atomically and touching nothing
 outside that section. `cycles` is fleet-cumulative; `from` is the count the current launch
@@ -74,6 +76,26 @@ is for a supervisor the coordinator found idle and already stopped: state relaun
 `idle — no return`, handoff = the objective scoreboard's first `Last handoff:` (`none` if
 absent), cycles += `Cycles used` numerator - `from` (a negative delta is refused, never clamped).
 
+Actuals (docs/fleet-design.md, "The board records actuals"): `agents` and `out` (output tokens) are
+cumulative across launches. `board record` and `board idle` call fleet_actuals.launch_actuals on
+the launch's nonce (the supervisor is found in any session under the projects root; its tree is
+every agent its `parentAgentId` chain reaches), add the launch's agent count and output tokens to
+the run line, and append one JSON line to `<program>.actuals.jsonl`, under the same flock:
+`{slug, nonce, recorded_at, agents, out, by_seat_model: [{seat, model, agents, turns, out}]}` or
+`{slug, nonce, recorded_at, unavailable: <reason>}`. Unavailable actuals (no transcript, zero or
+several nonce matches) add nothing, print `actuals: unavailable \u2014 <reason>` after the board line
+and never fail the command. The fleet line's `agents` and `out` are the sums over the run lines,
+recomputed at every write. `actuals` prints, from the log, for each run with entries and then the
+fleet: `<run <slug>|fleet>: launches <n>, agents <n>, out <n>` (`, unavailable <n>` appended when
+some launches were), the header `seat model agents turns out`, one `<seat> <model> <agents> <turns>
+<out>` row per seat and model, then `off-route <seat>: <off>/<total> turns not on <family> (<pct>%)`
+for each `stu:` seat whose `agents/<name>.md` names a `model:` (a model counts as on route when
+its id contains the family name), and `routing unknown: <seats>` for the rest; an empty or absent
+log prints `actuals: none recorded`. A damaged final log line is skipped with a printed warning
+(a crash mid-append); a damaged line anywhere else is exit 3. A `stu:` seat whose routing a
+dispatch can override (the settler) prints under `routing unknown`; records with no model are in
+the table but not in the off-route share. Actuals are a report: nothing enforces on them.
+
 `board relaunch` is refused (13) unless the run is `relaunch` and the `next` policy says
 `relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
 limit). Then, in one step, it rewrites the first `Run state:` line inside the objective's
@@ -102,7 +124,8 @@ judgment-jobs 80|100% (<used>/<limit>)` per limit at or over that mark and `noti
 passed (<time>)`, each printed once per program ever (recorded in the fleet line's `notices`
 under the program lock, before printing); then `hold: set — <reason>` or `hold: clear`, then
 `lanes: <live>/<cap>`, `budget: <used>/<limit|none>` and `judgment-jobs: <used>/<limit|none>`.
-`spend` prints `run <slug>: cycles <n>, launches <n>, dry <n>` per run, `fleet: cycles <n>`,
+`spend` prints `run <slug>: cycles <n>, launches <n>, dry <n>, agents <n>, out <n>` per run,
+`fleet: cycles <n>, agents <n>, out <n>`,
 `budget: <used>/<limit> (<pct>%)` or `<used>/none`, `judgment-jobs: <used>/<limit|none>` and
 `stop-at: <time|none> (passed|not passed)`. Before `next` prints anything else it observes the
 merge lock holder on the forge and releases it when its PR merged, closed or lost its label
@@ -121,10 +144,10 @@ holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the 
 The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
 STU_FLEET_LABEL_GRACE, STU_FLEET_MAX_LANES and STU_FLEET_NONCE are TEST-ONLY hooks (state file
 path, stand-in forge command, clock, grace, lane cap used when the program has no `Max live
-lanes:`, a fixed launch nonce); nothing
+lanes:`, a fixed launch nonce; STU_PROJECTS_ROOT, agent_tree's, points actuals at a fixture); nothing
 in a real run sets them. `hold status` and `lock status` are read-only: they take no
 flock (writes replace the file atomically) and never call the forge. `program check`,
-`board show` and `spend` are read-only too.
+`board show`, `spend` and `actuals` are read-only too.
 
 Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED lines);
 2 usage; 3 error (state file, run home, unreadable program, malformed board); 10 refused, hold
@@ -538,49 +561,62 @@ def split_list(v):
 
 
 NOTICE_IDS = ("cycle-80", "cycle-100", "judgment-80", "judgment-100", "stop-at")
+V3_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
+           r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| agents: (\d+) \| out: (\d+) \| "
+           r"handoff: (.+?) \| stop: (.+)" % SLUG_RE)
 V2_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
            r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| handoff: (.+?) \| stop: (.+)" % SLUG_RE)
 V1_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
            r"handoff: (.+?) \| stop: (.+)" % SLUG_RE)
-FLEET_LINE = r"- fleet \| judgment: (\d+) \| notices: (\S+)"
+FLEET_LINE = r"- fleet \| judgment: (\d+) \| (?:agents: (\d+) \| out: (\d+) \| )?notices: (\S+)"
 
 
 def parse_board_line(ln, where):
     """A v2 run line, or a v1 one (S9a's seven fields) read with closed 0, dry 0, nonce none."""
     ln = ln.rstrip("\n")
+    m = re.fullmatch(V3_LINE, ln)
+    if m and m.group(2) in STATES:
+        g = m.groups()
+        return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
+                "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
+                "agents": int(g[8]), "out": int(g[9]), "handoff": g[10], "stop": g[11]}
     m = re.fullmatch(V2_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
-                "handoff": g[8], "stop": g[9]}
+                "agents": 0, "out": 0, "handoff": g[8], "stop": g[9]}
     m = re.fullmatch(V1_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": 0, "dry": 0, "nonce": "none",
-                "handoff": g[5], "stop": g[6]}
+                "agents": 0, "out": 0, "handoff": g[5], "stop": g[6]}
     raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
 
 
 def parse_fleet_line(ln, where):
     m = re.fullmatch(FLEET_LINE, ln.rstrip("\n"))
-    notices = [] if not m or m.group(2) == "none" else m.group(2).split(",")
+    notices = [] if not m or m.group(4) == "none" else m.group(4).split(",")
     if not m or any(x not in NOTICE_IDS for x in notices) or len(set(notices)) != len(notices):
         raise Fail(EXIT_ERROR, "%s: malformed fleet line %r; fix or delete it" % (where, ln.strip()))
+    # agents and out on the line are totals derived from the run lines at every write; read, not trusted
     return {"judgment": int(m.group(1)), "notices": notices}
 
 
 def board_line(b):
     clean = lambda v: str(v).replace("|", "/").replace("\n", " ")
     return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
-            "nonce: %s | handoff: %s | stop: %s") % (
+            "nonce: %s | agents: %d | out: %d | handoff: %s | stop: %s") % (
         b["slug"], b["state"], b["cycles"], b["launches"], b["from"], b["closed"], b["dry"],
-        b["nonce"], clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
+        b["nonce"], b["agents"], b["out"], clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
 
 
-def fleet_line(f):
-    return "- fleet | judgment: %d | notices: %s" % (f["judgment"], ",".join(f["notices"]) or "none")
+def fleet_line(f, board):
+    """The fleet line; agents and out are the sums over the run lines `board`."""
+    return "- fleet | judgment: %d | agents: %d | out: %d | notices: %s" % (
+        f["judgment"], sum(b["agents"] for b in board), sum(b["out"] for b in board),
+        ",".join(f["notices"]) or "none")
 
 
 def parse_program(text):
@@ -801,14 +837,15 @@ def effective_board(prog):
     for r in prog["runs"]:
         out.append(prog["board"].get(r["slug"]) or {
             "slug": r["slug"], "state": "queued", "cycles": 0, "launches": 0, "from": 0,
-            "closed": 0, "dry": 0, "nonce": "none", "handoff": "none", "stop": "none"})
+            "closed": 0, "dry": 0, "nonce": "none", "agents": 0, "out": 0, "handoff": "none",
+            "stop": "none"})
     return out
 
 
 def render_program(prog, board, fleet):
     """The program file text with its Fleet board section replaced by `board` and the fleet line."""
     lines = list(prog["lines"])
-    body = [board_line(b) + "\n" for b in board] + [fleet_line(fleet) + "\n"]
+    body = [board_line(b) + "\n" for b in board] + [fleet_line(fleet, board) + "\n"]
     if prog["board_span"] is None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
@@ -1105,7 +1142,7 @@ def cmd_board(sub, a):
             return rc
         for b in effective_board(prog):
             print(board_line(b))
-        print(fleet_line(prog["fleet"]))
+        print(fleet_line(prog["fleet"], effective_board(prog)))
         return 0
     if sub == "judgment":
         return cmd_judgment(a)
@@ -1168,11 +1205,183 @@ def cmd_board(sub, a):
             rc = record_return(run, b, a["return"])
             if rc:
                 return rc
+        entry = None
+        if sub in ("record", "idle"):
+            entry = take_actuals(run["slug"], b)
         st.write(board)
         print(board_line(b))
+        if entry is not None:
+            if "unavailable" in entry:
+                print("actuals: unavailable \u2014 %s" % entry["unavailable"])
+            append_actuals(a["program"], entry)
         if nonce:
             print("nonce: %s" % nonce)
         return 0
+
+
+def actuals_path(program):
+    return program + ".actuals.jsonl"
+
+
+def take_actuals(slug, b):
+    """Read the launch's actuals from the transcripts, add agents and out to the board line, and
+    return the detail-log entry. Never fails: unavailable actuals add nothing."""
+    import fleet_actuals
+    entry = {"slug": slug, "nonce": b["nonce"], "recorded_at": stamp()}
+    got, why = fleet_actuals.launch_actuals(b["nonce"])
+    if got is None:
+        entry["unavailable"] = why
+        return entry
+    n, out = fleet_actuals.totals(got)
+    b["agents"] += n
+    b["out"] += out
+    entry.update({"agents": n, "out": out, "by_seat_model": fleet_actuals.by_seat_model(got)})
+    return entry
+
+
+def append_actuals(program, entry):
+    """One JSON line, appended under the program lock the caller holds. A log that cannot be
+    written is reported, never fatal: the board line is already written."""
+    try:
+        with open(actuals_path(program), "a+") as fh:
+            fh.seek(0, 2)
+            if fh.tell():
+                fh.seek(fh.tell() - 1)
+                if fh.read(1) != "\n":
+                    fh.write("\n")  # a torn final line must not swallow this entry
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    except OSError as e:
+        print("actuals: log not written \u2014 %s" % e)
+
+
+def read_actuals(program):
+    """-> list of log entries (oldest first); [] when there is no log. A damaged line is exit 3."""
+    try:
+        with open(actuals_path(program), "r") as fh:
+            lines = fh.read().splitlines()
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        raise Fail(EXIT_ERROR, "cannot read %s: %s" % (actuals_path(program), e))
+    out = []
+    last = max([i for i, ln in enumerate(lines, 1) if ln.strip()] or [0])
+    for n, ln in enumerate(lines, 1):
+        if not ln.strip():
+            continue
+        try:
+            e = json.loads(ln)
+            ok = isinstance(e, dict) and isinstance(e.get("slug"), str)
+            if ok and "unavailable" not in e:
+                ok = (isinstance(e["agents"], int) and isinstance(e["out"], int) and
+                      all(isinstance(r["seat"], str) and isinstance(r["model"], str) and
+                          all(isinstance(r[k], int) for k in ("agents", "turns", "out"))
+                          for r in e["by_seat_model"]))
+        except (ValueError, KeyError, TypeError):
+            ok = False
+        if not ok and n == last:
+            print("actuals: skipped damaged final log line %d (a crash mid-append?)" % n)
+            continue
+        if not ok:
+            raise Fail(EXIT_ERROR, "%s line %d is not an actuals entry; fix or delete it" % (
+                actuals_path(program), n))
+        out.append(e)
+    return out
+
+
+# Seats whose model a dispatch can override from config (the settler's `judgment-model`): the
+# file's line is only a default, so their routing is not knowable from a script.
+OVERRIDABLE_SEATS = ("stu:settler",)
+MODEL_FAMILIES = ("opus", "sonnet", "haiku", "fable")
+
+
+def model_tokens(model):
+    return [t for t in re.split(r"[-._:/@ ]+", model.lower()) if t]
+
+
+def on_route(want, model):
+    """True when `model` (a transcript model id) is the routed one. `want` is a family or a full
+    id; compared by whole tokens of the id, never as a substring."""
+    fams = [t for t in model_tokens(want) if t in MODEL_FAMILIES]
+    if fams:
+        return fams[0] in model_tokens(model)
+    return want == model.lower()
+
+
+def routed_model(seat):
+    """The model family a `stu:<name>` seat is routed to: the `model:` line in agents/<name>.md,
+    or None when the seat has no file, inherits, or can be overridden at dispatch (the settler)."""
+    if not seat.startswith("stu:") or seat in OVERRIDABLE_SEATS:
+        return None
+    path = os.path.join(os.path.dirname(HERE), "agents", seat[4:] + ".md")
+    try:
+        with open(path, "r") as fh:
+            lines = fh.read().split("\n")
+    except OSError:
+        return None
+    if not lines or lines[0].strip() != "---":
+        return None
+    for ln in lines[1:]:
+        if ln.strip() == "---":
+            break
+        m = re.fullmatch(r"model:\s*(\S+)\s*", ln)
+        if m:
+            return None if m.group(1) == "inherit" else m.group(1).lower()
+    return None
+
+
+def print_actuals_block(entries):
+    """The table and the off-route lines for the available entries in `entries`."""
+    acc = {}
+    for e in entries:
+        for r in e.get("by_seat_model", []):
+            v = acc.setdefault((r["seat"], r["model"]), [0, 0, 0])
+            v[0] += r["agents"]
+            v[1] += r["turns"]
+            v[2] += r["out"]
+    print("seat model agents turns out")
+    for (seat, model), v in sorted(acc.items()):
+        print("%s %s %d %d %d" % (seat, model, v[0], v[1], v[2]))
+    seats = sorted({k[0] for k in acc})
+    unknown = []
+    for seat in seats:
+        want = routed_model(seat)
+        if want is None:
+            unknown.append(seat)
+            continue
+        # a record with no model is counted in the table but says nothing about routing
+        known = {k: v for k, v in acc.items() if k[0] == seat and k[1] != "unknown"}
+        total = sum(v[1] for v in known.values())
+        off = sum(v[1] for k, v in known.items() if not on_route(want, k[1]))
+        print("off-route %s: %d/%d turns not on %s (%d%%)" % (
+            seat, off, total, want, off * 100 // total if total else 0))
+    if unknown:
+        print("routing unknown: %s" % ", ".join(unknown))
+
+
+def cmd_actuals(sub, a):
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    entries = read_actuals(a["program"])
+    if not entries:
+        print("actuals: none recorded")
+        return 0
+    slugs = [r["slug"] for r in prog["runs"]]
+    slugs += sorted({e["slug"] for e in entries} - set(slugs))
+    def head(label, es):
+        good = [e for e in es if "unavailable" not in e]
+        bad = len(es) - len(good)
+        print("%s: launches %d, agents %d, out %d%s" % (
+            label, len(es), sum(e["agents"] for e in good), sum(e["out"] for e in good),
+            ", unavailable %d" % bad if bad else ""))
+        print_actuals_block(good)
+    for slug in slugs:
+        es = [e for e in entries if e["slug"] == slug]
+        if es:
+            head("run %s" % slug, es)
+    head("fleet", entries)
+    return 0
 
 
 def cmd_judgment(a):
@@ -1238,10 +1447,12 @@ def cmd_spend(sub, a):
         return rc
     board = effective_board(prog)
     for b in board:
-        print("run %s: cycles %d, launches %d, dry %d" % (b["slug"], b["cycles"], b["launches"], b["dry"]))
+        print("run %s: cycles %d, launches %d, dry %d, agents %d, out %d" % (
+            b["slug"], b["cycles"], b["launches"], b["dry"], b["agents"], b["out"]))
     lim = limits(prog, board, prog["fleet"])
     used, limit, _ = lim["cycle"]
-    print("fleet: cycles %d" % used)
+    print("fleet: cycles %d, agents %d, out %d" % (
+        used, sum(b["agents"] for b in board), sum(b["out"] for b in board)))
     if limit is None:
         print("budget: %d/none" % used)
     else:
@@ -1347,14 +1558,15 @@ PROGRAM_SPEC = {
     ("board", "relaunch"): (("run",), ()),
     ("board", "judgment"): (("job",), ()),
     ("spend", None): ((), ()),
+    ("actuals", None): ((), ()),
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue|idle|relaunch|judgment P [flags] | spend P | next P")
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment P [flags] | spend P | actuals P | next P")
 
 
 def parse(argv):
-    if argv and argv[0] in ("spend", "next"):
+    if argv and argv[0] in ("spend", "next", "actuals"):
         key, rest = (argv[0], None), argv[1:]
     elif len(argv) >= 2 and (argv[0], argv[1]) in PROGRAM_SPEC:
         key, rest = (argv[0], argv[1]), argv[2:]
@@ -1386,7 +1598,7 @@ def parse(argv):
 
 
 DISPATCH = {"hold": cmd_hold, "lock": cmd_lock, "program": cmd_program, "board": cmd_board,
-            "spend": cmd_spend, "next": cmd_next}
+            "spend": cmd_spend, "actuals": cmd_actuals, "next": cmd_next}
 
 
 def main(argv):
