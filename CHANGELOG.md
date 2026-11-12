@@ -5,7 +5,7 @@
 - `/stu:fleet` now runs the settle brief loop. A run in `settle` gets a `stu:settler` draft, the
   drafts of a wave go to the owner as one brief, the owner's one-line answer goes through
   `stu-fleet answer`, the settler writes the rulings, and `stu-fleet board settled` applies the
-  scoreboard changes and requeues the run. An unpark that needs new units is sent to `/stu:settle`.
+  scoreboard changes and requeues the run. An `add` that `board settled` refuses is sent to `/stu:settle`.
 - The settler's `SCOREBOARD-TODO:` lines are `unpark`, `drop` or `add`, and it no longer emits a
   `Run state` line. A write dispatch on a partly written draft skips items already answered.
 

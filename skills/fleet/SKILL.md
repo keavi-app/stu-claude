@@ -89,25 +89,38 @@ answer. Act on the lines, then run `next` again after every state change.
   `/stu:settle <objective path>`, and the run is left alone. `owner-only` changes nothing in
   draft mode (every item is drafted for the owner already); it matters only to the later
   auto-narrow mode.
-- `brief <slug>`: once `next` shows no `settle` line still drafting (every pending draft is in),
-  send the output of `stu-fleet brief <program path>` to the owner exactly as printed
-  (operation 6). Other runs keep moving while it is open.
+- `brief <slug>`: send the output of `stu-fleet brief <program path>` to the owner exactly as
+  printed (operation 6) once every settler you dispatched has returned and been recorded or handed
+  to the owner. A `settle` line you already handed to the owner does not hold the brief back and is
+  not re-dispatched. Send each open brief once: `next` keeps printing `brief <slug>` until the
+  answer is applied, and that is not a cue to resend. A `pending` or `unanswered` run is re-shown
+  only in the next brief you send for a new answer. Other runs keep moving while it is open.
 - **The owner's answer.** Run `stu-fleet answer <program path> --line "<reply verbatim>"`. Exit 1:
   show its `BLOCKED` lines and ask again. For each line
   `answer <slug> | draft: <path> | line: <text>`, dispatch a `stu:settler` with `MODE: write`,
   the draft path and the text verbatim; save its return under `RUN_HOME/runs/<slug>/settle/`; run
-  `stu-fleet board settled <program path> --run <slug> --return <file>`. Its last line is
+  `stu-fleet board settled <program path> --run <slug> --return <file>`. Exit 1 (the written
+  return is malformed, or its DRAFT differs from the recorded draft): show the `BLOCKED` lines to
+  the owner and leave the run; do not re-dispatch the settler more than once for it. Otherwise its
+  last line is
   `requeued <slug>` (the run is queued, and `next` starts it) or
   `pending <slug>: <ids>` (the run stays in the brief). An `unanswered <slug>` line from
   `answer` also stays in the brief.
 - `talk about <n>`: discuss that item with the owner in this session, one question per message,
   as the settle skill's step 4 does (the worked example, the options, your recommendation first).
-  It ends in a follow-up answer for that run, `<slug>: accept <n>` or
-  `<slug>: reverse <n> <their words>`, which goes through `answer` and a write dispatch like any
-  other.
-- A `board settled` refusal (13), for an `add` or any other reason: give the owner the printed
-  line, which names `/stu:settle <objective path>`. After the owner says that settle is done,
-  run `stu-fleet board requeue <program path> --run <slug>`.
+  The original answer line (the one containing `talk about <n>`) first goes through `answer` and a
+  write dispatch like any other; the item comes back unanswered (`pending`), and then you discuss
+  it. The discussion ends in a follow-up answer for that run, `<slug>: accept <n>` or
+  `<slug>: reverse <n> <their words>`, which also goes through `answer` and a write dispatch.
+  `answer` splits on `;` and newlines and reads `accept|reverse|talk about <number>` anywhere, so
+  strip `;` and newlines from the owner's words and do not let them contain those keywords followed
+  by a number (paraphrase that part).
+- A `board settled` refusal (13) for an `add`: give the owner the printed line, which names
+  `/stu:settle <objective path>`. After the owner says that settle is done, run
+  `stu-fleet board requeue <program path> --run <slug>`.
+- Any other `board settled` exit 13 (an unknown unpark or drop id, no scoreboard or Run state, a
+  `running` objective): give the owner the printed line and leave the run in `settle`. Never
+  requeue it on your own.
 - You never write the objective or the scoreboard, and you never perform a `SCOREBOARD-TODO`
   yourself: `board settled` does.
 - `owner <slug> — <stop>` from the board: a stop that goes straight to the owner (conditions 4,

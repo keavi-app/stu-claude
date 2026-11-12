@@ -103,7 +103,7 @@ one of `unpark <id>` (an answered unit), `drop <id>` (the owner dropped it) or
 handled (a follow-up after `talk about`, or an item that needed `accept <n>`). An item whose
 question already has a line under a `## Answers` heading is not written again and gets no
 `SCOREBOARD-TODO`; list it in `WRITTEN`. Write now only the items this answer line names, or
-that its `fine` covers.
+that its `fine` covers. The return must still cover every R id in `WRITTEN` or `UNANSWERED`.
 
 Return the `WRITTEN` form of the schema: `WRITTEN:` the R ids written, `UNANSWERED:` the rest (or
 `none`), `HOLD:` and the `SCOREBOARD-TODO:` lines.
