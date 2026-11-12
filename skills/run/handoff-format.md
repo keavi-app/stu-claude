@@ -84,6 +84,16 @@ and it travels through the questions file and `PARKED_IDS`, never through this l
 <Anything the owner decided before or during the run, one per line. Constraints a later
 cycle must not re-litigate.>
 
+Every line ends with a provenance mark, so a later reversal is detectable:
+
+- `(by: owner)` — the owner gave the ruling.
+- `(by: settler; owner-approved <YYYY-MM-DD>)` — a settler drafted it and the owner accepted it in a brief.
+- `(by: settler; auto-narrow)` — reserved for the opt-in auto-narrow mode; nothing writes it yet.
+
+A reversal line names the ruling it reverses by date and text, and carries its own mark. A line
+written before this grammar has no mark and is read as `(by: owner)`. The mark is trailing text
+only: nothing parses a ruling line, and `stu-run-check` does not read this section.
+
 ## Scoreboard — written by the supervisor every cycle and by /stu:settle between runs, never by an orchestrator
 
 **The block below is the run's state; nothing else in the objective file is.** Rewrite it in
