@@ -17,9 +17,9 @@ none "no .claude/agents/ paths" '\.claude/agents/' skills agents scripts bin
 none "no scripts/ paths in skills/agents (use stu-claims, stu-ctx, stu-ci-wait)" \
   'scripts/(run_claims|ctx|ci-wait)' skills agents
 none "no unprefixed subagent_type" \
-  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler)"' skills agents
+  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer)"' skills agents
 none "no unprefixed backticked agent names" \
-  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler)`' skills agents
+  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer)`' skills agents
 none "no /autonomous-run" '/autonomous-run' skills agents scripts bin
 none "no bare autonomous-run" 'autonomous-run' skills agents
 none "no unprefixed /settle" '(^|[^a-z])/settle([^/]|$)' skills agents scripts bin
@@ -141,6 +141,14 @@ else echo "FAIL routing table has the judgment-seat row naming judgment-model"; 
 # never dispatches an orchestrator, implementer or merge gate.
 missing=$(need agents/settler.md '5a' 'You never perform 5b' 'MODE: draft' 'MODE: write' 'stu-run-check' 'SCOREBOARD-TODO')
 check_set "settler names 5a and never performs 5b" "$missing"
+# The groomer files only under the filing test, never touches an existing objective, scoreboard or ledger.md.
+missing=$(need agents/groomer.md 'Phase 1' 'filing test' 'never edit an existing objective' 'Never' 'ledger.md' 'ledger-inbox' 'KIND: groom' 'KIND: audit' 'Not reached' 'GROOMER: SPLIT' 'nothing to feed' 'audit does not feed a run')
+check_set "groomer names the filing test, the ledger inbox and its context rules" "$missing"
+none "groomer is not a dispatcher of orchestrators, implementers, reviewers or gates" \
+  'stu:(orchestrator|implementer|reviewer|merge-gate)' agents/groomer.md
+if fm agents/groomer.md | grep -qxE 'model: opus' && fm agents/groomer.md | grep -E '^tools:' | grep -qF 'Agent'
+then echo "ok   groomer is on the default judgment model and holds Agent"
+else echo "FAIL groomer is on the default judgment model and holds Agent"; fails=$((fails + 1)); fi
 none "settler is not a dispatcher of orchestrators, implementers or gates" \
   'stu:(orchestrator|implementer|merge-gate)' agents/settler.md
 if fm agents/settler.md | grep -qxE 'model: opus' && fm agents/settler.md | grep -E '^tools:' | grep -qF 'Agent'

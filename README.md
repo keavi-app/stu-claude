@@ -99,6 +99,7 @@ Claude Code agents (Codex uses the runtime binding described in [Stu on Codex](d
 | `stu:merge-gate` | sonnet | Collects its own evidence for one PR; merges at the SHA, labels it for an auto-merge actor, or reports. |
 | `stu:scout` | haiku | Cheap locator: `file:line` answers, never file dumps. |
 | `stu:verifier` | sonnet | Is this premise or claim true on the base branch today? |
+| `stu:groomer` | opus | Groom or audit one scope: verified, filed issues and a fed objective, or a report on an invariant. |
 
 **Hooks.** A `PostToolUse` hook (`scripts/turn-guard.py`) tells a stu orchestrator or
 implementer its own turn count and context size against its budget, on approach, at the

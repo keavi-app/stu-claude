@@ -141,6 +141,8 @@ for _k in ("RUN_CTX_SOFT", "RUN_CTX_HARD"):
     os.environ.pop(_k, None)
 check("orchestrator bands", tg.guard_ctx_bands(ORCH), (120_000, 160_000))
 check("implementer bands", tg.guard_ctx_bands(IMPL), (150_000, 190_000))
+GROOM = budgeted("groomer")
+check("groomer bands", tg.guard_ctx_bands(GROOM), (120_000, 160_000))
 check("unknown agent keeps the fleet pair", tg.guard_ctx_bands(SCOUT), (160_000, 200_000))
 check("no agent type keeps the fleet pair", tg.guard_ctx_bands(None), (160_000, 200_000))
 check("orchestrator SOFT at 120k, not before",

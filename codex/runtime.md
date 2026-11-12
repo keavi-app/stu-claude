@@ -118,5 +118,5 @@ fleet: not bound yet. The merge gate's hold and lock step calls `stu-fleet` from
 `bin/` like any other helper, but nothing here binds fleet coordination (a coordinator, a lane
 cap, a revoke-only dispatch by a coordinator) to Codex operations. `agents/settler.md` is a
 Claude-side seat: the settle skill's "Drafting by `stu:settler`" is an optional path and the
-interactive settle remains the Codex path. `stu-run-check --settler-return` is runtime-neutral. `stu-fleet program|board|spend|actuals|next` (board: show, launch, record, requeue, idle, relaunch, judgment, draft, settled), `brief` and `answer` exist
+interactive settle remains the Codex path. `agents/groomer.md` is likewise a Claude-side seat. `stu-run-check --settler-return` and `--groomer-return` are runtime-neutral. `stu-fleet program|board|spend|actuals|next` (board: show, launch, record, requeue, idle, relaunch, judgment, draft, settled), `brief` and `answer` exist
 and are runtime-neutral too, but no Codex coordinator binds them.
