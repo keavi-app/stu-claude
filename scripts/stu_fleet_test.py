@@ -423,13 +423,21 @@ def test_program_check():
 
 
 BOARD_HEAD = ("- {s} | state: {st} | cycles: {c} | launches: {l} | from: {f} | closed: {k} | "
-              "dry: {d} | nonce: {n} | agents: {a} | out: {o} | handoff: {h} | stop: {p}")
+              "dry: {d} | nonce: {n} | agents: {a} | out: {o} | draft: {dr} | written: {w} | "
+              "handoff: {h} | stop: {p}")
 FLEET0 = "- fleet | judgment: 0 | agents: 0 | out: 0 | notices: none"
 NONCE = "stu-testnonce01"
 
 
-def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0):
-    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n, a=a, o=o)
+def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0,
+        dr="none", w="none"):
+    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n, a=a, o=o, dr=dr, w=w)
+
+
+def v3(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0):
+    return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
+            "nonce: %s | agents: %d | out: %d | handoff: %s | stop: %s") % (
+        s, st, c, l, f, k, d, n, a, o, h, p)
 
 
 def v2(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none"):
@@ -753,7 +761,7 @@ def test_board_v2_grammar():
     check("v1 board migrates on read", (rc, out), (0, [
         brd("alpha", "relaunch", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0]))
     rc, out, err = pfleet("board", "requeue", PROG, "--run", "alpha")
-    check("next write emits v3 for every line", open(PROG).read().endswith(
+    check("next write emits v4 for every line", open(PROG).read().endswith(
         "## Fleet board\n%s\n%s\n%s\n" % (brd("alpha", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0)), True)
     # mixed v1 and v2, a fleet line with notices
     program(prog_runs, tail="\n## Fleet board\n" + brd("alpha", "live", k=2, d=1, n="stu-x1234567") + "\n" +
@@ -928,7 +936,7 @@ def test_v2_board_migrates():
     check("v2 line reads as agents 0, out 0", pfleet("board", "show", PROG)[1], [
         brd("alpha", "live", c=2, l=1, n="stu-x1234567"), "- fleet | judgment: 1 | agents: 0 | out: 0 | notices: none"])
     rc = pfleet("board", "idle", PROG, "--run", "alpha")[0]
-    check("the next write adds the fields", ("agents: 0 | out: 0 | handoff" in open(PROG).read(),
+    check("the next write adds the fields", ("agents: 0 | out: 0 | draft: none" in open(PROG).read(),
           open(PROG).read().rstrip().endswith("| agents: 0 | out: 0 | notices: none")), (True, True))
 
 
@@ -1160,6 +1168,87 @@ def test_limits_and_next():
     check("spend stop-at passed", pfleet("spend", PROG)[1][-1], "stop-at: 2023-11-14T00:00:00+00:00 (passed)")
     check("spend never writes", os.path.exists(PROG + ".lock") and "notices" not in open(PROG).read(), True)
 
+R1 = ("R1: q-recurring-label | rec: keep the label | reverses-if: support sees confusion | "
+      "precondition: none | row: 7 | verifier: HOLDS | flags: none")
+R2 = ("R2: q-new-screen | rec: add the screen | reverses-if: the owner dislikes it | "
+      "precondition: hold the deploy until the migration ran | row: 5 | verifier: STALE | "
+      "flags: owner-only")
+R3 = ("R3: q-export | rec: ship the export | reverses-if: it is slow | precondition: none | "
+      "row: 7 | verifier: HOLDS | flags: none")
+BRIEF3 = ("BRIEF:\nRun demo: 3 rulings drafted\n1. Keep the label? -> recommend yes. Reverses if "
+          "support sees confusion.\n2. Add the screen? -> recommend yes. Reverses if disliked. "
+          "[owner-only]\n3. Ship the export? -> recommend yes.\n"
+          "Answer: fine | accept 2 | reverse 2, 5 | talk about 3\n")
+
+
+def drafted_text(obj, draft="/runs/demo/settle/draft.md", n=3):
+    rs = [R1, R2, R3][:n]
+    brief = BRIEF3 if n == 3 else BRIEF3.replace("3. Ship the export? -> recommend yes.\n", "")
+    return ("SETTLER: DRAFTED \u2014 %d rulings ready\nOBJECTIVE: %s\nDRAFT: %s\nRULINGS: %d\n%s\n%s" % (
+        n, obj, draft, n, "\n".join(rs), brief))
+
+
+def written_text(obj, written, unanswered, todos=(), draft="/runs/demo/settle/draft.md", hold="none", n=3):
+    rs = [R1, R2, R3][:n]
+    return ("SETTLER: WRITTEN \u2014 some written\nOBJECTIVE: %s\nDRAFT: %s\nRULINGS: %d\n%s\n"
+            "WRITTEN: %s\nUNANSWERED: %s\nHOLD: %s\n%s" % (
+        obj, draft, n, "\n".join(rs), written, unanswered, hold,
+        "".join("SCOREBOARD-TODO: %s\n" % x for x in todos)))
+
+
+def settle_board(slug="alpha", dr="none", w="none", st="settle", p="1 \u2014 q"):
+    return "\n## Fleet board\n" + brd(slug, st, c=2, l=1, p=p, dr=dr, w=w) + "\n"
+
+
+def test_board_v4_and_draft():
+    a = objective("a")
+    prog_runs = [("alpha", a, "none", "none")]
+    program(prog_runs, tail="\n## Fleet board\n" + v3("alpha", "settle", c=2, l=1, p="1 \u2014 q") + "\n")
+    check("v3 line reads draft none, written none", pfleet("board", "show", PROG)[1],
+          [brd("alpha", "settle", c=2, l=1, p="1 \u2014 q"), FLEET0])
+    check("next says settle without a draft", pfleet("next", PROG)[1][0], "settle alpha")
+    ret = write(os.path.join(PDIR, "d.txt"), drafted_text(a))
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+    check("draft stores the absolute path", (rc, out), (0, [brd("alpha", "settle", c=2, l=1, p="1 \u2014 q", dr=ret)]))
+    check("the write emitted v4", ("draft: %s | written: none | handoff" % ret) in open(PROG).read(), True)
+    check("next says brief with a draft", pfleet("next", PROG)[1][0], "brief alpha")
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+    check("a second draft is refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    # refusals and BLOCKED
+    program(prog_runs, tail=settle_board())
+    other = objective("other")
+    for name, text, code in (
+            ("other objective", drafted_text(other), 1),
+            ("a WRITTEN return", written_text(a, "R1, R2, R3", "none"), 1),
+            ("malformed", drafted_text(a).replace("RULINGS: 3", "RULINGS: 4"), 1),
+            ("blocked status", "SETTLER: BLOCKED \u2014 nothing\n", 1)):
+        before = open(PROG).read()
+        rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", write(os.path.join(PDIR, "x.txt"), text))
+        check("draft refuses %s with BLOCKED" % name, (rc, out[-1], out[0].startswith("BLOCKED: "),
+              open(PROG).read()), (code, "BLOCKED", True, before))
+    check("draft needs --return", pfleet("board", "draft", PROG, "--run", "alpha")[0], 2)
+    check("draft unreadable return is 3", pfleet("board", "draft", PROG, "--run", "alpha",
+          "--return", os.path.join(PDIR, "nope.txt"))[0], 3)
+    for st in ("queued", "live", "relaunch", "owner", "done"):
+        program(prog_runs, tail=settle_board(st=st, p="none"))
+        rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+        check("draft refused 13 on %s" % st, (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    # a settle run with owner-only still prints settle owner-only without a draft
+    program(prog_runs, tail=settle_board(p="2 \u2014 q"))
+    check("owner-only unchanged", pfleet("next", PROG)[1][0], "settle alpha owner-only")
+    # every reset
+    for how in ("requeue", "idle", "record", "launch", "relaunch"):
+        o = lifecycle("rs", scoreboard="Run state: stopped \u2014 BLOCKED: x\nCycles used: 4/4\nClosed: NONE\n")
+        st = {"requeue": "settle", "idle": "live", "record": "live", "launch": "queued", "relaunch": "relaunch"}[how]
+        p = {"relaunch": "10 \u2014 cap"}.get(how, "none")
+        program([("alpha", o, "none", "none")], tail=settle_board(st=st, p=p, dr="/x/d.txt", w="1,2"))
+        args = ["board", how, PROG, "--run", "alpha"]
+        if how == "record":
+            args += ["--return", run_ret(os.path.join(PDIR, "rs.txt"), o, cycles="4/4")]
+        rc, out, err = pfleet(*args)
+        check("%s resets draft and written" % how, (rc, field(out[0], "draft"), field(out[0], "written")),
+              (0, "none", "none"))
+
 
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
@@ -1169,7 +1258,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:

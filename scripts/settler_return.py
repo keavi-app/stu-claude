@@ -15,6 +15,23 @@ _RULING = re.compile(r"^R(\d+):\s*(.*)$")
 _TOP = re.compile(r"^(SETTLER|OBJECTIVE|DRAFT|RULINGS|WRITTEN|UNANSWERED|HOLD|SCOREBOARD-TODO|BRIEF):[ \t]*(.*?)\s*$")
 
 
+_TODO_ID = r"[^\s—–]+"
+TODO_FORMS = ("unpark <id>", "drop <id>", "add <id> — <one line>")
+
+
+def parse_todo(value):
+    """-> (verb, id, text) for a well-formed SCOREBOARD-TODO value, else None. The grammar is
+    exactly `unpark <id>`, `drop <id>` or `add <id> — <one line>` (the dash may be — – or --)."""
+    v = value.strip()
+    m = re.fullmatch(r"(unpark|drop)\s+(%s)" % _TODO_ID, v)
+    if m:
+        return m.group(1), m.group(2), ""
+    m = re.fullmatch(r"add\s+(%s)(?:\s+(?:—|–|--)\s+(\S.*))" % _TODO_ID, v)
+    if m:
+        return "add", m.group(1), m.group(2).strip()
+    return None
+
+
 def _ids(value):
     v = value.strip()
     if not v or v.lower() == "none":
@@ -193,4 +210,7 @@ def check(text):
         for t in b["todos"]:
             if not t:
                 problems.append("empty SCOREBOARD-TODO line")
+            elif parse_todo(t) is None:
+                problems.append("SCOREBOARD-TODO %r is malformed; it is exactly one of %s" % (
+                    t, " | ".join(TODO_FORMS)))
     return problems

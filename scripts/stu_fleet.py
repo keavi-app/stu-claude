@@ -561,6 +561,9 @@ def split_list(v):
 
 
 NOTICE_IDS = ("cycle-80", "cycle-100", "judgment-80", "judgment-100", "stop-at")
+V4_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
+           r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| agents: (\d+) \| out: (\d+) \| "
+           r"draft: (.+?) \| written: (none|\d+(?:,\d+)*) \| handoff: (.+?) \| stop: (.+)" % SLUG_RE)
 V3_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
            r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| agents: (\d+) \| out: (\d+) \| "
            r"handoff: (.+?) \| stop: (.+)" % SLUG_RE)
@@ -574,24 +577,33 @@ FLEET_LINE = r"- fleet \| judgment: (\d+) \| (?:agents: (\d+) \| out: (\d+) \| )
 def parse_board_line(ln, where):
     """A v2 run line, or a v1 one (S9a's seven fields) read with closed 0, dry 0, nonce none."""
     ln = ln.rstrip("\n")
+    m = re.fullmatch(V4_LINE, ln)
+    if m and m.group(2) in STATES:
+        g = m.groups()
+        return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
+                "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
+                "agents": int(g[8]), "out": int(g[9]), "draft": g[10],
+                "written": [] if g[11] == "none" else [int(x) for x in g[11].split(",")],
+                "handoff": g[12], "stop": g[13]}
     m = re.fullmatch(V3_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
-                "agents": int(g[8]), "out": int(g[9]), "handoff": g[10], "stop": g[11]}
+                "agents": int(g[8]), "out": int(g[9]), "draft": "none", "written": [],
+                "handoff": g[10], "stop": g[11]}
     m = re.fullmatch(V2_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
-                "agents": 0, "out": 0, "handoff": g[8], "stop": g[9]}
+                "agents": 0, "out": 0, "draft": "none", "written": [], "handoff": g[8], "stop": g[9]}
     m = re.fullmatch(V1_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": 0, "dry": 0, "nonce": "none",
-                "agents": 0, "out": 0, "handoff": g[5], "stop": g[6]}
+                "agents": 0, "out": 0, "draft": "none", "written": [], "handoff": g[5], "stop": g[6]}
     raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
 
 
@@ -607,9 +619,11 @@ def parse_fleet_line(ln, where):
 def board_line(b):
     clean = lambda v: str(v).replace("|", "/").replace("\n", " ")
     return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
-            "nonce: %s | agents: %d | out: %d | handoff: %s | stop: %s") % (
+            "nonce: %s | agents: %d | out: %d | draft: %s | written: %s | handoff: %s | stop: %s") % (
         b["slug"], b["state"], b["cycles"], b["launches"], b["from"], b["closed"], b["dry"],
-        b["nonce"], b["agents"], b["out"], clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
+        b["nonce"], b["agents"], b["out"], clean(b["draft"]) or "none",
+        ",".join(str(n) for n in sorted(b["written"])) or "none",
+        clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
 
 
 def fleet_line(f, board):
@@ -837,8 +851,8 @@ def effective_board(prog):
     for r in prog["runs"]:
         out.append(prog["board"].get(r["slug"]) or {
             "slug": r["slug"], "state": "queued", "cycles": 0, "launches": 0, "from": 0,
-            "closed": 0, "dry": 0, "nonce": "none", "agents": 0, "out": 0, "handoff": "none",
-            "stop": "none"})
+            "closed": 0, "dry": 0, "nonce": "none", "agents": 0, "out": 0, "draft": "none",
+            "written": [], "handoff": "none", "stop": "none"})
     return out
 
 
@@ -962,6 +976,7 @@ def begin_launch(run, b):
     b["from"] = resume_count(text)
     b["closed"] = closed_count(text)
     b["state"] = "live"
+    b["draft"], b["written"] = "none", []
     b["launches"] += 1
     b["nonce"] = new_nonce()
     return b["nonce"]
@@ -1046,6 +1061,8 @@ def decide(prog, board, cap, lim):
                 live += r["lanes"]
                 for x in r["resources"]:
                     held.setdefault(x, slug)
+        elif b["state"] == "settle" and b["draft"] != "none":
+            out.append((slug, "brief", ""))
         elif b["state"] == "settle":
             out.append((slug, "settle", "owner-only" if re.match(r"[23]\b", b["stop"]) else ""))
         elif b["state"] == "owner":
@@ -1147,7 +1164,7 @@ def cmd_board(sub, a):
     if sub == "judgment":
         return cmd_judgment(a)
     need(a, "run")
-    if sub == "record":
+    if sub in ("record", "draft", "settled"):
         need(a, "return")
     with ProgramLocked(a["program"]) as st:
         prog = st.prog
@@ -1195,12 +1212,18 @@ def cmd_board(sub, a):
             b["state"] = "relaunch"
             b["stop"] = "idle \u2014 no return"
             b["handoff"] = last_handoff(text)
+            b["draft"], b["written"] = "none", []
             loop_guard(run, b)
         elif sub == "requeue":
             if b["state"] not in ("settle", "relaunch", "owner"):
                 return refuse(EXIT_BOARD, "fleet-board: %s is %s; only settle, relaunch or "
                                           "owner can be requeued" % (run["slug"], b["state"]))
             b["state"] = "queued"
+            b["draft"], b["written"] = "none", []
+        elif sub == "draft":
+            rc = record_draft(run, b, a["return"])
+            if rc:
+                return rc
         else:  # record
             rc = record_return(run, b, a["return"])
             if rc:
@@ -1407,6 +1430,42 @@ def cmd_judgment(a):
         return 0
 
 
+def read_settler_return(path, status, run):
+    """Validate a settler return file with settler_return.check. -> (block, None) or (None, rc)
+    after printing `BLOCKED: <problem>` lines and `BLOCKED` (exit 1): the file must check clean,
+    carry SETTLER: <status>, and name the run's objective."""
+    import settler_return
+    text = read_text(path, "settler return")
+    problems = settler_return.check(text)
+    block = settler_return.parse(text)[0]
+    if not problems and block["status"] != status:
+        problems.append("the return says SETTLER: %s, but this command takes %s" % (
+            block["status"], status))
+    if not problems and os.path.realpath(block["objective"]) != os.path.realpath(run["objective"]):
+        problems.append("the return is for objective %s, not %s's %s" % (
+            block["objective"], run["slug"], run["objective"]))
+    if problems:
+        for p in problems:
+            print("BLOCKED: %s" % p)
+        print("BLOCKED")
+        return None, EXIT_INVALID
+    return block, None
+
+
+def record_draft(run, b, ret_path):
+    """`board draft`: store the DRAFTED return's absolute path on a settle run with no draft."""
+    if b["state"] != "settle" or b["draft"] != "none":
+        return refuse(EXIT_BOARD, "fleet-board: %s is %s%s; a draft is recorded only on a settle "
+                                  "run that has none" % (
+            run["slug"], b["state"], " with a draft" if b["draft"] != "none" else ""))
+    block, rc = read_settler_return(ret_path, "DRAFTED", run)
+    if rc:
+        return rc
+    b["draft"] = os.path.abspath(ret_path)
+    b["written"] = []
+    return 0
+
+
 def record_return(run, b, ret_path):
     import run_check
     text = read_text(ret_path, "supervisor return")
@@ -1436,6 +1495,7 @@ def record_return(run, b, ret_path):
     b["state"] = NEXT_STATE[f["NEXT"]]
     b["handoff"] = f["LAST-HANDOFF"]
     b["stop"] = f["STOP-CONDITION"]
+    b["draft"], b["written"] = "none", []
     loop_guard(run, b)
     return 0
 
@@ -1537,6 +1597,14 @@ def cmd_next(sub, a):
     return code
 
 
+def cmd_brief(sub, a):
+    raise Fail(EXIT_ERROR, "not built yet")
+
+
+def cmd_answer(sub, a):
+    raise Fail(EXIT_ERROR, "not built yet")
+
+
 # ---- command line -----------------------------------------------------------------------
 
 SPEC = {
@@ -1557,16 +1625,21 @@ PROGRAM_SPEC = {
     ("board", "idle"): (("run",), ()),
     ("board", "relaunch"): (("run",), ()),
     ("board", "judgment"): (("job",), ()),
+    ("board", "draft"): (("run", "return"), ()),
+    ("board", "settled"): (("run", "return"), ()),
+    ("brief", None): ((), ()),
+    ("answer", None): (("line",), ()),
     ("spend", None): ((), ()),
     ("actuals", None): ((), ()),
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue|idle|relaunch|judgment P [flags] | spend P | actuals P | next P")
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|draft|settled P [flags] | spend P | actuals P | next P | "
+         "brief P | answer P --line TEXT")
 
 
 def parse(argv):
-    if argv and argv[0] in ("spend", "next", "actuals"):
+    if argv and argv[0] in ("spend", "next", "actuals", "brief", "answer"):
         key, rest = (argv[0], None), argv[1:]
     elif len(argv) >= 2 and (argv[0], argv[1]) in PROGRAM_SPEC:
         key, rest = (argv[0], argv[1]), argv[2:]
@@ -1598,7 +1671,8 @@ def parse(argv):
 
 
 DISPATCH = {"hold": cmd_hold, "lock": cmd_lock, "program": cmd_program, "board": cmd_board,
-            "spend": cmd_spend, "actuals": cmd_actuals, "next": cmd_next}
+            "spend": cmd_spend, "actuals": cmd_actuals, "next": cmd_next, "brief": cmd_brief,
+            "answer": cmd_answer}
 
 
 def main(argv):

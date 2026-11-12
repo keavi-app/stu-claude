@@ -26,7 +26,7 @@ HEAD = "OBJECTIVE: /runs/demo-objective.md\nDRAFT: /runs/demo/settle/2026-11-12-
 DRAFTED = "SETTLER: DRAFTED — 2 rulings ready\n" + HEAD + "RULINGS: 2\n%s\n%s\n" % (R1, R2) + BRIEF
 WRITTEN = ("SETTLER: WRITTEN — 1 written, 1 left\n" + HEAD + "RULINGS: 2\n%s\n%s\n" % (R1, R2) +
            "WRITTEN: R1\nUNANSWERED: R2\nHOLD: set — migration must run first\n"
-           "SCOREBOARD-TODO: move q-recurring-label's unit from Parked to Outstanding\n")
+           "SCOREBOARD-TODO: unpark q-recurring-label\n")
 
 
 def run(text):
@@ -90,6 +90,15 @@ expect("written does not cover ids", WRITTEN.replace("UNANSWERED: R2", "UNANSWER
        "cover exactly")
 expect("written and unanswered overlap", WRITTEN.replace("UNANSWERED: R2", "UNANSWERED: R1, R2"),
        1, "both written and unanswered")
+TODO = "SCOREBOARD-TODO: unpark q-recurring-label\n"
+for good in ("unpark q-x", "drop q-x", "add q-new \u2014 build the export", "add q-new -- build it",
+             "add q-new \u2013 build it"):
+    expect("todo ok: " + good, WRITTEN.replace(TODO, "SCOREBOARD-TODO: %s\n" % good), 0)
+for bad in ("move q-x from Parked to Outstanding", "unpark", "unpark a b", "drop", "add q-new",
+            "add q-new \u2014", "Run state: settled 2026-11-12", "unpark q-x now", "park q-x"):
+    expect("todo malformed: " + bad, WRITTEN.replace(TODO, "SCOREBOARD-TODO: %s\n" % bad), 1,
+           "SCOREBOARD-TODO")
+expect("two todos", WRITTEN.replace(TODO, TODO + "SCOREBOARD-TODO: drop q-y\n"), 0)
 expect("duplicate SETTLER", "SETTLER: BLOCKED — x\nSETTLER: BLOCKED — y\n", 1, "duplicate SETTLER")
 expect("garbage", "I drafted some rulings, see above.\n", 1, "SETTLER line must start")
 
