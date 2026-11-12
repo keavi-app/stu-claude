@@ -132,5 +132,5 @@ if grep -E '^\| .*judgment seat' skills/run/SKILL.md | grep -qF 'stu-env section
 then echo "ok   routing table has the judgment-seat row naming judgment-model"
 else echo "FAIL routing table has the judgment-seat row naming judgment-model"; fails=$((fails + 1)); fi
 # No agent or skill names a literal Claude model ID; models come from config or aliases.
-none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonnet|haiku|fable)' skills agents
+none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonnet|haiku|fable|[0-9])' skills agents
 exit $((fails > 0))
