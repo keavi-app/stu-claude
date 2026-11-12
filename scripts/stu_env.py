@@ -19,7 +19,8 @@ Config lookup: $STU_CONFIG (the only candidate) -> <main checkout>/.claude/stu.m
 repo. Config = flat `key: value` frontmatter + Markdown `## id` sections. A `## repos`
 section holds one `### name` block of `key: value` lines per repo; the first is home. Any
 `ci_<name>` frontmatter key is exported as `CI_<NAME>`; `triage_extra` as `TRIAGE_EXTRA`;
-`merge_lock` (on|off, default off; family-only) as `MERGE_LOCK`.
+`merge_lock` (on|off, default off; family-only) as `MERGE_LOCK`; `fleet_max_lanes` (positive
+integer, default 4, no ceiling; family-only) as `FLEET_MAX_LANES`.
 HTML comments in a section (the template's /stu:init questions) are not part of its body.
 A flat config (no table) is a family of one; every row key may sit in its frontmatter.
 """
@@ -45,7 +46,8 @@ MERGE_MODES = ("direct", "label-handoff", "report-only", "direct-push")
 MODES = ("work", "pr-only", "park")
 CI_KINDS = ("aggregator", "list", "none")
 FAMILY_ONLY_KEYS = ("run_home", "project", "owner", "triage_extra", "completion_mode",
-                    "stop_condition_2", "deep_pass_model", "judgment_model", "merge_lock")
+                    "stop_condition_2", "deep_pass_model", "judgment_model", "merge_lock",
+                    "fleet_max_lanes")
 FAMILY_ONLY_SECTIONS = ("completion-mode", "stop-condition-2", "deep-pass-model",
                        "judgment-model")
 MANDATORY = ("slug", "remote", "base", "visibility", "mode", "merge_mode", "ci")
@@ -698,6 +700,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
     ci_kind = r.get("ci") or "aggregator"
     merge_mode, base, base_source, skipped = "direct", "", "", "false"
     merge_lock = "off"
+    fleet_max_lanes = "4"
     if full:
         with _in(label):
             _validate(r, name, strict, home, body, mode, ci_kind)
@@ -737,6 +740,12 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
             if lock not in ("on", "off"):
                 raise ConfigError("merge_lock must be on or off, not %r" % fm.get("merge_lock"))
             merge_lock = lock
+            raw_lanes = (fm.get("fleet_max_lanes") or "4").strip()
+            if not re.fullmatch(r"[0-9]+", raw_lanes) or int(raw_lanes) < 1:
+                raise ConfigError("fleet_max_lanes must be a positive integer, not %r; set it "
+                                  "to a whole number of at least 1 or leave it blank for 4"
+                                  % fm.get("fleet_max_lanes"))
+            fleet_max_lanes = str(int(raw_lanes))
             base, base_source = _base(r, row_path, remote, slug, host, forge_lookup)
             if not base and forge_lookup and table and require_config:
                 raise ConfigError("no base branch resolvable for row %s: set 'base:' under "
@@ -783,6 +792,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
     }
     out["TRIAGE_EXTRA"] = fm.get("triage_extra", "") if home else ""
     out["MERGE_LOCK"] = merge_lock
+    out["FLEET_MAX_LANES"] = fleet_max_lanes
     ci = {}
     if home:
         ci.update((k, v) for k, v in fm.items() if k.startswith("ci_") and len(k) > 3)

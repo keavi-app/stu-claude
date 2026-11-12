@@ -23,6 +23,9 @@ ci_status_prefix:
 # labels or merges, so only one PR is between label and landing at a time. A fleet program
 # turns it on; plain runs leave it off. The merge hold (stu-fleet hold) is honoured either way:
 merge_lock:
+# Fleet lane cap: a positive whole number (default 4, no ceiling). The most supervisors a fleet
+# coordinator keeps live at once; a fleet program's `Max live lanes:` line overrides it:
+fleet_max_lanes:
 # Extra issue-search qualifiers /stu:fix-campaign's triage filter appends (e.g. -label:wontfix):
 triage_extra:
 # More ci_* keys, all optional; a blank or absent key means derive (defaults shown):
@@ -84,7 +87,7 @@ keys above are optional. A section
 that answers a question for one repo only is written `## <id> @<name>` (for example
 `## verification-commands @lib`), where <name> is a row; the unsuffixed section belongs to the
 home row. completion-mode, stop-condition-2, deep-pass-model and judgment-model are family-only and cannot take
-an `@<name>` suffix, and the keys owner, project, run_home, merge_lock and triage_extra stay in the
+an `@<name>` suffix, and the keys owner, project, run_home, merge_lock, fleet_max_lanes and triage_extra stay in the
 frontmatter, never on a row.
 -->
 

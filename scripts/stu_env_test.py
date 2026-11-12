@@ -932,6 +932,35 @@ def test_review_round_one():
         check("families never raises on bad bytes", any(p == rp(cfg) and r == [] for p, r in fams), True)
 
 
+def test_fleet_max_lanes_key():
+    """`fleet_max_lanes` is family-only: positive integer, default 4, no ceiling."""
+    with tempfile.TemporaryDirectory() as tmp:
+        home, repo, gh = setup(tmp)
+        cfgp = os.path.join(repo, ".claude", "stu.md")
+        env = env_for(home, gh)
+        write(cfgp, "---\nowner: o\n---\n")
+        check("FLEET_MAX_LANES default", parse(run(repo, env)[1]).get("FLEET_MAX_LANES"), "4")
+        write(cfgp, "---\nowner: o\nfleet_max_lanes:\n---\n")
+        check("FLEET_MAX_LANES blank", parse(run(repo, env)[1]).get("FLEET_MAX_LANES"), "4")
+        write(cfgp, "---\nowner: o\nfleet_max_lanes: 12\n---\n")
+        check("FLEET_MAX_LANES valid", parse(run(repo, env)[1]).get("FLEET_MAX_LANES"), "12")
+        write(cfgp, "---\nowner: o\nfleet_max_lanes: 1000\n---\n")
+        check("FLEET_MAX_LANES no ceiling", parse(run(repo, env)[1]).get("FLEET_MAX_LANES"), "1000")
+        for bad in ("0", "-2", "two", "2.5"):
+            write(cfgp, "---\nowner: o\nfleet_max_lanes: %s\n---\n" % bad)
+            rc, out, err = run(repo, env)
+            check("FLEET_MAX_LANES invalid %s" % bad, (rc, "fleet_max_lanes" in err), (3, True))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, fm="fleet_max_lanes: 6\n")
+        for repo_name in ("app", "lib"):
+            rc, out, err = run(app, env_for(home, gh, **extra), "--repo", repo_name)
+            check("FLEET_MAX_LANES family-wide %s" % repo_name,
+                  (rc, parse(out).get("FLEET_MAX_LANES")), (0, "6"))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, lib_over={"fleet_max_lanes": "6"})
+        check("fleet_max_lanes per repo", run(app, env_for(home, gh, **extra))[0], 3)
+
+
 def test_merge_lock_key():
     """`merge_lock` is a family key: on|off, default off, validated, never per row."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -969,7 +998,7 @@ for t in (test_review_round_one, test_flat_config_equivalence, test_flat_merge_m
           test_lookup_order, test_frontmatter_overrides, test_section_body,
           test_shell_safety, test_offline_origin_and_home_lookup,
           test_home_lookup_hash_slug_fallback, test_stu_config_missing,
-          test_bom_unclosed_and_exact_section, test_section_comments_and_triage_extra, test_merge_lock_key):
+          test_bom_unclosed_and_exact_section, test_section_comments_and_triage_extra, test_merge_lock_key, test_fleet_max_lanes_key):
     t()
 
 if FAILURES:
