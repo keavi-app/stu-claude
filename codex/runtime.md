@@ -116,4 +116,6 @@ a handoff and stop. Never claim a hook enforces a budget if this session has no 
 
 fleet: not bound yet. The merge gate's hold and lock step calls `stu-fleet` from the package
 `bin/` like any other helper, but nothing here binds fleet coordination (a coordinator, a lane
-cap, a revoke-only dispatch by a coordinator) to Codex operations.
+cap, a revoke-only dispatch by a coordinator) to Codex operations. `agents/settler.md` is a
+Claude-side seat: the settle skill's "Drafting by `stu:settler`" is an optional path and the
+interactive settle remains the Codex path. `stu-run-check --settler-return` is runtime-neutral.

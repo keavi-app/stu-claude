@@ -369,3 +369,39 @@ never auto-narrowed (`docs/fleet-design.md`, "Always the owner's").
 absolute paths, `CYCLES` as `<used>/<cap>`, and that `NEXT` matches this table. Exit 0 prints `OK`,
 exit 1 prints one `<KEY> BLOCKED <code>: <detail>` line per bad field then `BLOCKED`, exit 3 means
 the file could not be read. A supervised run checks its own block with it before returning.
+
+---
+
+## 5. The settler return — one fixed block per `stu:settler` return
+
+Defined once here; `agents/settler.md` and the settle skill refer to it. `stu-run-check
+--settler-return <file>` checks it (exit 1 and `SETTLER BLOCKED malformed: <problem>` lines when it
+is malformed), so the dispatcher saves the return to a file and runs it before trusting it.
+
+```
+SETTLER: DRAFTED | WRITTEN | BLOCKED — <one line>
+OBJECTIVE: <absolute path>
+DRAFT: <absolute path>
+RULINGS: <n>
+R<k>: <question id> | rec: <one line> | reverses-if: <one line> | precondition: none | <text> | row: <1-7> | verifier: HOLDS | STALE | WRONG | VACUOUS | PARTIAL | UNVERIFIED | flags: none | <comma list of owner-only, sc2-candidate, reversal>
+BRIEF:
+<the brief block, ending in the Answer: line>
+```
+
+Written as above, `precondition:` is `none` or the text, `verifier:` is one word and `flags:` is `none`
+or a comma list; the `R<k>` fields are separated by ` | ` and carry their labels. One `R` line per
+ruling, numbered 1 to n. A ruling on row 2 to 6 must carry `owner-only`, and `sc2-candidate` implies `owner-only`. Every flag on an `R` line must also appear, in brackets, on the matching numbered `BRIEF` line (a mismatch is malformed). `BLOCKED` needs only the
+first line. `DRAFTED` needs `BRIEF:`, which ends in an `Answer:` line, and carries none of the
+`WRITTEN` additions.
+
+`WRITTEN` (write mode) adds, after the `R` lines:
+
+```
+WRITTEN: <R ids written>
+UNANSWERED: <R ids or none>
+HOLD: none | set — <reason>
+SCOREBOARD-TODO: <one 5b write the dispatcher still owes>      (zero or more lines)
+```
+
+`WRITTEN` and `UNANSWERED` together cover exactly the `R` ids. Bare `fine` covers only unflagged items and items flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier verdict is not `HOLDS`, needs an explicit `accept <n>`. The brief's `Answer:` line is `Answer: fine | accept 2 | reverse 2, 5 | talk about 3`, combinable. A `SCOREBOARD-TODO` line is one
+change under the settle skill's step 5b, for example a unit moving from Parked to Outstanding.
