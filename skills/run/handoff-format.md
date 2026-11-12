@@ -413,3 +413,53 @@ scoreboard change under the settle skill's step 5b, and is exactly one of three 
 The settler never writes a `Run state` line, and never returns a `Run state` TODO: `stu-fleet board settled` owns that
 line, and applies `unpark` and `drop` itself. It refuses an `add`, which needs the interactive `/stu:settle`
 (lane choice, the units table, ID checks).
+
+---
+
+## 6. The groomer return — one fixed block per groom or audit job
+
+Defined once here; the fleet skill refers to it. `stu-run-check --groomer-return <file> [--job
+<slug>] [--kind groom|audit]` checks it (exit 1 and `GROOMER BLOCKED malformed: <problem>` lines when
+it is malformed), and `stu-fleet board judged` runs the same check before it moves the job on, so the
+coordinator saves the return to a file under `RUN_HOME/runs/<job>/` first.
+
+```
+GROOMER: DONE | SPLIT | BLOCKED — <one line>
+JOB: <slug>
+KIND: groom | audit
+OUTPUT: <absolute path of the report>
+ISSUES: <comma list of issue numbers filed, or none>
+OBJECTIVES: <comma list of absolute objective paths written, or none>
+LEDGER: <comma list of ledger-inbox files written, or none>
+NOT-REACHED: <n>
+SPLIT: <n>                       (SPLIT only; then n lines)
+S<k>: <one-line scope>
+```
+
+`JOB` is the job's slug on the program and must equal `--job`; `KIND` must equal the job's kind. Every
+path is absolute. `SPLIT` carries the count and then exactly that many `S` lines, numbered 1 to n, and
+`DONE` carries neither. `BLOCKED` needs only the first line (`JOB` is optional, and must match when
+present). A usage limit is a `BLOCKED` whose reason starts with `usage limit` after the dash (case-insensitive): the board
+puts that job back to `queued` and pauses judgment work until the owner lifts it. A job that feeds a
+run reports `DONE` only with that run's objective path in `OBJECTIVES`.
+
+---
+
+## 7. The designer return — one fixed block per design round
+
+Defined once here. `stu-run-check --designer-return <file> [--job <slug>]` checks it the same way.
+
+```
+DESIGNER: READY | BLOCKED — <one line>
+JOB: <slug>
+ROUND: <n>
+OUTPUT: <absolute path of the round's directory>
+ARTIFACTS: <comma list of absolute paths: images or spec files>
+DECISION: <the one question the owner answers, plain language>
+D<k>: <option> | <one line>      (one per option, at least two; mark the recommended one "(recommended)")
+NOT-REACHED: <n>
+```
+
+`READY` puts the job in `verdict`: the owner's answer goes through `stu-fleet board verdict`, which
+appends it, dated, to `<OUTPUT>/VERDICT.md`. `BLOCKED` follows the groomer's rule, including the
+`usage limit` reading.
