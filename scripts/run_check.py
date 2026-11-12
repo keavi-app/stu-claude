@@ -12,6 +12,11 @@
       record in the approvals file, then `OK`. It reads that file itself, so no seat ever
       names it. A record for another id at the same sha does not count here.
 
+  stu-run-check --supervisor-return PATH
+      Validates the "Supervisor return" block a supervised `/stu:run` ends with (no objective
+      needed). One `<KEY> BLOCKED <code>: <detail>` line per bad field, then `OK` (exit 0) or
+      `BLOCKED` (exit 1). An unreadable PATH is exit 3.
+
 Exit 3 (the tool cannot judge): NOTHING goes to stdout and one line
 `stu-run-check: <class>: <detail>` goes to stderr. Every terminal line ever printed is
 therefore `OK` or `BLOCKED`, and a caller treats "no terminal line" as BLOCKED. Causes: a
@@ -56,6 +61,20 @@ reads empty; entries split on `,` unless noted):
   REMAINING_IDS, PARKED_IDS, INTEGRATING_IDS: read but never printed; an ID in them (or in
                     MOVED_IDS / the UNITS_CHANGED and UNITS_ADDED children) that cannot be
                     resolved to a row is exit 3, like an ID in an affected field.
+
+Supervisor return block (`--supervisor-return`; keys may carry hyphens; first line per key wins):
+  STU-RUN:        DONE | STOPPED | WAITING | SELF-STOP
+  OBJECTIVE:      <absolute path>
+  RUN-STATE:      <the scoreboard's Run state line, verbatim; first word one of running,
+                  stopped, waiting-on-human, settled, fleet-relaunch>
+  STOP-CONDITION: none | <n> -- <one line>           (n is 1..11; em dash or ` -- `)
+  CYCLES:         <used>/<cap>
+  LAST-HANDOFF:   <absolute path>
+  PARKED:         <n>
+  NEXT:           none | settle | relaunch | owner
+  Consistency: DONE has STOP-CONDITION none and NEXT none (settle when PARKED > 0); WAITING has
+  none and owner; SELF-STOP has none, 6 or 10 and NEXT relaunch; STOPPED has a number and the
+  NEXT the table in handoff-format.md gives for it.
 
 Objective file. The unit table is a Markdown table whose header (case-insensitive) has an
 `id` column; columns `repo` and `after` are optional. Without `repo` every unit is the home
@@ -912,6 +931,78 @@ def evaluate(chk, ident, got, issued, awaiting, held):
 
 # ---- driver -----------------------------------------------------------------------------
 
+SUP_KEY = re.compile(r"^\s*([A-Z][A-Z0-9-]*):[ \t]*(.*?)\s*$")
+SUP_RUN = ("DONE", "STOPPED", "WAITING", "SELF-STOP")
+SUP_NEXT = ("none", "settle", "relaunch", "owner")
+SUP_STATES = ("running", "stopped", "waiting-on-human", "settled", "fleet-relaunch")
+# stop condition -> NEXT (handoff-format.md, "Supervisor return"). 1, 2, 3 and 5 are questions
+# for the owner, which a supervised run parks in the questions file; settle collects them.
+SUP_TABLE = {1: "settle", 2: "settle", 3: "settle", 4: "owner", 5: "settle", 6: "relaunch",
+             7: "owner", 8: "owner", 9: "owner", 10: "relaunch", 11: "owner"}
+
+
+def check_supervisor_return(text):
+    f = {}
+    for line in text.splitlines():
+        m = SUP_KEY.match(line)
+        if m and m.group(1) not in f:
+            f[m.group(1)] = m.group(2)
+    bad = []
+
+    def block(key, code, detail):
+        bad.append("%s BLOCKED %s: %s" % (key, code, detail))
+
+    for key in ("STU-RUN", "OBJECTIVE", "RUN-STATE", "STOP-CONDITION", "CYCLES",
+                "LAST-HANDOFF", "PARKED", "NEXT"):
+        if not f.get(key):
+            block(key, "missing", "field absent or empty")
+    run, nxt, parked, cond = f.get("STU-RUN"), f.get("NEXT"), None, None
+    if run and run not in SUP_RUN:
+        block("STU-RUN", "bad-enum", "%r is not one of %s" % (run, " | ".join(SUP_RUN)))
+        run = None
+    if nxt and nxt not in SUP_NEXT:
+        block("NEXT", "bad-enum", "%r is not one of %s" % (nxt, " | ".join(SUP_NEXT)))
+        nxt = None
+    for key in ("OBJECTIVE", "LAST-HANDOFF"):
+        if f.get(key) and not f[key].startswith("/"):
+            block(key, "not-absolute", "%r is not an absolute path" % f[key])
+    if f.get("RUN-STATE") and f["RUN-STATE"].split()[0] not in SUP_STATES:
+        block("RUN-STATE", "bad-state", "first word %r is not one of %s" % (
+            f["RUN-STATE"].split()[0], ", ".join(SUP_STATES)))
+    if f.get("CYCLES"):
+        m = re.fullmatch(r"(\d+)/(\d+)", f["CYCLES"])
+        if not m or int(m.group(2)) < 1 or int(m.group(1)) > int(m.group(2)):
+            block("CYCLES", "bad-form", "%r is not <used>/<cap> with used <= cap, cap >= 1" % f["CYCLES"])
+    if f.get("PARKED"):
+        if re.fullmatch(r"\d+", f["PARKED"]):
+            parked = int(f["PARKED"])
+        else:
+            block("PARKED", "bad-form", "%r is not a count" % f["PARKED"])
+    sc = f.get("STOP-CONDITION")
+    if sc and sc != "none":
+        m = re.match(r"(\d+)\s+(?:—|–|--)\s+\S", sc)
+        if m and 1 <= int(m.group(1)) <= 11:
+            cond = int(m.group(1))
+        else:
+            block("STOP-CONDITION", "bad-form", "%r is not none or <n> -- <one line>, n in 1..11" % sc)
+    if run and nxt and sc and (sc == "none" or cond is not None):
+        want = None
+        if run == "DONE":
+            ok = cond is None and (nxt == "settle" if parked else nxt == "none")
+            want = "settle" if parked else "none"
+        elif run == "WAITING":
+            ok, want = cond is None and nxt == "owner", "owner"
+        elif run == "SELF-STOP":
+            ok, want = cond in (None, 6, 10) and nxt == "relaunch", "relaunch"
+        else:
+            ok = cond is not None and nxt == SUP_TABLE[cond]
+            want = SUP_TABLE[cond] if cond else None
+        if not ok:
+            block("NEXT", "inconsistent", "STU-RUN %s with STOP-CONDITION %s expects NEXT %s, got %s" % (
+                run, sc.split()[0], want or "a stop condition number", nxt))
+    return bad
+
+
 def parse_args(argv):
     a = {"approved": False}
     i = 0
@@ -920,6 +1011,11 @@ def parse_args(argv):
         if tok == "--approved":
             a["approved"] = True
             i += 1
+        elif tok == "--supervisor-return":
+            if i + 1 >= len(argv):
+                raise ToolError("usage", "--supervisor-return needs a path")
+            a["supervisor-return"] = argv[i + 1]
+            i += 2
         elif tok in ("--objective", "--return"):
             if i + 1 >= len(argv):
                 raise ToolError("usage", "%s needs a path" % tok)
@@ -927,7 +1023,11 @@ def parse_args(argv):
             i += 2
         else:
             raise ToolError("usage", "unexpected argument %r; usage: stu-run-check --objective "
-                            "PATH --return PATH | --approved --objective PATH" % tok)
+                            "PATH --return PATH | --approved --objective PATH | --supervisor-return PATH" % tok)
+    if "supervisor-return" in a:
+        if len(a) != 2:
+            raise ToolError("usage", "--supervisor-return takes no other option")
+        return a
     if "objective" not in a:
         raise ToolError("usage", "--objective PATH is required")
     if a["approved"] and "return" in a:
@@ -1013,6 +1113,13 @@ def run_returns(chk, fields):
 def main(argv):
     try:
         args = parse_args(argv)
+        if "supervisor-return" in args:
+            lines = check_supervisor_return(read_text(args["supervisor-return"], "supervisor return"))
+            blocked = bool(lines)
+            for ln in lines:
+                print(ln)
+            print("BLOCKED" if blocked else "OK")
+            return 1 if blocked else 0
         chk_text = read_text(args["objective"], "objective")
         if args["approved"]:
             chk = Check(chk_text, {})

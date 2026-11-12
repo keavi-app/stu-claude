@@ -317,3 +317,48 @@ name does not.
 
 The supervisor pushes this path to the owner and keeps relaying. **The run stops only when
 every remaining unit is parked.**
+
+---
+
+## 4. The supervisor return — the last thing a supervised run returns
+
+A run is supervised when its prompt carries a `STU-SUPERVISED: <nonce>` line (run skill,
+"Supervised mode"). Its final message ends with this block, and the block replaces the printed
+`/stu:settle` or resume line. Plain `KEY: value` lines, one each, nothing after them:
+
+```
+STU-RUN: DONE | STOPPED | WAITING | SELF-STOP
+OBJECTIVE: <absolute path>
+RUN-STATE: <the scoreboard's Run state line, verbatim>
+STOP-CONDITION: none | <n> — <one line>
+CYCLES: <used>/<cap>
+LAST-HANDOFF: <absolute path>
+PARKED: <n>
+NEXT: none | settle | relaunch | owner
+```
+
+`DONE` is the run finished its units; `STOPPED` it hit a stop condition; `WAITING` it stopped with
+nothing outstanding or parked but a unit Waiting or awaiting approval (`Run state: waiting-on-human`);
+`SELF-STOP` a lane stopped itself on a `self-stop:` line and the run can relaunch.
+`RUN-STATE` is copied, never paraphrased. `PARKED` is the count of parked questions in the
+questions file. A coordinator reads `NEXT` and nothing else to decide what to do:
+
+| Why the run ended | `STOP-CONDITION` | `NEXT` |
+| --- | --- | --- |
+| Every unit done, nothing parked | `none` | `none` |
+| Every unit done, questions parked | `none` | `settle` |
+| Waiting on a merge, tag or approval | `none` | `owner` |
+| 1, 2, 3 or 5: a question for the owner (parked in the questions file) | the number | `settle` |
+| 4 non-convergence | `4` | `owner` |
+| 6 hard context ceiling with work outstanding | `6` | `relaunch` |
+| 7 a guard would have to be weakened | `7` | `owner` |
+| 8 an evidence command failed twice | `8` | `owner` |
+| 9 the inherited premise verified wrong | `9` | `owner` |
+| 10 cycle cap exhausted, units left | `10` | `relaunch` |
+| 11 durable state missing or incomplete | `11` | `owner` |
+| A lane stopped on a `self-stop:` line | `none` or `6` or `10` | `relaunch` |
+
+`stu-run-check --supervisor-return PATH` validates the block: every field present, the enums, the
+absolute paths, `CYCLES` as `<used>/<cap>`, and that `NEXT` matches this table. Exit 0 prints `OK`,
+exit 1 prints one `<KEY> BLOCKED <code>: <detail>` line per bad field then `BLOCKED`, exit 3 means
+the file could not be read. A supervised run checks its own block with it before returning.
