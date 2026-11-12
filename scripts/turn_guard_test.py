@@ -143,6 +143,7 @@ check("orchestrator bands", tg.guard_ctx_bands(ORCH), (120_000, 160_000))
 check("implementer bands", tg.guard_ctx_bands(IMPL), (150_000, 190_000))
 GROOM = budgeted("groomer")
 check("groomer bands", tg.guard_ctx_bands(GROOM), (120_000, 160_000))
+check("designer bands", tg.guard_ctx_bands("designer"), (120_000, 160_000))
 check("unknown agent keeps the fleet pair", tg.guard_ctx_bands(SCOUT), (160_000, 200_000))
 check("no agent type keeps the fleet pair", tg.guard_ctx_bands(None), (160_000, 200_000))
 check("orchestrator SOFT at 120k, not before",
@@ -250,6 +251,19 @@ with tempfile.TemporaryDirectory() as d:
     transcript(p, turns=30, context=125_000, agent_type=ORCH)
     check("env override silences orchestrator 125k",
           run(p, ORCH, {"RUN_CTX_SOFT": "500000", "RUN_CTX_HARD": "900000"}), "")
+
+# --- judgment seats are watched through the hook (the band row alone is dead) ----
+with tempfile.TemporaryDirectory() as d:
+    for seat in ("designer", "settler"):
+        check(seat + " has a turn budget row", tg.AGENT_TURN_BUDGETS.get(seat), 120)
+        soft = tg.guard_ctx_bands(seat)[0]
+        p = os.path.join(d, seat + "1.jsonl")
+        transcript(p, turns=30, context=soft + 5_000, agent_type=seat)
+        check(seat + " past its soft band warns through the hook",
+              run(p, seat).split(" \u2014")[0], "CONTEXT SOFT")
+        p = os.path.join(d, seat + "2.jsonl")
+        transcript(p, turns=30, context=soft - 5_000, agent_type=seat)
+        check(seat + " under its soft band is silent", run(p, seat), "")
 
 # --- the plugin gate: the hook fires in EVERY session, so it must stay inert ------
 with tempfile.TemporaryDirectory() as d:

@@ -1601,6 +1601,14 @@ def test_judgment_jobs():
     pfleet("board", "judgment", PROG, "--job", "g2")
     check("idle --job: live -> owner", pfleet("board", "idle", PROG, "--job", "g2")[1],
           [jobline("g2", "owner", 1, "none", "idle; stopped")])
+    pfleet("board", "judgment", PROG, "--job", "g1")
+    shown = pfleet("board", "show", PROG)[1]
+    elsewhere = write(os.path.join(PDIR, "r.txt"), GROOM_RET.format(job="g1", obj="none").replace(
+        "/out/g1.md", "/elsewhere/g1.md"))
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "g1", "--return", elsewhere)
+    check("groomer OUTPUT outside the program output is BLOCKED, job stays live", (
+        rc, any(x.startswith("BLOCKED: OUTPUT /elsewhere/g1.md") for x in out),
+        pfleet("board", "show", PROG)[1]), (1, True, shown))
     check("unknown job on judged is BLOCKED exit 1", pfleet("board", "judged", PROG, "--job", "nope",
           "--return", ok)[0], 1)
 
@@ -1643,6 +1651,18 @@ def test_design_verdict_loop():
     check("READY with a missing OUTPUT directory is BLOCKED exit 1", rc, 1)
     check("BLOCKED names the output", any(x.startswith("BLOCKED: OUTPUT /nonexistent/x") for x in out), True)
     check("the job stays live, nothing written", pfleet("board", "show", PROG)[1], shown)
+    # a READY whose OUTPUT is an existing directory that is not the job's output
+    other = os.path.join(PDIR, "other-round")
+    os.makedirs(other, exist_ok=True)
+    tail = "\n## Judgment work\n- d1: design | scope: s | output: " + rdir + " | feeds: none\n"
+    program([("alpha", a, "none", "none")], tail=tail)
+    pfleet("board", "judgment", PROG, "--job", "d1")
+    shown = pfleet("board", "show", PROG)[1]
+    rc, out, err = pfleet("board", "judged", PROG, "--job", "d1", "--return",
+           write(os.path.join(PDIR, "dr.txt"), DESIGN_RET.format(out=other)))
+    check("designer OUTPUT that is not the program output is BLOCKED", (
+        rc, any("not the program line's output" in x for x in out)), (1, True))
+    check("the job stays live, nothing written (designer OUTPUT)", pfleet("board", "show", PROG)[1], shown)
     # requeue from verdict is the escape hatch
     pfleet("board", "judged", PROG, "--job", "d1", "--return",
            write(os.path.join(PDIR, "dr.txt"), DESIGN_RET.format(out=rdir)))

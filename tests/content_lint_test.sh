@@ -17,9 +17,9 @@ none "no .claude/agents/ paths" '\.claude/agents/' skills agents scripts bin
 none "no scripts/ paths in skills/agents (use stu-claims, stu-ctx, stu-ci-wait)" \
   'scripts/(run_claims|ctx|ci-wait)' skills agents
 none "no unprefixed subagent_type" \
-  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer)"' skills agents
+  'subagent_type: "(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer|designer)"' skills agents
 none "no unprefixed backticked agent names" \
-  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer)`' skills agents
+  '`(orchestrator|implementer|reviewer|merge-gate|scout|verifier|settler|groomer|designer)`' skills agents
 none "no /autonomous-run" '/autonomous-run' skills agents scripts bin
 none "no bare autonomous-run" 'autonomous-run' skills agents
 none "no unprefixed /settle" '(^|[^a-z])/settle([^/]|$)' skills agents scripts bin
@@ -137,6 +137,14 @@ check_set "hand-off commands stand alone on their own line" "$missing"
 if grep -E '^\| .*judgment seat' skills/run/SKILL.md | grep -qF 'stu-env section judgment-model'
 then echo "ok   routing table has the judgment-seat row naming judgment-model"
 else echo "FAIL routing table has the judgment-seat row naming judgment-model"; fails=$((fails + 1)); fi
+# The designer runs one round: writes only under OUTPUT, stops after it, reads VERDICT.md.
+missing=$(need agents/designer.md 'OUTPUT/round-<n>/' 'VERDICT.md' 'never start round' 'DESIGNER: BLOCKED' 'usage limit' '120k soft / 160k hard' 'stu-run-check')
+check_set "designer writes under OUTPUT, stops after one round, names VERDICT.md" "$missing"
+none "designer is not a dispatcher of orchestrators, implementers, reviewers or gates" \
+  'stu:(orchestrator|implementer|reviewer|merge-gate)' agents/designer.md
+if fm agents/designer.md | grep -qxE 'model: opus' && fm agents/designer.md | grep -E '^tools:' | grep -qF 'Agent'
+then echo "ok   designer is on the default judgment model and holds Agent"
+else echo "FAIL designer is on the default judgment model and holds Agent"; fails=$((fails + 1)); fi
 # The settler performs settle step 5a only: its text names 5a, says it never performs 5b, and it
 # never dispatches an orchestrator, implementer or merge gate.
 missing=$(need agents/settler.md '5a' 'You never perform 5b' 'MODE: draft' 'MODE: write' 'stu-run-check' 'SCOREBOARD-TODO')
