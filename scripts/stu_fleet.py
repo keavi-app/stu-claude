@@ -28,6 +28,13 @@
                                         run; budget, judgment jobs and Stop at
   stu-fleet actuals PROGRAM             read-only: per run and fleet, launches, agents, output tokens
                                         and a seat/model table from the detail log
+  stu-fleet board draft PROGRAM --run SLUG --return FILE
+                                        record a settle run's DRAFTED settler return (refused 13 unless
+                                        settle with no draft; exit 1 unless it validates for the run)
+  stu-fleet board settled PROGRAM --run SLUG --return FILE
+                                        apply a WRITTEN settler return to the scoreboard and board
+  stu-fleet brief PROGRAM               read-only: every drafted brief, written items hidden, one Answer line
+  stu-fleet answer PROGRAM --line TEXT  read-only: route the owner's reply to the runs with drafts
   stu-fleet next PROGRAM                one decision line per run, notices, hold, lanes, limits
 
 State: <RUN_HOME>/merge-hold.json (override: STU_FLEET_FILE), RUN_HOME from stu-env. Every
@@ -39,6 +46,7 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
 
   - <slug> | state: <queued|live|settle|relaunch|owner|done> | cycles: <n> | launches: <n> |
     from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | agents: <n> | out: <n> |
+    draft: <abs path|none> | written: <comma list of item numbers|none> |
     handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
   - fleet | judgment: <n> | agents: <n> | out: <n> | notices: <none|comma list of cycle-80,
     cycle-100,judgment-80,judgment-100,stop-at>
@@ -46,7 +54,8 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
 (one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
 named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
 and nonce) reads as closed 0, dry 0, nonce none, a v2 line (no agents, out) as agents 0, out 0,
-and a missing fleet line as judgment 0, notices none; the next write emits v3. Anything else malformed, a fleet line that is not last, a
+and a missing fleet line as judgment 0, notices none; the next write emits v4. A v3 line (no
+draft, written) reads as `draft: none`, `written: none`. Anything else malformed, a fleet line that is not last, a
 duplicate, or an unknown notice id is exit 3. Only stu-fleet writes the section: under an
 exclusive flock on `<program>.lock`, replacing the program file atomically and touching nothing
 outside that section. `cycles` is fleet-cumulative; `from` is the count the current launch
@@ -100,10 +109,45 @@ the table but not in the off-route share. Actuals are a report: nothing enforces
 `relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
 limit). Then, in one step, it rewrites the first `Run state:` line inside the objective's
 `## Scoreboard` to `fleet-relaunch <YYYY-MM-DD>` (the program clock's date) and launches as
-`board launch` does (so `from` is 0), printing the board line and the nonce. This is the one
-place stu-fleet writes an objective: under a flock on `<objective>.lock`, atomic replace,
-nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
+`board launch` does (so `from` is 0), printing the board line and the nonce. This is one of
+two places stu-fleet writes an objective (the other is `board settled`, below): under a flock on
+`<objective>.lock`, atomic replace, nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
 is refused (13) before anything is written. It never edits a `Cycle cap:`.
+
+The settle loop (docs/fleet-design.md, "Settling"). `draft` is the absolute path of the saved
+DRAFTED settler return for the run's current settle, `written` the brief item numbers already
+written from it; `board record`, `launch`, `relaunch`, `idle` and `requeue` reset both to none.
+`board draft` is refused (13) unless the run is `settle` with `draft: none`; the return must
+validate (settler_return.check), be `SETTLER: DRAFTED` and name the run's objective (exit 1,
+`BLOCKED: <problem>` lines then `BLOCKED`, otherwise); it also clears the run's counts in the
+sidecar `<program>.settle.json` (unparked and dropped so far under the current draft, the
+only place those counts live between `board settled` calls). `next` prints `brief <slug>` for a
+`settle` run with a draft, else `settle <slug>[ owner-only]` as before.
+`board settled` is refused (13) unless the run is `settle` with a draft. The return must validate
+as `SETTLER: WRITTEN` with the same OBJECTIVE and DRAFT as the stored drafted return (exit 1
+otherwise). Under the program lock and a flock on `<objective>.lock` it checks everything before it
+writes anything, then rewrites only scoreboard lines, atomically. Refused (13), nothing written: an
+`add` TODO (`fleet-board: <slug> adds unit <id>; settle it with /stu:settle <objective path>`), an
+`unpark` of an id in no lane's `Parked:` and not already `Outstanding:`, a `drop` of an id in no
+lane's `Parked:`/`Outstanding:` and not already dropped in `Closed:`, an objective with no
+`## Scoreboard` (or, finishing, no `Run state:` in it). `unpark` and `drop` move the id between the
+lane's `Parked:`/`Outstanding:`/`Closed:` lines (`NONE` when empty; a drop appends `<id> (dropped
+by the owner <date>)`); repeats are no-ops. `written` becomes its union with the return's WRITTEN
+ids. With `UNANSWERED: none` the first `Run state:` in the scoreboard becomes `waiting-on-human`
+when any lane's `Waiting:` or `Awaiting approval:` is not NONE, else `settled <date> — <w>
+answered, <u> unparked, 0 added, <d> dropped`, and the run goes to `queued` with draft and
+written reset; otherwise the run stays `settle`. The last stdout line is `requeued <slug>` or
+`pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
+Runs order, the drafted BRIEF block without its `BRIEF:` label, its own `Answer:` line and the
+numbered item lines already written, then a blank line, then one `Answer:` line for the whole
+brief (`Answer: <slug>: fine | accept 2 | reverse 2, 5 | talk about 3` for one run, `Answer per
+run, one per line or separated by ';': <slug>: <answer>` for several); `brief: none` with no
+drafts. `answer` (read-only) splits `--line` on newlines and `;` into `<slug>: <answer>`
+segments (a segment with no slug belongs to the only run with a draft); it prints `answer <slug>
+| draft: <DRAFT path> | line: <answer>` for each answered run and `unanswered <slug>` for each
+drafted run left out, or exit 1 with `BLOCKED: <detail>` lines then `BLOCKED` for an unknown or
+draft-less slug, a slug twice, or an accept, reverse or talk about number outside 1..RULINGS or
+already written. It does not interpret the answer further.
 
 Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `board judgment`:
 the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
@@ -154,7 +198,8 @@ Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED 
 set; 11 refused, lock held; 12 refused, holder not checkable on the forge; 13 refused, board
 state (launching a run that is not queued, recording or idling a run that is not live, a negative cycle
 delta, requeuing from a state that cannot be requeued, relaunching a run the policy does not
-allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite). A refusal prints one line that
+allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite, `board draft` or `board settled` on a run in the wrong
+state, a `board settled` that would move an id that is not there or add a unit). A refusal prints one line that
 begins `REFUSED ` followed by the reason text a gate returns (`fleet-hold: ...`,
 `fleet-lock: ...` or `fleet-board: ...`).
 """

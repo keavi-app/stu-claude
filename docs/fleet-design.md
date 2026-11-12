@@ -249,6 +249,15 @@ On "fine" the settler writes the rulings and the run relaunches. Other runs keep
 brief is open. This is the settle skill's existing skim-list shape, moved from one session per
 objective to one brief per wave.
 
+`stu-fleet` holds the state this needs, so the coordinator edits no scoreboard. `board draft`
+records the settler's drafted return against a `settle` run (`next` then says `brief <slug>`);
+`brief` prints every recorded draft as one block, hiding items already written; `answer` splits
+the owner's reply into per-run segments and checks the item numbers; the settler's write mode
+returns a `WRITTEN` block and `board settled` applies it: it moves `unpark` and `drop` units on
+the scoreboard, refuses an `add` (new units need the interactive `/stu:settle`), writes `Run
+state:`, and requeues the run once no question is unanswered. A partial answer leaves the run in
+`settle` with its draft, and `next` asks for the brief again.
+
 ### Auto-narrow mode (opt-in per program)
 
 The settler may apply a ruling without waiting only when all hold: the question is row 7 of the
