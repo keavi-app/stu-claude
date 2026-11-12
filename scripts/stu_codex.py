@@ -25,7 +25,7 @@ SOURCES.update({'charter': 'skills/fix-campaign/orchestrator-charter.md',
 # Hash only replaced runtime regions, never shared policy. Any upstream edit inside one
 # needs deliberate adapter review; a new policy sentence must never be silently discarded.
 RUNTIME_REGIONS = {
-    '### Liveness: one deadline timer per dispatch, not a poll\n': 'd33d92df2bf3371c137055438b71d6683eaf0ecd985d32ec78a0ae5c1f24fc7c',
+    '### Liveness: one deadline timer per dispatch, not a poll\n': '711c90cde0769969bb3f854d21361c357124b558ae163bff3bd601134b27bb2f',
     '## Routing: which agent, which model\n': '48967953e2a7859e475b66eae8078346f69b37725d393feb21a6d34de4f78428',
     '## Turn discipline\n': 'a36c37dbf7ccf144b58733f060c211b3fdb437d6d362a6d6a28f8054d91626f0',
     '**After a repair has been sent, a prose-only stop is still interim:**': '5263f78ffb0a85270ee60a1f230b3eb795d1efa9dfd6b8ff5ebe6edfac506b40',
@@ -113,6 +113,9 @@ def adapt(name, text):
     for comment in (
         '<!-- The turn-guard hook warns at the 120-turn budget; `maxTurns` is the hard stop. -->\n',
         '<!-- `cacheTtl: 1h` is for this role alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- `cacheTtl: 1h` is for this role and the supervisor alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- `cacheTtl: 1h` is for this role and the orchestrator alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- No `model:` here on purpose: a supervisor inherits its launcher\'s model, as the main-session supervisor does. The run skill names no separate supervisor model. -->\n',
         '<!-- The turn-guard hook warns at the 140-turn budget; `maxTurns` is the hard stop. -->\n',
     ):
         if comment in text:
@@ -144,6 +147,27 @@ single repair and then fails closed; an interim prose return stays under its exi
                        'Dispatch one fresh `stu:orchestrator` using the runtime binding; it must be able to spawn its own workers.')
         text = replace(text, 'These are **your** bands (`ctx.py`). The orchestrator and implementer carry their own, tighter\npairs in `scripts/turn-guard.py` (`AGENT_CTX_BANDS`), stated in their definitions.',
                        'These are **your** bands (`stu-ctx`). The orchestrator and implementer carry their own tighter bands in their contracts. The Codex runtime binding governs usage availability and advisory hooks.')
+        text = replace(text, "and `stu-tree --root <orchestrator agent id>` exits 1 (exit 3 is unknown, not idle).",
+                       "and the native agent tree inventory shows no running descendant (unknown is not idle).")
+        text = replace(text, """Every orchestrator dispatch, in both modes, also carries one more line, fresh for that dispatch:
+
+```
+STU-NONCE: <nonce>
+```
+
+Make the nonce with `od -An -N6 -tx1 /dev/urandom | tr -d ' \\n'` prefixed by `n`. The orchestrator
+uses it to find its own transcript (`stu-ctx --nonce`), and `stu-tree` shares the same lookup. It
+is not a secret; it only has to be unique within the session.
+
+""", "")
+        text = replace(text, """That bare form reads the main session's transcript. A supervisor running as a subagent (its
+prompt carries a `STU-SUPERVISED: <nonce>` line) reads its own instead: `stu-ctx --nonce <that
+nonce>`. A bare `stu-ctx` there would measure the root session, not you.
+
+""", "")
+        text = replace(text, """2. **You measure your own context with `stu-ctx --nonce <the nonce from your STU-SUPERVISED line>`**
+   ("Budgets"). The bare form would read the coordinator's session.""",
+                       """2. **You measure your own context with `stu-ctx`** ("Budgets"); Codex reads its own session.""")
     elif name == 'orchestrator':
         text = replace(text, 'You are NOT a fork: you can and must dispatch subagents.',
                        'You are a fresh orchestrator: you can and must dispatch workers using the runtime binding.')
@@ -163,6 +187,10 @@ single repair and then fails closed; an interim prose return stays under its exi
                        'Check usage with `stu-ctx`; the Codex usage hook, when installed, is advisory. Unknown usage is hard-exceeded and requires a handoff. Track work and turn limits as policy; do not assume a hard harness limit.')
         text = replace(text, '**The only reliable stop signal is the completion\nnotification**; treat its absence as dispositive.',
                        '**A terminal agent report plus native tree inspection is required to establish termination**; a completed parent with a live descendant still owns work.')
+        text = replace(text, """
+To read your own context yourself, run `stu-ctx --nonce <nonce>` with the nonce from the
+`STU-NONCE:` line of your dispatch prompt. A bare `stu-ctx` measures the root session, not you.
+""", "")
     elif name == 'implementer':
         text = replace(text, 'You do not have to track either number yourself: `turn-guard.py` fires on both and names which\none tripped. It reports late rather than early, so treat its first warning as already overdue.',
                        'Track both policy limits and check `stu-ctx`. A Codex usage hook is advisory when installed; unknown usage is hard-exceeded and requires a handoff.')

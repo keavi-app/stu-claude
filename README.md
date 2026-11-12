@@ -110,13 +110,14 @@ A `PreToolUse` hook is the publish guard's tool-call half; see Publishing safely
 |---|---|
 | `stu-env` | Resolves this repo's paths and config; `stu-env section <id>` prints one config answer. |
 | `stu-claims` | A shared claims file, so two concurrent runs never work the same unit. |
-| `stu-ctx` | Prints this session's context size, band, and growth. |
+| `stu-ctx` | Prints this session's context size, band, and growth; `--nonce` measures a subagent's own transcript instead. |
+| `stu-tree` | Lists a subagent's live descendants and exits 0 when any is running. |
 | `stu-ci-wait` | One background call, one line: waits for a PR's CI verdict instead of polling. |
 | `stu-approve` | `stu-approve <id> <sha>`: records the owner's approval of one commit for a before-push checkpoint. Human-only. |
 | `stu-fleet` | The merge hold and the merge lock, one file under the run home: `hold set|clear|status`, `lock take|release|status`. Gates read it before they label or merge. |
 | `stu-forge` | Forge facts for the run kit (pull requests, labels, tags, checks) with a fail-closed output contract: result lines, then one `OK` or `ERROR <class> <detail>` line. |
 | `stu-pre-push` | The publish guard's git `pre-push` hook: `--install` writes it, `--check` prints `INSTALLED` or `MISSING`. |
-| `stu-run-check` | The supervisor's mechanical checks on one orchestrator return; `--approved` lists the approved awaiting units. |
+| `stu-run-check` | The supervisor's mechanical checks on one orchestrator return; `--approved` lists the approved awaiting units; `--supervisor-return` validates a supervised run's return block. |
 | `stu-verify` | Runs a repo's verification commands at one commit in the background; prints one `VERIFY: PASS\|FAIL\|PENDING` line. `--retry` re-runs a failed commit once. |
 
 ## Several repos in one run
@@ -199,7 +200,7 @@ Cost is roughly context size times number of turns, so stu bounds both.
 
 | | Turn budget | Context soft / hard | Native `maxTurns` |
 |---|---|---|---|
-| Supervisor (main session) | cycle cap: 4, or 8 under `overnight` | 160k / 200k (`stu-ctx`) | — |
+| Supervisor (main session, or `stu:supervisor` under a fleet coordinator) | cycle cap: 4, or 8 under `overnight` | 160k / 200k (`stu-ctx`) | — |
 | `stu:orchestrator` | 120 | 120k / 160k | 190 |
 | `stu:implementer` | 140 | 150k / 190k | 220 |
 
@@ -213,8 +214,8 @@ Cost is roughly context size times number of turns, so stu bounds both.
 - **Models per role** follow the table above. The orchestrator's model is a lookup, not a
   judgment: opus for cycle 1, sonnet once briefs are groomed, and opus again only with a
   literal `ESCALATION:` line naming one of its enumerated conditions.
-- **Cache TTL:** `stu:orchestrator` alone writes its prompt cache with a 1-hour TTL
-  (`experimental: cacheTtl: 1h` in its frontmatter), so a long wait on its children is a
+- **Cache TTL:** `stu:orchestrator` and `stu:supervisor` write their prompt cache with a 1-hour
+  TTL (`experimental: cacheTtl: 1h` in their frontmatter), so a long wait on children is a
   cache read rather than a rebuild. Every other role keeps the 5-minute default; see
   `docs/design-rationale.md`, "Cache TTL".
 

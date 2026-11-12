@@ -31,7 +31,8 @@ Nothing else yet.
 
 Read `Run state:` in the scoreboard.
 
-- `stopped`, `waiting-on-human` or `settled` — go on. `waiting-on-human` means nothing is
+- `stopped`, `waiting-on-human`, `settled` or `fleet-relaunch` — go on. `fleet-relaunch <date>`
+  means a coordinator's relaunch is pending; treat it as `settled`. `waiting-on-human` means nothing is
   outstanding or parked, but a unit is Waiting or awaits the owner's push approval: the owner
   has actions to take, listed below.
 - `running` — **stop here.** The supervisor may still write the objective, and answers

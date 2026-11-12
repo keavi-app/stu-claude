@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.9
+
+- `/stu:run` now has a supervised mode for a fleet coordinator: a run whose prompt carries a
+  `STU-SUPERVISED: <nonce>` line never asks the owner anything and ends with a fixed return block
+  (`STU-RUN`, `RUN-STATE`, `STOP-CONDITION`, `CYCLES`, `PARKED`, `NEXT` and the rest). A table maps
+  each stop condition to what should happen next: settle, relaunch or the owner.
+  `stu-run-check --supervisor-return PATH` validates the block. New agent `stu:supervisor` runs it
+  as a background subagent, with a 1-hour prompt cache like the orchestrator; it takes its
+  launcher's model.
+- New `stu-tree` lists a subagent's live descendants by parent id. The run skill uses it for its
+  deadline-timer tree check, the "is it still running" answer and the restart idle test, in place
+  of `ListAgents`, which does not exist inside a subagent.
+- `stu-ctx --nonce <n>` measures a subagent's own transcript, found by a `STU-NONCE` or
+  `STU-SUPERVISED` line in its prompt, instead of the root session's. Every orchestrator dispatch
+  now carries a fresh `STU-NONCE` line. Zero or several matches is an error, never a fallback.
+- New run state `fleet-relaunch <date>`, written only by a fleet coordinator. A run resuming from
+  it starts its cycle count at `0/<cap>`, and `/stu:settle` treats it like `settled`.
+
 ## 0.2.7
 
 - `/stu:settle` now writes its results in two named parts. Ruling writes (the answers, the

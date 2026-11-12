@@ -1066,7 +1066,74 @@ def test_closed_and_moved():
               (rc, blocked_with(out, "lib#2", "closed-but-remaining")), (1, True))
 
 
-for t in (test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
+SUP_GOOD = {
+    "STU-RUN": "STOPPED", "OBJECTIVE": "/runs/x/objective.md",
+    "RUN-STATE": "stopped \u2014 BLOCKED: condition 8 \u2014 CI failed twice",
+    "STOP-CONDITION": "8 \u2014 CI failed twice", "CYCLES": "3/12",
+    "LAST-HANDOFF": "/runs/x/handoffs/c3.md", "PARKED": "0", "NEXT": "owner",
+}
+
+
+def sup(tmp, **over):
+    f = dict(SUP_GOOD)
+    f.update(over)
+    path = os.path.join(tmp, "ret.md")
+    write(path, "prose before\n" + "".join(
+        "%s: %s\n" % (k, v) for k, v in f.items() if v is not None))
+    r = subprocess.run([sys.executable, os.path.join(HERE, "run_check.py"),
+                        "--supervisor-return", path], capture_output=True, text=True)
+    return r.returncode, r.stdout.strip().splitlines(), r.stderr
+
+
+def test_supervisor_return():
+    with tempfile.TemporaryDirectory() as tmp:
+        check("sup_good", sup(tmp)[:2], (0, ["OK"]))
+        check("sup_done", sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none", "NEXT": "none",
+                                      "RUN-STATE": "settled 2026-01-01 \u2014 x"})[:2], (0, ["OK"]))
+        check("sup_done_parked", sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none",
+                                             "NEXT": "settle", "PARKED": "2"})[0], 0)
+        check("sup_waiting", sup(tmp, **{"STU-RUN": "WAITING", "STOP-CONDITION": "none",
+                                         "NEXT": "owner"})[0], 0)
+        check("sup_self_stop", sup(tmp, **{"STU-RUN": "SELF-STOP", "STOP-CONDITION": "none",
+                                           "NEXT": "relaunch"})[0], 0)
+        check("sup_cond6", sup(tmp, **{"STOP-CONDITION": "6 -- ctx", "NEXT": "relaunch"})[0], 0)
+        for n, nxt in ((1, "settle"), (4, "owner"), (5, "settle"), (7, "owner"), (9, "owner"),
+                       (10, "relaunch"), (11, "owner")):
+            check("sup_cond%d" % n, sup(tmp, **{"STOP-CONDITION": "%d \u2014 why" % n, "NEXT": nxt})[0], 0)
+        # each field malformed or absent
+        cases = [
+            ("STU-RUN", "RUNNING", "bad-enum"), ("STU-RUN", None, "missing"),
+            ("OBJECTIVE", "rel/path.md", "not-absolute"), ("OBJECTIVE", None, "missing"),
+            ("RUN-STATE", "finished", "bad-state"), ("RUN-STATE", None, "missing"),
+            ("STOP-CONDITION", "8", "bad-form"), ("STOP-CONDITION", "12 \u2014 x", "bad-form"),
+            ("STOP-CONDITION", None, "missing"),
+            ("CYCLES", "13/12", "bad-form"), ("CYCLES", "3", "bad-form"), ("CYCLES", None, "missing"),
+            ("LAST-HANDOFF", "h.md", "not-absolute"), ("LAST-HANDOFF", None, "missing"),
+            ("PARKED", "-1", "bad-form"), ("PARKED", "two", "bad-form"), ("PARKED", None, "missing"),
+            ("NEXT", "later", "bad-enum"), ("NEXT", None, "missing"),
+            ("NEXT", "relaunch", "inconsistent"),
+        ]
+        for key, val, code in cases:
+            rc, out, _ = sup(tmp, **{key: val})
+            check("sup_%s_%s" % (key, val), (rc, out[-1], any(
+                l.startswith("%s BLOCKED %s:" % (key, code)) for l in out)), (1, "BLOCKED", True))
+        rc, out, _ = sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none", "NEXT": "none",
+                                 "PARKED": "1"})
+        check("sup_done_parked_needs_settle", (rc, out[-1]), (1, "BLOCKED"))
+        rc, out, _ = sup(tmp, **{"STU-RUN": "WAITING", "STOP-CONDITION": "none", "NEXT": "none"})
+        check("sup_waiting_needs_owner", (rc, out[-1]), (1, "BLOCKED"))
+        # cannot judge: unreadable path -> exit 3, empty stdout
+        r = subprocess.run([sys.executable, os.path.join(HERE, "run_check.py"),
+                            "--supervisor-return", os.path.join(tmp, "absent.md")],
+                           capture_output=True, text=True)
+        check("sup_unreadable", (r.returncode, r.stdout), (3, ""))
+        r = subprocess.run([sys.executable, os.path.join(HERE, "run_check.py"),
+                            "--supervisor-return", os.path.join(tmp, "ret.md"),
+                            "--objective", "x"], capture_output=True, text=True)
+        check("sup_usage", (r.returncode, r.stdout), (3, ""))
+
+
+for t in (test_supervisor_return, test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,

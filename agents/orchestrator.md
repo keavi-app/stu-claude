@@ -10,7 +10,7 @@ experimental:
 ---
 
 <!-- The turn-guard hook warns at the 120-turn budget; `maxTurns` is the hard stop. -->
-<!-- `cacheTtl: 1h` is for this role alone: see design-rationale.md, "Cache TTL". -->
+<!-- `cacheTtl: 1h` is for this role and the supervisor alone: see design-rationale.md, "Cache TTL". -->
 
 **Startup:** run `stu-env` once, unflagged, and keep its family-level values: `RUN_HOME`, `WORKTREES_DIR`, `CONFIG_PATH`. If it exits nonzero, stop and report its stderr; never go on with defaults. This file names the values that way. Every later `stu-*` call is prefixed `STU_CONFIG=<CONFIG_PATH>`, and every dispatch prompt you write carries the line `STU_CONFIG=<CONFIG_PATH>`.
 
@@ -313,6 +313,9 @@ holds:
 A `PostToolUse` hook (`scripts/turn-guard.py`, `AGENT_CTX_BANDS`) reads both numbers from your
 transcript and tells you which one tripped: once on approach, again at the bar, then every 25 turns
 past it. That message is this budget speaking, not a suggestion to weigh against finishing.
+
+To read your own context yourself, run `stu-ctx --nonce <nonce>` with the nonce from the
+`STU-NONCE:` line of your dispatch prompt. A bare `stu-ctx` measures the root session, not you.
 
 **How.** Write `<run-dir>/handoffs/campaign-handoff-<n>.md` and return. The handoff is the **only**
 thing that crosses the boundary, so it is structured state, not prose:

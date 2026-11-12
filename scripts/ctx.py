@@ -38,10 +38,14 @@ Never guesses. If it cannot identify this session's transcript it says so and
 exits nonzero -- a plausible wrong number is worse than no number, because the
 whole point of the band is that it fires.
 """
+import argparse
 import glob
 import json
 import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agent_tree  # noqa: E402  (the nonce lookup is shared with stu-tree)
 
 SOFT = int(os.environ.get("RUN_CTX_SOFT", 160_000))
 HARD = int(os.environ.get("RUN_CTX_HARD", 200_000))
@@ -84,7 +88,7 @@ def transcript_path():
         die("CLAUDE_CODE_SESSION_ID is not set -- cannot identify this session. "
             "Refusing to guess from file mtimes: this project directory holds "
             "transcripts from concurrent sessions.")
-    root = os.path.expanduser("~/.claude/projects")
+    root = agent_tree.projects_root()
     hits = glob.glob(os.path.join(root, "*", sid + ".jsonl"))
     if not hits:
         die("no transcript found for session %s under %s" % (sid, root))
@@ -93,8 +97,29 @@ def transcript_path():
     return hits[0]
 
 
-def scan(path):
-    """Return (current_ctx, peak_ctx, turns, ctxs) for the selected runtime."""
+def nonce_path(nonce):
+    """The agent file a subagent measures itself from: the one whose prompt carries `nonce`.
+
+    CLAUDE_CODE_SESSION_ID is the ROOT session's id in every subagent, so without this a
+    subagent reads the root transcript and reports someone else's context. Zero or several
+    matches is an error, never a fallback to the root transcript.
+    """
+    if runtime() == "codex":
+        die("--nonce reads Claude subagent transcripts; it does not apply to Codex")
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not sid:
+        die("CLAUDE_CODE_SESSION_ID is not set -- cannot identify the session for --nonce")
+    try:
+        return agent_tree.find_by_nonce(sid, nonce)[1]
+    except agent_tree.NotFound as exc:
+        die(str(exc))
+
+
+def scan(path, sidechain=False):
+    """Return (current_ctx, peak_ctx, turns, ctxs) for the selected runtime.
+
+    `sidechain=True` keeps isSidechain records: in a subagent's own file every record has
+    the flag, so skipping them would measure nothing."""
     if runtime() == "codex":
         import codex_telemetry
         try:
@@ -113,7 +138,7 @@ def scan(path):
             except Exception:
                 continue
             # Subagent turns are their own context, not ours.
-            if d.get("isSidechain"):
+            if d.get("isSidechain") and not sidechain:
                 continue
             m = d.get("message") or {}
             u = m.get("usage")
@@ -188,9 +213,17 @@ def band(ctx):
     return "OK"
 
 
-def main():
-    path = transcript_path()
-    cur, peak, turns, ctxs = scan(path)
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="stu-ctx")
+    ap.add_argument("--nonce", help="measure the subagent whose prompt carries this nonce "
+                    "(STU-SUPERVISED / STU-NONCE line); a subagent always passes it")
+    args = ap.parse_args(argv)
+    if args.nonce:
+        path = nonce_path(args.nonce)
+        cur, peak, turns, ctxs = scan(path, sidechain=True)
+    else:
+        path = transcript_path()
+        cur, peak, turns, ctxs = scan(path)
     if not turns:
         die("transcript %s has no usage records yet" % path)
     print("context: %s tokens  [%s]" % (format(cur, ","), band(cur)))

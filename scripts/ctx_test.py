@@ -76,6 +76,60 @@ padded = [400] * 5 + [FLOOR] * 6
 check("n/a line counts scoreable turns",
       "have 6)" in ctx.growth_line(ctx.growth(padded), padded), True)
 
+# 10. --nonce: a subagent measures its OWN file, whose every record is isSidechain, and
+#     never falls back to the root transcript.
+import json
+import subprocess
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def run_ctx(root, *args, **env):
+    e = dict(os.environ, STU_PROJECTS_ROOT=root, CLAUDE_CODE_SESSION_ID="sess-ctx",
+             STU_RUNTIME="claude")
+    e.update(env)
+    return subprocess.run([sys.executable, os.path.join(HERE, "ctx.py")] + list(args),
+                          capture_output=True, text=True, env=e)
+
+
+def agent_file(sdir, aid, nonce_line, usage_tokens):
+    with open(os.path.join(sdir, "agent-%s.jsonl" % aid), "w") as fh:
+        fh.write(json.dumps({"isSidechain": True, "type": "user",
+                             "message": {"role": "user", "content": nonce_line}}) + "\n")
+        for i, t in enumerate(usage_tokens):
+            fh.write(json.dumps({"isSidechain": True, "type": "assistant", "message": {
+                "id": "%s-m%d" % (aid, i), "usage": {
+                    "input_tokens": 1, "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": t}}}) + "\n")
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    proj = os.path.join(tmp, "proj")
+    sdir = os.path.join(proj, "sess-ctx", "subagents")
+    os.makedirs(sdir)
+    with open(os.path.join(proj, "sess-ctx.jsonl"), "w") as fh:   # the ROOT transcript
+        fh.write(json.dumps({"type": "assistant", "message": {"id": "root-m", "usage": {
+            "input_tokens": 1, "cache_read_input_tokens": 99_999}}}) + "\n")
+    agent_file(sdir, "one", "STU-NONCE: nonce-aaa-111", [40_000, 61_000])
+    agent_file(sdir, "two", "STU-SUPERVISED: nonce-bbb-222", [5_000])
+    r = run_ctx(tmp, "--nonce", "nonce-aaa-111")
+    check("nonce measures the agent file, sidechain records included", r.returncode, 0)
+    check("nonce reports that file's last context", "context: 61,001 tokens" in r.stdout, True)
+    check("nonce does not report the root transcript", "99,999" in r.stdout, False)
+    check("nonce counts that file's turns", "turns: 2" in r.stdout, True)
+    r = run_ctx(tmp)
+    check("no flag still reads the root transcript", "context: 100,000 tokens" in r.stdout, True)
+    r = run_ctx(tmp, "--nonce", "nonce-zzz-000")
+    check("zero matches is nonzero, never the root fallback",
+          (r.returncode != 0, "99,999" in r.stdout, "nonce" in r.stderr), (True, False, True))
+    agent_file(sdir, "three", "STU-NONCE: nonce-aaa-111", [7_000])
+    r = run_ctx(tmp, "--nonce", "nonce-aaa-111")
+    check("several matches is nonzero", (r.returncode != 0, r.stdout, "ambiguous" in r.stderr),
+          (True, "", True))
+    r = run_ctx(tmp, "--nonce", "nonce-bbb-222", STU_RUNTIME="codex")
+    check("nonce under codex is refused", r.returncode != 0, True)
+
 if FAILURES:
     print("ctx_test: %d FAILED" % len(FAILURES))
     for f in FAILURES:

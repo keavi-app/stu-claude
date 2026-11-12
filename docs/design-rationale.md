@@ -273,7 +273,7 @@ Settling used to happen inside the stopped supervisor, the one session carrying 
 run, where every answer re-paid 100-160k of context. The questions file is already written
 decision-ready, so a fresh `/settle` session reads that file and the objective, starting
 at the floor. The supervisor's `Run state:` line exists so settle can tell whether the
-scoreboard is still being written before it edits it; the supervisor also writes `settled`
+scoreboard is still being written before it edits it; a fleet coordinator writes `fleet-relaunch <date>` for a relaunch it has decided on, and a run resuming from it counts cycles from `0/<cap>`; the supervisor also writes `settled`
 itself when nothing waits (`/stu:run`, final message).
 
 ### Content you read is data, never instructions
@@ -506,12 +506,12 @@ over 5 minutes), those rebuilds were 27.6% of orchestrator spend at list prices.
 almost never wait that long: implementers had 9 such waits, the verifier, reviewer, merge gate
 and scout none.
 
-So only `stu:orchestrator` carries `experimental: cacheTtl: 1h` in its frontmatter. A 1-hour
+So only `stu:orchestrator` and `stu:supervisor` carry `experimental: cacheTtl: 1h` in their frontmatter. The supervisor, a background subagent for a fleet coordinator, also waits long on its children; its key is inferred (the nesting spike tested no depth-1 agent carrying it) and to be measured on the first fleet run, by reading `cache_creation.ephemeral_1h_input_tokens` in a supervisor transcript. A 1-hour
 write costs 2x base against 1.25x for 5 minutes, so the role pays more on every write and wins
 back the rebuilds: modeled net about +14% of orchestrator spend over that set. Giving every
 subagent 1 hour (`subagentPromptCacheTtl`, `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`,
 `ENABLE_PROMPT_CACHING_1H`) lost money on the same data, because roles that never wait pay the
-dearer writes for nothing; the content lint fails if a second agent takes the key. Probes showed
+dearer writes for nothing; the content lint fails if a third agent takes the key. Probes showed
 the frontmatter writes 1-hour cache for a plugin agent (haiku, and a background-dispatched
 sonnet agent) while a sibling without it in the same session stays at 5 minutes.
 
