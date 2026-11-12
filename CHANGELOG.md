@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.13
+
+- New experimental skill `/stu:fleet <program path>`. It runs several objectives from one
+  coordinator session: it checks the program with `stu-fleet program check`, stops when the
+  program's `Merge lock:` disagrees with the config's `merge_lock`, then loops on `stu-fleet next`,
+  launching one supervised run per `start` line, recording each supervisor's return on the board,
+  and listing everything that needs the owner. It reads board lines and return blocks only.
+- Not built yet, and the skill says so: relaunching a stopped supervisor, enforcing the cycle
+  budget and the loop guard, and the settle brief loop. `spend` reports at each wave and enforces
+  nothing. A run that needs more lanes than the cap goes to the owner instead of starting.
+- The fleet skill names Claude tools only inside its "Runtime binding" section, and the content
+  lint now fails if one appears anywhere else in it. The Codex adapter does not render the skill,
+  and a test pins that, so `fleet: not bound yet` stays true.
+- The fleet design now says the program's `Merge lock:` line is checked against the config and
+  never overrides it.
 ## 0.2.12
 
 - `stu-fleet` can now read a fleet program file. `stu-fleet program check <program>` validates it
