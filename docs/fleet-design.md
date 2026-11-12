@@ -1,8 +1,8 @@
 # Stu fleet mode and judgment seats
 
-Status: design, not built. Base: the 0.2.2 line. The owner's decisions are listed under
-"Decisions". One question is still open: whether supervisors run as subagents or as headless
-sessions, which the nesting spike decides.
+Status: design, partly built (S1, S2, S4). Base: the 0.2.2 line. The owner's decisions are listed
+under "Decisions". The nesting spike (S3) chose subagent supervisors, with two binding changes for
+S8; findings in `design-rationale.md`, "Fleet nesting spike".
 
 ## Outcome
 
@@ -29,7 +29,7 @@ So the cost to remove is the typing and the session-juggling, not the owner's ju
 | Layer | Runs as | Holds | Model |
 |---|---|---|---|
 | Coordinator (`/stu:fleet`) | the main session, interactive only | the fleet board | the run skill's supervisor model |
-| Supervisor (`/stu:run`) | background subagent, one per objective (pending the spike) | the unit scoreboard | unchanged |
+| Supervisor (`/stu:run`) | background subagent, one per objective (spike: go) | the unit scoreboard | unchanged |
 | Orchestrator | subagent of the supervisor | briefs and cycle state | existing table |
 | Workers | subagents of the orchestrator | one brief, one diff | existing table |
 
@@ -412,7 +412,7 @@ Codex note in the same PR.
 | S5 | `judgment_model` key, routing row, lint | none |
 | S6 | Settle skill refactor: ruling provenance mark, settler-safe writes | none |
 | S7 | `stu:settler` in draft mode, with ruling verification | S5, S6 |
-| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement, `agents/supervisor.md`, and the `fleet-relaunch` run state with every reader of `Run state:` (the handoff format's grammar, Resume's count rule, `/stu:settle`) | S3 |
+| S8 | Supervised mode for `/stu:run`: return schema, own-context measurement by agent id (`ctx.py`), a descendant-tree script replacing the `ListAgents` tree check, `agents/supervisor.md` with `cacheTtl: 1h` (the lint's second role), and the `fleet-relaunch` run state with every reader of `Run state:` (the handoff format's grammar, Resume's count rule, `/stu:settle`) | S3 |
 | S9 | Fleet: program file, board, `stu-fleet` `board`, `spend` and `next` (extending S4's script), `fleet_max_lanes` key, runtime-binding lint | S4, S8 |
 | S10 | Fleet: liveness and relaunch, budget limits and loop guard, actuals on the board | S9 |
 | S11 | Fleet: settle brief loop | S7, S10 |
@@ -435,5 +435,5 @@ a coordinator can dispatch it by hand before any fleet code exists.
 
 ## Not verified
 
-- Everything the spike exists to answer.
+- The spike's own gaps: a wait longer than one timer, an overnight supervisor, overage.
 - Which cycle each of the 12 model-less orchestrator dispatches was.
