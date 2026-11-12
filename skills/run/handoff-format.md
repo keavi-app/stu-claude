@@ -453,7 +453,7 @@ Defined once here. `stu-run-check --designer-return <file> [--job <slug>]` check
 DESIGNER: READY | BLOCKED — <one line>
 JOB: <slug>
 ROUND: <n>
-OUTPUT: <absolute path of the round's directory>
+OUTPUT: <absolute path of the job's OUTPUT directory, which holds VERDICT.md and round-<n>/>
 ARTIFACTS: <comma list of absolute paths: images or spec files>
 DECISION: <the one question the owner answers, plain language>
 D<k>: <option> | <one line>      (one per option, at least two; mark the recommended one "(recommended)")

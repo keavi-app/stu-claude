@@ -1690,6 +1690,18 @@ def fold_judged(prog, spec, job, ret_path):
         if not os.path.isabs(o) or not os.path.isdir(o):
             problems.append("OUTPUT %s is not an existing directory; board verdict could never "
                             "write VERDICT.md there" % o)
+    if not problems and block["status"] in ("DONE", "SPLIT", "READY"):
+        # The program line's output: is where the job writes. A designer's OUTPUT is that
+        # directory itself; a groomer's OUTPUT is its report, which may sit inside it.
+        want = os.path.realpath(spec["output"])
+        got = os.path.realpath(block["fields"].get("OUTPUT", "none"))
+        if spec["kind"] == "design":
+            ok = got == want
+        else:
+            ok = got == want or got.startswith(want.rstrip(os.sep) + os.sep)
+        if not ok:
+            problems.append("OUTPUT %s is not the program line's output %s for job %s" % (
+                block["fields"].get("OUTPUT", "none"), spec["output"], spec["slug"]))
     if problems:
         for p in problems:
             print("BLOCKED: %s" % p)

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.21
+
+- New `stu:designer` agent: one decision-ready design round. It writes one question, two to four
+  options (one recommended) and something to look at (rendered images when the project guide names
+  a way to render, else a text-wireframe spec) under `OUTPUT/round-<n>/`, reads the owner's latest
+  `VERDICT.md` entry as binding direction, checks claims with a verifier, and stops. Its context
+  band is 120k/160k.
+- The designer return's `OUTPUT:` is the job's OUTPUT directory (where `VERDICT.md` lives), not the
+  round directory, so the owner's verdict stays where the next round reads it.
+- The turn guard now watches the designer and the settler with a 120-turn backstop (the designer's
+  context band was previously dead without a turn-budget row).
+- `board judged` rejects a groomer or designer return whose `OUTPUT:` is not the job's program-line
+  `output:` (exit 1, BLOCKED, job stays live). A designer's must equal it; a groomer's report may sit
+  inside it.
+
 ## 0.2.20
 
 - New `stu:groomer` agent, the second judgment seat. `KIND: groom` turns an audit report, epic or

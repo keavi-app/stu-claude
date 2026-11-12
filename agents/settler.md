@@ -112,4 +112,5 @@ Return the `WRITTEN` form of the schema: `WRITTEN:` the R ids written, `UNANSWER
 
 Read the base branch's files (`git fetch`, then `git show <remote>/<base>:<path>` or a fresh worktree), never the main checkout's working tree. Locating questions go to `stu:scout`. A run
 with more than about eight unanswered questions: draft the first eight, say so in the summary and
-list the rest in the draft file under "not reached". Hand off rather than push through a long run.
+list the rest in the draft file under "not reached". Hand off rather than push through a long run. The turn guard watches you with a 120-turn backstop
+(`AGENT_TURN_BUDGETS` in `scripts/turn-guard.py`) and the fleet context band.
