@@ -113,6 +113,9 @@ def adapt(name, text):
     for comment in (
         '<!-- The turn-guard hook warns at the 120-turn budget; `maxTurns` is the hard stop. -->\n',
         '<!-- `cacheTtl: 1h` is for this role alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- `cacheTtl: 1h` is for this role and the supervisor alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- `cacheTtl: 1h` is for this role and the orchestrator alone: see design-rationale.md, "Cache TTL". -->\n',
+        '<!-- No `model:` here on purpose: a supervisor inherits its launcher\'s model, as the main-session supervisor does. The run skill names no separate supervisor model. -->\n',
         '<!-- The turn-guard hook warns at the 140-turn budget; `maxTurns` is the hard stop. -->\n',
     ):
         if comment in text:
@@ -162,6 +165,9 @@ prompt carries a `STU-SUPERVISED: <nonce>` line) reads its own instead: `stu-ctx
 nonce>`. A bare `stu-ctx` there would measure the root session, not you.
 
 """, "")
+        text = replace(text, """2. **You measure your own context with `stu-ctx --nonce <the nonce from your STU-SUPERVISED line>`**
+   ("Budgets"). The bare form would read the coordinator's session.""",
+                       """2. **You measure your own context with `stu-ctx`** ("Budgets"); Codex reads its own session.""")
     elif name == 'orchestrator':
         text = replace(text, 'You are NOT a fork: you can and must dispatch subagents.',
                        'You are a fresh orchestrator: you can and must dispatch workers using the runtime binding.')

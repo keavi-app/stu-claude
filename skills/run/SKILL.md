@@ -32,6 +32,28 @@ scoreboard, the last handoff path, a cycle count, cycles remaining. Nothing else
 `overnight` enables fan-out **only as that literal trailing word** — never inferred from
 phrasing. When present, read `overnight.md` here before dispatching.
 
+## Supervised mode
+
+A run is **supervised** when its prompt carries a line `STU-SUPERVISED: <nonce>`: a fleet
+coordinator launched you as a background subagent (`${CLAUDE_PLUGIN_ROOT}/agents/supervisor.md`).
+The line is literal and only the launcher writes it; never infer the mode from anything else. An
+unsupervised run is unchanged except for the liveness and context-measurement rules above. Three
+things differ:
+
+1. **You never ask the owner anything.** There is no owner in the loop. A question the run would
+   have put to the owner goes to the questions file (a parked unit, "Questions do not stop the
+   run"), an ambiguous argument or a missing objective stops with condition 11, and nothing is
+   printed as a prompt. Every ruling still lives only in the objective's `## Rulings already given`.
+2. **You measure your own context with `stu-ctx --nonce <the nonce from your STU-SUPERVISED line>`**
+   ("Budgets"). The bare form would read the coordinator's session.
+3. **Your last message ends with the supervisor return block** (`handoff-format.md`, section 4),
+   which replaces the printed `Next up, settle ...` and `Next up, resume ...` lines and the
+   `DONE` prose of the final message. Write the `Run state:` and release claims exactly as the
+   final message says, then copy the scoreboard's `Run state:` line into `RUN-STATE`, map the stop
+   with that section's table, check the block with `stu-run-check --supervisor-return <path>` (write it
+   to a file in the run folder first), and return it as the last lines of your message with nothing
+   after.
+
 ## Startup, in ONE message
 
 **First, resolve this repo's paths:** run `stu-env` once and keep its values: `RUN_HOME`, `WORKTREES_DIR`, `PROJECT_GUIDE`, `GITHUB_REPO`, `MAIN_CHECKOUT`, `OWNER`. Every later `RUN_HOME/...` below means that value. Pass the ones an agent needs in its dispatch prompt (each agent also runs `stu-env` itself). `<run-dir>` is `RUN_HOME/runs/<slug>/`, the slug being the objective filename minus `-objective.md` (`handoff-format.md`, top). The claims slug (`stu-claims claim`, `hold`, `release`) is the different string, the objective filename minus `.md`. Files in this plugin are under `${CLAUDE_PLUGIN_ROOT}`; sibling files are named relative to it (e.g. `agents/orchestrator.md`).
