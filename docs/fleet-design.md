@@ -86,7 +86,7 @@ Settle mode: draft | auto-narrow
 Merge lock: on | off          (optional; default on, see "Merge hold and lock")
 
 ## Runs
-- <slug>: <objective path> | after: <slug or none> | resources: <names>
+- <slug>: <objective path> | after: <slug or none> | resources: <names> [| lanes: <n>]
 
 ## Judgment work
 - <slug>: <groom | audit | design> | scope: <one line> | output: <path> | feeds: <run slug or none>
@@ -107,6 +107,12 @@ lock"), so a merge gate that has no program path can still read it.
 - `resources:` names what actually conflicts: worktrees, databases, simulators, device runners,
   and migration numbers.
 - The cap counts lanes, not supervisors. An `overnight` supervisor with three lanes counts three.
+- `| lanes: <n>` on a Runs line declares the run's lanes (positive integer). A run's lane count is
+  the larger of the declared number, the objective's counted `Lane:` headings, and 1, so an
+  overnight objective that has not written its lane blocks yet cannot make `next` over-start.
+  `program check` blocks an objective whose header says `Mode: overnight` without it, and a
+  `plain` objective that declares anything but 1. Lanes are declared in the program, never in
+  the objective. `fleet` is reserved as a run slug.
 - The lane cap is `fleet_max_lanes` in the Stu config, default 4, and a program may override it.
   It has no hard ceiling: a team on an unmetered plan, or a week with spare quota, raises it.
   The effective cap is the lower of the configured value and any concurrency limit the runtime

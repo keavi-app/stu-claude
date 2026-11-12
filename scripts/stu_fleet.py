@@ -13,38 +13,98 @@
   stu-fleet program check PROGRAM       parse and validate a fleet program file
   stu-fleet board show PROGRAM          print the board (a queued row for every run with none)
   stu-fleet board launch PROGRAM --run SLUG
-                                        mark a run live; records the cycle count it resumes from
+                                        mark a queued run live (any other state is refused 13); records the cycle count it resumes from
   stu-fleet board record PROGRAM --run SLUG --return FILE
                                         fold a supervisor return into the run's board line
   stu-fleet board requeue PROGRAM --run SLUG
                                         settle|relaunch|owner -> queued
-  stu-fleet spend PROGRAM               cycles and launches per run, and the fleet cycle budget
-  stu-fleet next PROGRAM                one decision line per run, then hold and lanes
+  stu-fleet board idle PROGRAM --run SLUG
+                                        a live supervisor found idle and stopped, no return -> relaunch
+  stu-fleet board relaunch PROGRAM --run SLUG
+                                        relaunch a run the policy allows now; prints the new nonce
+  stu-fleet board judgment PROGRAM --job SLUG
+                                        count one groom, audit or design dispatch
+  stu-fleet spend PROGRAM               cycles, launches and dry launches per run; budget, judgment
+                                        jobs and Stop at
+  stu-fleet next PROGRAM                one decision line per run, notices, hold, lanes, limits
 
 State: <RUN_HOME>/merge-hold.json (override: STU_FLEET_FILE), RUN_HOME from stu-env. Every
 read-modify-write runs under an exclusive flock on a sibling `.lock` file and replaces the
 state file atomically. An unreadable state file is an error (exit 3), never "no hold".
 
 The program file (docs/fleet-design.md, "The program file") carries the board in its
-`## Fleet board` section, one line per run, in Runs order:
+`## Fleet board` section, one run line per run in Runs order, then one fleet line, always last:
 
   - <slug> | state: <queued|live|settle|relaunch|owner|done> | cycles: <n> | launches: <n> |
-    from: <n> | handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
+    from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | handoff: <abs path|none> |
+    stop: <none|STOP-CONDITION verbatim>
+  - fleet | judgment: <n> | notices: <none|comma list of cycle-80,cycle-100,judgment-80,
+    judgment-100,stop-at>
 
-(one physical line; `|` inside copied text is written `/`). Only stu-fleet writes it: under an
+(one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
+named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
+and nonce) reads as closed 0, dry 0, nonce none, and a missing fleet line as judgment 0, notices
+none; the next write emits v2. Anything else malformed, a fleet line that is not last, a
+duplicate, or an unknown notice id is exit 3. Only stu-fleet writes the section: under an
 exclusive flock on `<program>.lock`, replacing the program file atomically and touching nothing
 outside that section. `cycles` is fleet-cumulative; `from` is the count the current launch
 resumed from, taken from the objective's `Run state:` and `Cycles used:` by `resume_count`
-(the run skill's "The cycle cap"). A board line naming a slug not in Runs, or a malformed one,
-is an error (exit 3), never dropped. `program check` prints a normalized summary, or one
-`line N BLOCKED: <detail>` per problem then `BLOCKED`. Every other program command refuses a
-program with problems the same way (exit 1). `board record` validates the return with
-`run_check.check_supervisor_return` (the same validator as `stu-run-check
---supervisor-return`), refuses a return for another objective, and refuses unless the run is
-live and the cycle delta is not negative.
+(the run skill's "The cycle cap"); `closed` is the number of distinct unit IDs in the
+objective's `Closed:` lines (first word of each comma-separated item, union across `Lane:`
+blocks, NONE is 0) when the current launch began; `dry` counts consecutive launches that ended
+with no new closed unit; `nonce` is the current launch's. A board line naming a slug not in
+Runs, or a malformed one, is an error (exit 3), never dropped. `program check` prints a
+normalized summary, or one `line N BLOCKED: <detail>` per problem then `BLOCKED`. Every other
+program command refuses a program with problems the same way (exit 1).
 
-`next` prints, in Runs order, `start|wait|settle|owner|relaunch|live|done <slug>` lines (`—` separates the reason), then
-`hold: set — <reason>` or `hold: clear`, then `lanes: <live>/<cap>`. Before that it observes the
+A Runs line takes an optional trailing `| lanes: <n>`. A run's lane count is
+max(declared, counted `Lane:` headings, 1). `program check` blocks an objective whose header
+says `Mode: overnight` without `lanes:`, and a plain objective declaring anything but 1.
+
+`board launch` marks a run live, snapshots `from` and `closed`, stores a fresh random nonce
+(`stu-<hex>`, agent_tree's NONCE_RE) and prints the board line, then `nonce: <nonce>` as its
+last line. `board record` validates the return with `run_check.check_supervisor_return` (the
+same validator as `stu-run-check --supervisor-return`), refuses a return for another objective,
+and refuses unless the run is live and the cycle delta is not negative. `board record` and
+`board idle` apply the loop guard (always on): the objective's closed count now, not greater than
+the launch's `closed`, adds 1 to `dry`, else resets it; a resulting `relaunch` with dry >= 2
+becomes `owner` with stop `loop guard — 2 launches closed no unit; last stop: <that stop>`.
+`done`, `settle` and `owner` outcomes keep their state. `board idle` (refused 13 unless live)
+is for a supervisor the coordinator found idle and already stopped: state relaunch, stop
+`idle — no return`, handoff = the objective scoreboard's first `Last handoff:` (`none` if
+absent), cycles += `Cycles used` numerator - `from` (a negative delta is refused, never clamped).
+
+`board relaunch` is refused (13) unless the run is `relaunch` and the `next` policy says
+`relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
+limit). Then, in one step, it rewrites the first `Run state:` line inside the objective's
+`## Scoreboard` to `fleet-relaunch <YYYY-MM-DD>` (the program clock's date) and launches as
+`board launch` does (so `from` is 0), printing the board line and the nonce. This is the one
+place stu-fleet writes an objective: under a flock on `<objective>.lock`, atomic replace,
+nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
+is refused (13) before anything is written. It never edits a `Cycle cap:`.
+
+Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `board judgment`:
+the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
+runs' caps, `none` = no limit; spent at used >= limit), judgment jobs (used = the fleet line's
+`judgment`; `Judgment jobs:`, default none; spent at used >= limit) and `Stop at:` (passed when
+the program clock is at or after it). Limits are never raised or edited here. `board judgment
+--job SLUG` counts one dispatch (SLUG must be a `## Judgment work` line, else exit 1); it is
+refused (13) when judgment jobs are spent or Stop at has passed; it prints
+`judgment-jobs: <used>/<limit|none>`.
+
+`next` prints, in Runs order, `start|wait|settle|owner|relaunch|live|done <slug>` lines (`—`
+separates the reason). A queued run that would start, and a `relaunch` run, become
+`owner <slug> — cycle budget spent <used>/<limit>` or `owner <slug> — stop at <time> passed`
+(cycle budget first); otherwise a `relaunch` run prints `relaunch <slug> — <stop>`, after the
+same `after:`, resource and lane checks as `start` (`wait` with the same reasons when they block).
+A live run is never stopped by a limit. After the run lines: one `notice: cycle-budget|
+judgment-jobs 80|100% (<used>/<limit>)` per limit at or over that mark and `notice: stop-at
+passed (<time>)`, each printed once per program ever (recorded in the fleet line's `notices`
+under the program lock, before printing); then `hold: set — <reason>` or `hold: clear`, then
+`lanes: <live>/<cap>`, `budget: <used>/<limit|none>` and `judgment-jobs: <used>/<limit|none>`.
+`spend` prints `run <slug>: cycles <n>, launches <n>, dry <n>` per run, `fleet: cycles <n>`,
+`budget: <used>/<limit> (<pct>%)` or `<used>/none`, `judgment-jobs: <used>/<limit|none>` and
+`stop-at: <time|none> (passed|not passed)`. Before `next` prints anything else it observes the
 merge lock holder on the forge and releases it when its PR merged, closed or lost its label
 (`lock: released ...`); a holder the forge cannot answer for stays held, the full output is still
 printed, and the exit is 12. The effective lane cap is the program's `Max live lanes:`, else
@@ -59,8 +119,9 @@ refusal, never an assumption. Then it refuses if the hold is set, then if anothe
 holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR).
 
 The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
-STU_FLEET_LABEL_GRACE and STU_FLEET_MAX_LANES are TEST-ONLY hooks (state file path, stand-in
-forge command, clock, grace, lane cap used when the program has no `Max live lanes:`); nothing
+STU_FLEET_LABEL_GRACE, STU_FLEET_MAX_LANES and STU_FLEET_NONCE are TEST-ONLY hooks (state file
+path, stand-in forge command, clock, grace, lane cap used when the program has no `Max live
+lanes:`, a fixed launch nonce); nothing
 in a real run sets them. `hold status` and `lock status` are read-only: they take no
 flock (writes replace the file atomically) and never call the forge. `program check`,
 `board show` and `spend` are read-only too.
@@ -68,8 +129,9 @@ flock (writes replace the file atomically) and never call the forge. `program ch
 Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED lines);
 2 usage; 3 error (state file, run home, unreadable program, malformed board); 10 refused, hold
 set; 11 refused, lock held; 12 refused, holder not checkable on the forge; 13 refused, board
-state (launching a live or done run, recording into a run that is not live, a negative cycle
-delta, requeuing from a state that cannot be requeued). A refusal prints one line that
+state (launching a run that is not queued, recording or idling a run that is not live, a negative cycle
+delta, requeuing from a state that cannot be requeued, relaunching a run the policy does not
+allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite). A refusal prints one line that
 begins `REFUSED ` followed by the reason text a gate returns (`fleet-hold: ...`,
 `fleet-lock: ...` or `fleet-board: ...`).
 """
@@ -77,6 +139,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import stat
@@ -431,9 +494,10 @@ def read_text(path, what="file"):
 
 
 def objective_facts(path):
-    """-> (cap or None, lanes) from an objective file's header lines and scoreboard.
-    lanes = the number of `Lane: <name>` headings, at least 1 (plain runs, and an overnight run
-    that has not written its lane blocks yet, count as one lane)."""
+    """-> (cap or None, counted lanes, mode) from an objective file's header lines and scoreboard.
+    counted lanes = the number of `Lane: <name>` headings, at least 1 (plain runs, and an
+    overnight run that has not written its lane blocks yet, count as one lane); mode is
+    `overnight` when the header says `Mode: overnight`, else `plain`."""
     text = read_text(path, "objective")
     head = []
     for ln in text.splitlines():
@@ -442,8 +506,10 @@ def objective_facts(path):
         head.append(ln)
     m = re.search(r"\bCycle cap:\s*(\d+)", "\n".join(head))
     cap = int(m.group(1)) if m and int(m.group(1)) >= 1 else None
+    mm = re.search(r"\bMode:\s*(\w+)", "\n".join(head))
+    mode = "overnight" if mm and mm.group(1) == "overnight" else "plain"
     lanes = len(re.findall(r"(?m)^\s*(?:#+\s*)?Lane:\s*\S", text))
-    return cap, max(1, lanes)
+    return cap, max(1, lanes), mode
 
 
 def resume_count(text):
@@ -471,22 +537,50 @@ def split_list(v):
     return [x.strip() for x in v.split(",") if x.strip()]
 
 
+NOTICE_IDS = ("cycle-80", "cycle-100", "judgment-80", "judgment-100", "stop-at")
+V2_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
+           r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| handoff: (.+?) \| stop: (.+)" % SLUG_RE)
+V1_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
+           r"handoff: (.+?) \| stop: (.+)" % SLUG_RE)
+FLEET_LINE = r"- fleet \| judgment: (\d+) \| notices: (\S+)"
+
+
 def parse_board_line(ln, where):
-    m = re.fullmatch(
-        r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
-        r"handoff: (.+?) \| stop: (.+)" % SLUG_RE, ln.rstrip("\n"))
-    if not m or m.group(2) not in STATES:
-        raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
-    return {"slug": m.group(1), "state": m.group(2), "cycles": int(m.group(3)),
-            "launches": int(m.group(4)), "from": int(m.group(5)), "handoff": m.group(6),
-            "stop": m.group(7)}
+    """A v2 run line, or a v1 one (S9a's seven fields) read with closed 0, dry 0, nonce none."""
+    ln = ln.rstrip("\n")
+    m = re.fullmatch(V2_LINE, ln)
+    if m and m.group(2) in STATES:
+        g = m.groups()
+        return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
+                "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
+                "handoff": g[8], "stop": g[9]}
+    m = re.fullmatch(V1_LINE, ln)
+    if m and m.group(2) in STATES:
+        g = m.groups()
+        return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
+                "from": int(g[4]), "closed": 0, "dry": 0, "nonce": "none",
+                "handoff": g[5], "stop": g[6]}
+    raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
+
+
+def parse_fleet_line(ln, where):
+    m = re.fullmatch(FLEET_LINE, ln.rstrip("\n"))
+    notices = [] if not m or m.group(2) == "none" else m.group(2).split(",")
+    if not m or any(x not in NOTICE_IDS for x in notices) or len(set(notices)) != len(notices):
+        raise Fail(EXIT_ERROR, "%s: malformed fleet line %r; fix or delete it" % (where, ln.strip()))
+    return {"judgment": int(m.group(1)), "notices": notices}
 
 
 def board_line(b):
     clean = lambda v: str(v).replace("|", "/").replace("\n", " ")
-    return "- %s | state: %s | cycles: %d | launches: %d | from: %d | handoff: %s | stop: %s" % (
-        b["slug"], b["state"], b["cycles"], b["launches"], b["from"],
-        clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
+    return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
+            "nonce: %s | handoff: %s | stop: %s") % (
+        b["slug"], b["state"], b["cycles"], b["launches"], b["from"], b["closed"], b["dry"],
+        b["nonce"], clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
+
+
+def fleet_line(f):
+    return "- fleet | judgment: %d | notices: %s" % (f["judgment"], ",".join(f["notices"]) or "none")
 
 
 def parse_program(text):
@@ -494,7 +588,8 @@ def parse_program(text):
     prog["problems"]. Raises Fail(EXIT_ERROR) for a malformed or foreign board line."""
     lines = text.splitlines(keepends=True)
     prog = {"name": "", "header": {}, "runs": [], "judgment": [], "board": {}, "problems": [],
-            "board_span": None, "lines": lines}
+            "board_span": None, "lines": lines, "fleet": {"judgment": 0, "notices": []}}
+    fleet_seen = False
     bad = prog["problems"]
 
     def block(n, detail):
@@ -535,15 +630,17 @@ def parse_program(text):
             else:
                 prog["header"][k] = (v, n)
         elif sec == SEC_RUNS:
-            m = re.fullmatch(r"- (%s): (\S+) \| after: ([^|]+?) \| resources: ([^|]+?)" % SLUG_RE, ln)
+            m = re.fullmatch(r"- (%s): (\S+) \| after: ([^|]+?) \| resources: ([^|]+?)"
+                             r"(?: \| lanes: (\d+))?" % SLUG_RE, ln)
             if not m:
                 block(n, "run line must be '- <slug>: <objective path> | after: <slug or none> "
-                         "| resources: <names>'")
+                         "| resources: <names> [| lanes: <n>]'")
                 continue
             after = [] if m.group(3).strip() == "none" else split_list(m.group(3))
             res = [] if m.group(4).strip() == "none" else split_list(m.group(4))
             prog["runs"].append({"slug": m.group(1), "objective": m.group(2), "after": after,
-                                 "resources": res, "line": n})
+                                 "resources": res, "line": n,
+                                 "declared": int(m.group(5)) if m.group(5) else None})
         elif sec == SEC_JUDGMENT:
             m = re.fullmatch(r"- (%s): (\S+) \| scope: (.+?) \| output: (\S+) \| feeds: (\S+)"
                              % SLUG_RE, ln)
@@ -554,6 +651,13 @@ def parse_program(text):
             prog["judgment"].append({"slug": m.group(1), "kind": m.group(2), "scope": m.group(3),
                                      "output": m.group(4), "feeds": m.group(5), "line": n})
         elif sec == SEC_BOARD:
+            if fleet_seen:
+                raise Fail(EXIT_ERROR, "line %d: the fleet line must be the last line of the "
+                                       "board; fix or delete the lines after it" % n)
+            if re.match(r"- fleet\b", ln):
+                prog["fleet"] = parse_fleet_line(ln, "line %d" % n)
+                fleet_seen = True
+                continue
             b = parse_board_line(ln, "line %d" % n)
             if b["slug"] in prog["board"]:
                 raise Fail(EXIT_ERROR, "line %d: board names %s twice; delete one line" % (n, b["slug"]))
@@ -602,17 +706,28 @@ def validate_program(prog, block):
         block(1, "no runs: add '- <slug>: <objective path> | after: none | resources: none' "
                  "under '## Runs'")
     for r in prog["runs"]:
-        r["cap"], r["lanes"], r["mode"] = None, 1, "plain"
+        if r["slug"] == "fleet":
+            block(r["line"], "run slug 'fleet' is reserved for the board's fleet line")
+        r["cap"], r["lanes"], r["mode"] = None, max(1, r["declared"] or 1), "plain"
         if not r["objective"].startswith("/"):
             block(r["line"], "run %s: objective path %r is not absolute" % (r["slug"], r["objective"]))
         elif not os.path.isfile(r["objective"]):
             block(r["line"], "run %s: objective %s does not exist" % (r["slug"], r["objective"]))
         else:
             try:
-                r["cap"], r["lanes"] = objective_facts(r["objective"])
+                r["cap"], counted, r["mode"] = objective_facts(r["objective"])
+                r["lanes"] = max(r["declared"] or 0, counted, 1)
             except Fail as e:
                 block(r["line"], "run %s: %s" % (r["slug"], e.msg))
             else:
+                if r["declared"] is not None and r["declared"] < 1:
+                    block(r["line"], "run %s: lanes: must be a positive integer" % r["slug"])
+                elif r["mode"] == "overnight" and r["declared"] is None:
+                    block(r["line"], "run %s: its objective is Mode: overnight, so the Runs line "
+                                     "must declare '| lanes: <n>'" % r["slug"])
+                elif r["mode"] == "plain" and r["declared"] not in (None, 1):
+                    block(r["line"], "run %s: a plain objective runs one lane, but the Runs line "
+                                     "declares lanes: %d" % (r["slug"], r["declared"]))
                 if r["cap"] is None:
                     block(r["line"], "run %s: objective has no 'Cycle cap: <n>' line; a fleet "
                                      "objective states its cap (startup stop)" % r["slug"])
@@ -686,14 +801,14 @@ def effective_board(prog):
     for r in prog["runs"]:
         out.append(prog["board"].get(r["slug"]) or {
             "slug": r["slug"], "state": "queued", "cycles": 0, "launches": 0, "from": 0,
-            "handoff": "none", "stop": "none"})
+            "closed": 0, "dry": 0, "nonce": "none", "handoff": "none", "stop": "none"})
     return out
 
 
-def render_program(prog, board):
-    """The program file text with its Fleet board section replaced by `board`."""
+def render_program(prog, board, fleet):
+    """The program file text with its Fleet board section replaced by `board` and the fleet line."""
     lines = list(prog["lines"])
-    body = [board_line(b) + "\n" for b in board]
+    body = [board_line(b) + "\n" for b in board] + [fleet_line(fleet) + "\n"]
     if prog["board_span"] is None:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
@@ -724,7 +839,8 @@ class ProgramLocked:
         return self
 
     def write(self, board):
-        atomic_write(self.path, render_program(self.prog, board), prefix=".fleet-program-")
+        atomic_write(self.path, render_program(self.prog, board, self.prog["fleet"]),
+                     prefix=".fleet-program-")
 
     def __exit__(self, *exc):
         self.fh.close()
@@ -765,6 +881,222 @@ def find_run(prog, slug):
     raise Fail(EXIT_USAGE, "--run %s is not a run in this program" % slug)
 
 
+def scoreboard(text):
+    """The objective text from `## Scoreboard` on (all of it when there is no such heading)."""
+    return text[text.index("## Scoreboard"):] if "## Scoreboard" in text else text
+
+
+def closed_ids(text):
+    """The distinct unit IDs in an objective's `Closed:` lines (the union across `Lane:` blocks;
+    `NONE` is none). The line is split on commas and the first word of each item is the ID.
+    Annotated entries with inner commas, or a list wrapped onto a continuation line, miscount;
+    that makes the loop guard trip earlier, never later."""
+    ids = set()
+    for m in re.finditer(r"(?m)^\s*Closed:[ \t]*(.*)$", scoreboard(text)):
+        for item in m.group(1).split(","):
+            word = item.split()[0] if item.split() else ""
+            if word and word != "NONE":
+                ids.add(word)
+    return ids
+
+
+def closed_count(text):
+    return len(closed_ids(text))
+
+
+def cycles_used(text):
+    m = re.search(r"(?m)^\s*Cycles used:\s*(\d+)\s*/\s*\d+", scoreboard(text))
+    return int(m.group(1)) if m else 0
+
+
+def last_handoff(text):
+    m = re.search(r"(?m)^\s*Last handoff:[ \t]*(\S.*?)\s*$", scoreboard(text))
+    return m.group(1) if m else "none"
+
+
+def new_nonce():
+    override = os.environ.get("STU_FLEET_NONCE")  # tests only
+    return override or "stu-" + secrets.token_hex(8)
+
+
+def begin_launch(run, b):
+    """What `board launch` does to a board line; -> the new nonce."""
+    text = read_text(run["objective"], "objective")
+    b["from"] = resume_count(text)
+    b["closed"] = closed_count(text)
+    b["state"] = "live"
+    b["launches"] += 1
+    b["nonce"] = new_nonce()
+    return b["nonce"]
+
+
+def loop_guard(run, b):
+    """Always on. Count the closed IDs now; a launch that closed nothing new adds to `dry`.
+    A `relaunch` outcome with dry >= 2 becomes `owner`."""
+    now = closed_count(read_text(run["objective"], "objective"))
+    b["dry"] = b["dry"] + 1 if now <= b["closed"] else 0
+    if b["state"] == "relaunch" and b["dry"] >= 2:
+        b["state"] = "owner"
+        b["stop"] = "loop guard \u2014 2 launches closed no unit; last stop: %s" % b["stop"]
+
+
+# ---- limits and the next policy ---------------------------------------------------------
+
+
+def limits(prog, board, fleet):
+    """The one evaluation of the program's limits. -> dict of
+    cycle (used, limit or None, spent), judgment (same), stop (text or None, passed)."""
+    h = {k: v[0] for k, v in prog["header"].items()}
+    used = sum(b["cycles"] for b in board)
+    raw = h.get("Cycle budget")
+    limit = None if raw == "none" else int(raw) if raw else sum(r["cap"] for r in prog["runs"])
+    jraw = h.get("Judgment jobs", "none")
+    jlimit = None if jraw == "none" else int(jraw)
+    stop = h.get("Stop at")
+    if stop == "none":
+        stop = None
+    passed = bool(stop) and now_epoch() >= datetime.fromisoformat(
+        stop.replace("Z", "+00:00")).timestamp()
+    return {"cycle": (used, limit, limit is not None and used >= limit),
+            "judgment": (fleet["judgment"], jlimit, jlimit is not None and fleet["judgment"] >= jlimit),
+            "stop": (stop, passed)}
+
+
+def limit_text(lim):
+    """Why a new dispatch is refused, or None. Cycle budget first."""
+    used, limit, spent = lim["cycle"]
+    if spent:
+        return "cycle budget spent %d/%d" % (used, limit)
+    if lim["stop"][1]:
+        return "stop at %s passed" % lim["stop"][0]
+    return None
+
+
+def fmt_limit(t):
+    return "%d/%s" % (t[0], "none" if t[1] is None else t[1])
+
+
+def decide(prog, board, cap, lim):
+    """The one policy: -> [(slug, word, text)] in Runs order, and the live lane count.
+    word is start|wait|settle|owner|relaunch|live|done."""
+    runs = {r["slug"]: r for r in prog["runs"]}
+    live, held = 0, {}
+    for slug, b in board.items():
+        if b["state"] == "live":
+            live += runs[slug]["lanes"]
+            for x in runs[slug]["resources"]:
+                held.setdefault(x, slug)
+    shown_live = live
+    out = []
+    for r in prog["runs"]:
+        b, slug = board[r["slug"]], r["slug"]
+        if b["state"] in ("queued", "relaunch"):
+            pending = [x for x in r["after"] if board[x]["state"] != "done"]
+            clash = [(x, held[x]) for x in r["resources"] if x in held]
+            word = "start" if b["state"] == "queued" else "relaunch"
+            if pending:
+                out.append((slug, "wait", "after %s" % ",".join(pending)))
+            elif clash:
+                out.append((slug, "wait", "resource %s held by %s" % clash[0]))
+            elif r["lanes"] > cap:
+                out.append((slug, "owner", "needs %d lanes, cap %d" % (r["lanes"], cap)))
+            elif live + r["lanes"] > cap:
+                out.append((slug, "wait", "lane cap %d/%d" % (live, cap)))
+            elif limit_text(lim):
+                out.append((slug, "owner", limit_text(lim)))
+            else:
+                out.append((slug, word, b["stop"] if word == "relaunch" else ""))
+                live += r["lanes"]
+                for x in r["resources"]:
+                    held.setdefault(x, slug)
+        elif b["state"] == "settle":
+            out.append((slug, "settle", "owner-only" if re.match(r"[23]\b", b["stop"]) else ""))
+        elif b["state"] == "owner":
+            out.append((slug, "owner", b["stop"]))
+        else:
+            out.append((slug, b["state"], ""))
+    return out, shown_live
+
+
+def decision_line(slug, word, text):
+    if word == "settle":
+        return "settle %s%s" % (slug, " " + text if text else "")
+    if text:
+        return "%s %s \u2014 %s" % (word, slug, text)
+    return "%s %s" % (word, slug)
+
+
+def new_notices(lim, seen):
+    """-> [(id, text)] of the notices not yet in `seen`, in print order."""
+    out = []
+    for key, name, pre in (("cycle", "cycle-budget", "cycle"), ("judgment", "judgment-jobs", "judgment")):
+        used, limit, _ = lim[key]
+        if limit is None:
+            continue
+        for pct in (80, 100):
+            nid = "%s-%d" % (pre, pct)
+            if used * 100 >= pct * limit and nid not in seen:
+                out.append((nid, "notice: %s %d%% (%d/%d)" % (name, pct, used, limit)))
+    if lim["stop"][1] and "stop-at" not in seen:
+        out.append(("stop-at", "notice: stop-at passed (%s)" % lim["stop"][0]))
+    return out
+
+
+# ---- program, board, spend, next --------------------------------------------------------
+
+
+def cmd_program(sub, a):
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    h = {k: v[0] for k, v in prog["header"].items()}
+    print("program: %s" % (prog["name"] or "-"))
+    print("owner: %s" % h["Owner"])
+    print("settle-mode: %s" % h["Settle mode"])
+    print("max-live-lanes: %s" % h.get("Max live lanes", "config"))
+    print("cycle-budget: %s" % h.get("Cycle budget", "sum-of-caps"))
+    print("judgment-jobs: %s" % h.get("Judgment jobs", "none"))
+    print("stop-at: %s" % h.get("Stop at", "none"))
+    print("merge-lock: %s" % h.get("Merge lock", "on"))
+    for r in prog["runs"]:
+        print("run %s: objective %s | cap %d | lanes %d | after %s | resources %s" % (
+            r["slug"], r["objective"], r["cap"], r["lanes"], ",".join(r["after"]) or "none",
+            ",".join(r["resources"]) or "none"))
+    for j in prog["judgment"]:
+        print("judgment %s: %s | feeds %s" % (j["slug"], j["kind"], j["feeds"]))
+    print("OK")
+    return 0
+
+
+def find_run(prog, slug):
+    for r in prog["runs"]:
+        if r["slug"] == slug:
+            return r
+    raise Fail(EXIT_USAGE, "--run %s is not a run in this program" % slug)
+
+
+def set_run_state(path, date):
+    """Write `Run state: fleet-relaunch <date>` over the first `Run state:` line inside the
+    objective's `## Scoreboard`, nothing else changed: under a flock on <objective>.lock, replacing
+    the file atomically. -> None, or the refusal text when there is no such scoreboard or line."""
+    try:
+        with open(path + ".lock", "a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            with open(path, encoding="utf-8", newline="") as f:
+                text = f.read()
+            at = text.find("## Scoreboard")
+            m = re.compile(r"(?m)^([ \t]*Run state:)[ \t]*[^\r\n]*").search(text, at) if at >= 0 else None
+            if not m:
+                return ("fleet-board: %s has no '## Scoreboard' with a 'Run state:' line to "
+                        "rewrite" % path)
+            new = text[:m.start()] + "%s fleet-relaunch %s" % (m.group(1), date) + text[m.end():]
+            atomic_write(path, new, prefix=".fleet-objective-")
+            return None
+    except OSError as e:
+        raise Fail(EXIT_ERROR, "cannot rewrite objective %s: %s" % (path, e))
+
+
 def cmd_board(sub, a):
     if sub == "show":
         prog = load_program(a["program"])
@@ -773,7 +1105,10 @@ def cmd_board(sub, a):
             return rc
         for b in effective_board(prog):
             print(board_line(b))
+        print(fleet_line(prog["fleet"]))
         return 0
+    if sub == "judgment":
+        return cmd_judgment(a)
     need(a, "run")
     if sub == "record":
         need(a, "return")
@@ -785,15 +1120,45 @@ def cmd_board(sub, a):
         run = find_run(prog, a["run"])
         board = effective_board(prog)
         b = [x for x in board if x["slug"] == run["slug"]][0]
+        nonce = None
         if sub == "launch":
-            if b["state"] in ("live", "done"):
-                return refuse(EXIT_BOARD, "fleet-board: %s is %s; %s" % (
-                    run["slug"], b["state"],
-                    "never two supervisors on one unit list" if b["state"] == "live"
-                    else "a done run is not launched again"))
-            b["from"] = resume_count(read_text(run["objective"], "objective"))
-            b["state"] = "live"
-            b["launches"] += 1
+            if b["state"] != "queued":
+                why = {"live": "never two supervisors on one unit list",
+                       "done": "a done run is not launched again",
+                       "relaunch": "a relaunch goes through board relaunch",
+                       "settle": "requeue it first", "owner": "requeue it first"}[b["state"]]
+                return refuse(EXIT_BOARD, "fleet-board: %s is %s, not queued; %s" % (
+                    run["slug"], b["state"], why))
+            nonce = begin_launch(run, b)
+        elif sub == "relaunch":
+            if b["state"] != "relaunch":
+                return refuse(EXIT_BOARD, "fleet-board: %s is %s, not relaunch" % (
+                    run["slug"], b["state"]))
+            bmap = {x["slug"]: x for x in board}
+            decided, _ = decide(prog, bmap, lane_cap(prog), limits(prog, board, prog["fleet"]))
+            slug, word, text = [d for d in decided if d[0] == run["slug"]][0]
+            if word != "relaunch":
+                return refuse(EXIT_BOARD, "fleet-board: policy says %s for %s now, not relaunch" % (
+                    decision_line(slug, word, text), run["slug"]))
+            bad = set_run_state(run["objective"], stamp()[:10])
+            if bad:
+                return refuse(EXIT_BOARD, bad)
+            nonce = begin_launch(run, b)
+        elif sub == "idle":
+            if b["state"] != "live":
+                return refuse(EXIT_BOARD, "fleet-board: %s is %s, not live; nothing is idle" % (
+                    run["slug"], b["state"]))
+            text = read_text(run["objective"], "objective")
+            used = cycles_used(text)
+            if used < b["from"]:
+                return refuse(EXIT_BOARD, "fleet-board: %s shows %d cycles used but resumed from "
+                                          "%d; a negative delta is never clamped, so check the "
+                                          "objective's scoreboard" % (run["slug"], used, b["from"]))
+            b["cycles"] += used - b["from"]
+            b["state"] = "relaunch"
+            b["stop"] = "idle \u2014 no return"
+            b["handoff"] = last_handoff(text)
+            loop_guard(run, b)
         elif sub == "requeue":
             if b["state"] not in ("settle", "relaunch", "owner"):
                 return refuse(EXIT_BOARD, "fleet-board: %s is %s; only settle, relaunch or "
@@ -805,6 +1170,31 @@ def cmd_board(sub, a):
                 return rc
         st.write(board)
         print(board_line(b))
+        if nonce:
+            print("nonce: %s" % nonce)
+        return 0
+
+
+def cmd_judgment(a):
+    need(a, "job")
+    with ProgramLocked(a["program"]) as st:
+        prog = st.prog
+        rc = need_valid(prog)
+        if rc:
+            return rc
+        if a["job"] not in [j["slug"] for j in prog["judgment"]]:
+            print("BLOCKED: %s is not a line under '## Judgment work'" % a["job"])
+            return EXIT_INVALID
+        board = effective_board(prog)
+        lim = limits(prog, board, prog["fleet"])
+        if lim["judgment"][2]:
+            return refuse(EXIT_BOARD, "fleet-board: judgment jobs spent %s" % fmt_limit(lim["judgment"]))
+        if lim["stop"][1]:
+            return refuse(EXIT_BOARD, "fleet-board: stop at %s passed" % lim["stop"][0])
+        prog["fleet"]["judgment"] += 1
+        st.write(board)
+        print("judgment-jobs: %d/%s" % (prog["fleet"]["judgment"],
+                                        "none" if lim["judgment"][1] is None else lim["judgment"][1]))
         return 0
 
 
@@ -837,6 +1227,7 @@ def record_return(run, b, ret_path):
     b["state"] = NEXT_STATE[f["NEXT"]]
     b["handoff"] = f["LAST-HANDOFF"]
     b["stop"] = f["STOP-CONDITION"]
+    loop_guard(run, b)
     return 0
 
 
@@ -845,18 +1236,18 @@ def cmd_spend(sub, a):
     rc = need_valid(prog)
     if rc:
         return rc
-    total = 0
-    for b in effective_board(prog):
-        print("run %s: cycles %d, launches %d" % (b["slug"], b["cycles"], b["launches"]))
-        total += b["cycles"]
-    print("fleet: cycles %d" % total)
-    raw = prog["header"].get("Cycle budget", (None,))[0]
-    if raw == "none":
-        print("budget: %d/none" % total)
+    board = effective_board(prog)
+    for b in board:
+        print("run %s: cycles %d, launches %d, dry %d" % (b["slug"], b["cycles"], b["launches"], b["dry"]))
+    lim = limits(prog, board, prog["fleet"])
+    used, limit, _ = lim["cycle"]
+    print("fleet: cycles %d" % used)
+    if limit is None:
+        print("budget: %d/none" % used)
     else:
-        limit = int(raw) if raw else sum(r["cap"] for r in prog["runs"])
-        print("budget: %d/%d (%d%%)" % (total, limit, total * 100 // limit))
-    print("judgment-jobs: not counted yet")
+        print("budget: %d/%d (%d%%)" % (used, limit, used * 100 // limit))
+    print("judgment-jobs: %s" % fmt_limit(lim["judgment"]))
+    print("stop-at: %s (%s)" % (lim["stop"][0] or "none", "passed" if lim["stop"][1] else "not passed"))
     return 0
 
 
@@ -886,19 +1277,22 @@ def lane_cap(prog):
 
 
 def cmd_next(sub, a):
+    """A notice is recorded in the fleet line before it is printed, so a crash in between loses
+    that one notice; deliberate, so a notice never prints twice."""
     prog = load_program(a["program"])
     rc = need_valid(prog)
     if rc:
         return rc
     cap = lane_cap(prog)
     code = 0
+    lines = []
     with Locked(state_path()) as st:  # release by observation, the one write
         lock = st.doc["lock"]
         if lock:
             try:
                 gone, why = holder_gone(lock)
             except Fail as e:
-                print("lock: held by %s — %s; not released" % (ref(lock), e.msg))
+                lines.append("lock: held by %s \u2014 %s; not released" % (ref(lock), e.msg))
                 code = e.code
             else:
                 if gone:
@@ -906,44 +1300,29 @@ def cmd_next(sub, a):
                         record_landing(st.doc, lock)
                     st.doc["lock"] = None
                     st.save()
-                    print("lock: released %s (%s)" % (ref(lock), why))
+                    lines.append("lock: released %s (%s)" % (ref(lock), why))
         hold = st.doc["hold"]
-    board = {b["slug"]: b for b in effective_board(prog)}
-    runs = {r["slug"]: r for r in prog["runs"]}
-    live, held = 0, {}
-    for slug, b in board.items():
-        if b["state"] == "live":
-            live += runs[slug]["lanes"]
-            for r in runs[slug]["resources"]:
-                held.setdefault(r, slug)
-    shown_live = live
-    for r in prog["runs"]:
-        b, slug = board[r["slug"]], r["slug"]
-        if b["state"] == "queued":
-            pending = [x for x in r["after"] if board[x]["state"] != "done"]
-            clash = [(x, held[x]) for x in r["resources"] if x in held]
-            if pending:
-                print("wait %s — after %s" % (slug, ",".join(pending)))
-            elif clash:
-                print("wait %s — resource %s held by %s" % (slug, clash[0][0], clash[0][1]))
-            elif r["lanes"] > cap:
-                print("owner %s \u2014 needs %d lanes, cap %d" % (slug, r["lanes"], cap))
-            elif live + r["lanes"] > cap:
-                print("wait %s — lane cap %d/%d" % (slug, live, cap))
-            else:
-                print("start %s" % slug)
-                live += r["lanes"]
-                for x in r["resources"]:
-                    held.setdefault(x, slug)
-        elif b["state"] == "settle":
-            owner_only = re.match(r"[23]\b", b["stop"]) is not None
-            print("settle %s%s" % (slug, " owner-only" if owner_only else ""))
-        elif b["state"] in ("owner", "relaunch"):
-            print("%s %s — %s" % (b["state"], slug, b["stop"]))
-        else:
-            print("%s %s" % (b["state"], slug))
-    print("hold: set — %s" % hold["reason"] if hold else "hold: clear")
-    print("lanes: %d/%d" % (shown_live, cap))
+    board = effective_board(prog)
+    lim = limits(prog, board, prog["fleet"])
+    if new_notices(lim, prog["fleet"]["notices"]):
+        with ProgramLocked(a["program"]) as pl:  # each notice prints once, ever: record it first
+            prog = pl.prog
+            board = effective_board(prog)
+            lim = limits(prog, board, prog["fleet"])
+            fresh = new_notices(lim, prog["fleet"]["notices"])
+            if fresh:
+                prog["fleet"]["notices"] += [nid for nid, _ in fresh]
+                pl.write(board)
+    else:
+        fresh = []
+    decided, shown_live = decide(prog, {b["slug"]: b for b in board}, cap, lim)
+    lines += [decision_line(*d) for d in decided]
+    lines += [text for _, text in fresh]
+    lines.append("hold: set \u2014 %s" % hold["reason"] if hold else "hold: clear")
+    lines.append("lanes: %d/%d" % (shown_live, cap))
+    lines.append("budget: %s" % fmt_limit(lim["cycle"]))
+    lines.append("judgment-jobs: %s" % fmt_limit(lim["judgment"]))
+    print("\n".join(lines))
     return code
 
 
@@ -964,11 +1343,14 @@ PROGRAM_SPEC = {
     ("board", "launch"): (("run",), ()),
     ("board", "record"): (("run", "return"), ()),
     ("board", "requeue"): (("run",), ()),
+    ("board", "idle"): (("run",), ()),
+    ("board", "relaunch"): (("run",), ()),
+    ("board", "judgment"): (("job",), ()),
     ("spend", None): ((), ()),
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue P [flags] | spend P | next P")
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment P [flags] | spend P | next P")
 
 
 def parse(argv):
