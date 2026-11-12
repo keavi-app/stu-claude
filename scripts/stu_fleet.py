@@ -91,7 +91,10 @@ some launches were), the header `seat model agents turns out`, one `<seat> <mode
 <out>` row per seat and model, then `off-route <seat>: <off>/<total> turns not on <family> (<pct>%)`
 for each `stu:` seat whose `agents/<name>.md` names a `model:` (a model counts as on route when
 its id contains the family name), and `routing unknown: <seats>` for the rest; an empty or absent
-log prints `actuals: none recorded`. Actuals are a report: nothing enforces on them.
+log prints `actuals: none recorded`. A damaged final log line is skipped with a printed warning
+(a crash mid-append); a damaged line anywhere else is exit 3. A `stu:` seat whose routing a
+dispatch can override (the settler) prints under `routing unknown`; records with no model are in
+the table but not in the off-route share. Actuals are a report: nothing enforces on them.
 
 `board relaunch` is refused (13) unless the run is `relaunch` and the `next` policy says
 `relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
@@ -1240,7 +1243,12 @@ def append_actuals(program, entry):
     """One JSON line, appended under the program lock the caller holds. A log that cannot be
     written is reported, never fatal: the board line is already written."""
     try:
-        with open(actuals_path(program), "a") as fh:
+        with open(actuals_path(program), "a+") as fh:
+            fh.seek(0, 2)
+            if fh.tell():
+                fh.seek(fh.tell() - 1)
+                if fh.read(1) != "\n":
+                    fh.write("\n")  # a torn final line must not swallow this entry
             fh.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as e:
         print("actuals: log not written \u2014 %s" % e)
@@ -1256,6 +1264,7 @@ def read_actuals(program):
     except OSError as e:
         raise Fail(EXIT_ERROR, "cannot read %s: %s" % (actuals_path(program), e))
     out = []
+    last = max([i for i, ln in enumerate(lines, 1) if ln.strip()] or [0])
     for n, ln in enumerate(lines, 1):
         if not ln.strip():
             continue
@@ -1269,6 +1278,9 @@ def read_actuals(program):
                           for r in e["by_seat_model"]))
         except (ValueError, KeyError, TypeError):
             ok = False
+        if not ok and n == last:
+            print("actuals: skipped damaged final log line %d (a crash mid-append?)" % n)
+            continue
         if not ok:
             raise Fail(EXIT_ERROR, "%s line %d is not an actuals entry; fix or delete it" % (
                 actuals_path(program), n))
@@ -1276,11 +1288,29 @@ def read_actuals(program):
     return out
 
 
+# Seats whose model a dispatch can override from config (the settler's `judgment-model`): the
+# file's line is only a default, so their routing is not knowable from a script.
+OVERRIDABLE_SEATS = ("stu:settler",)
+MODEL_FAMILIES = ("opus", "sonnet", "haiku", "fable")
+
+
+def model_tokens(model):
+    return [t for t in re.split(r"[-._:/@ ]+", model.lower()) if t]
+
+
+def on_route(want, model):
+    """True when `model` (a transcript model id) is the routed one. `want` is a family or a full
+    id; compared by whole tokens of the id, never as a substring."""
+    fams = [t for t in model_tokens(want) if t in MODEL_FAMILIES]
+    if fams:
+        return fams[0] in model_tokens(model)
+    return want == model.lower()
+
+
 def routed_model(seat):
     """The model family a `stu:<name>` seat is routed to: the `model:` line in agents/<name>.md,
-    or None when the seat has no file or inherits. The settler's judgment-model config can
-    override its line at dispatch; this reports the documented default."""
-    if not seat.startswith("stu:"):
+    or None when the seat has no file, inherits, or can be overridden at dispatch (the settler)."""
+    if not seat.startswith("stu:") or seat in OVERRIDABLE_SEATS:
         return None
     path = os.path.join(os.path.dirname(HERE), "agents", seat[4:] + ".md")
     try:
@@ -1318,8 +1348,10 @@ def print_actuals_block(entries):
         if want is None:
             unknown.append(seat)
             continue
-        total = sum(v[1] for k, v in acc.items() if k[0] == seat)
-        off = sum(v[1] for k, v in acc.items() if k[0] == seat and want not in k[1].lower())
+        # a record with no model is counted in the table but says nothing about routing
+        known = {k: v for k, v in acc.items() if k[0] == seat and k[1] != "unknown"}
+        total = sum(v[1] for v in known.values())
+        off = sum(v[1] for k, v in known.items() if not on_route(want, k[1]))
         print("off-route %s: %d/%d turns not on %s (%d%%)" % (
             seat, off, total, want, off * 100 // total if total else 0))
     if unknown:

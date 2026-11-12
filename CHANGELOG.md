@@ -7,7 +7,7 @@
   its agent count and output tokens to the run line as `agents: <n> | out: <n>`, cumulative across
   launches; the fleet line carries the totals. A board from 0.2.14 reads as 0 and gains the fields
   on its next write. When the transcripts cannot be found, or the nonce matches zero or several
-  agents, the command prints `actuals: unavailable - <reason>` and still succeeds.
+  agents, the command prints `actuals: unavailable — <reason>` and still succeeds.
 - Each of those commands also appends one JSON line per launch to `<program>.actuals.jsonl`, with
   turns and output tokens by seat and model.
 - New `stu-fleet actuals PROGRAM` (read-only) prints, per run and for the fleet, launches, agents,

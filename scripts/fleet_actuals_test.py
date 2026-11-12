@@ -93,6 +93,14 @@ def main():
     got, why = fleet_actuals.launch_actuals("stu-nonce-four")
     check("unknown seat, damaged line skipped", (why, got["agents"][0]["seat"], fleet_actuals.totals(got)),
           (None, "unknown", (1, 2)))
+    # synthetic placeholders are skipped; a record with no model counts under unknown
+    nomodel = asst("n1", S, 6)
+    del nomodel["message"]["model"]
+    agent(root, "p5", "sess5", "sup5", "stu:supervisor", nonce="stu-nonce-five", records=[
+        asst("y1", "<synthetic>", 50), asst("y2", S, 3), nomodel])
+    got, why = fleet_actuals.launch_actuals("stu-nonce-five")
+    check("synthetic skipped, no model is unknown", (why, got["agents"][0]["models"]), (
+        None, {S: {"turns": 1, "out": 3}, "unknown": {"turns": 1, "out": 6}}))
     if FAILURES:
         print("FAIL %d of %d checks" % (len(FAILURES), COUNT[0]))
         for f in FAILURES:

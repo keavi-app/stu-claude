@@ -14,7 +14,9 @@ never a guess. Its tree is the supervisor plus every agent whose `parentAgentId`
 
 One API response can be split over several assistant records sharing a `requestId`; each
 `requestId` counts once, as the record with the largest `output_tokens`, and is one turn. A
-record with no `requestId` falls back to `message.id`, then counts alone.
+record with no `requestId` falls back to `message.id`, then counts alone. Records whose model is
+`<synthetic>` (the client's placeholders) are skipped; a record with no model counts under
+`unknown`.
 
 Projects root: agent_tree.projects_root() (STU_PROJECTS_ROOT in tests). Standard library only.
 """
@@ -50,6 +52,8 @@ def agent_turns(path):
             out = m["usage"].get("output_tokens")
             if not isinstance(out, int) or isinstance(out, bool):
                 continue
+            if m.get("model") == "<synthetic>":
+                continue  # the client's own placeholder turns: no API response, no tokens
             key = d.get("requestId") or m.get("id") or ("line-%d" % i)
             if key not in best or out > best[key][0]:
                 best[key] = (out, m.get("model") or "unknown")

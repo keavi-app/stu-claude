@@ -869,8 +869,56 @@ def test_actuals():
     check("actuals is read-only", (open(log).read(), open(PROG).read()), before)
     check("spend carries agents and out", pfleet("spend", PROG)[1][0], "run alpha: cycles 6, launches 4, dry 4, agents 4, out 95")
     with open(log, "a") as f:
-        f.write("not json\n")
-    check("a damaged log is exit 3", pfleet("actuals", PROG)[0], 3)
+        f.write("not json\n" + json.dumps(entries[0]) + "\n")
+    check("a damaged middle line is exit 3", pfleet("actuals", PROG)[0], 3)
+
+
+def test_actuals_review_fixes():
+    # family token match, never a substring; a full-id model: line is accepted
+    on = stu_fleet.on_route
+    check("family in id position", (on("sonnet", "claude-sonnet-5-5"), on("sonnet", "claude-3-5-sonnet-20241022")),
+          (True, True))
+    check("substring inside another token is off route", (on("sonnet", "claude-opus-sonnetx"),
+          on("opus", "claude-opus-5"), on("opus", "claude-sonnet-5")), (False, True, False))
+    check("full id compares by its family", (on("claude-sonnet-4-5", "claude-sonnet-5-5"),
+          on("claude-sonnet-4-5", "claude-opus-5")), (True, False))
+    check("settler routing is not knowable", (stu_fleet.routed_model("stu:settler"),
+          stu_fleet.routed_model("stu:implementer")), (None, "sonnet"))
+    # a no-model record is in the table but not in the off-route share; settler is routing unknown
+    root = os.path.join(TMP, "projects-review")
+    o = lifecycle()
+    log = PROG + ".actuals.jsonl"
+    entry = {"slug": "alpha", "nonce": "stu-r1", "recorded_at": "2023-11-14T22:13:20Z", "agents": 3, "out": 9,
+             "by_seat_model": [
+                 {"seat": "stu:implementer", "model": "unknown", "agents": 1, "turns": 4, "out": 1},
+                 {"seat": "stu:implementer", "model": "claude-sonnet-5", "agents": 1, "turns": 3, "out": 3},
+                 {"seat": "stu:settler", "model": "claude-opus-5", "agents": 1, "turns": 2, "out": 5}]}
+    with open(log, "w") as f:
+        f.write(json.dumps(entry) + "\n")
+    rc, out, err = pfleet("actuals", PROG)
+    check("unknown model excluded from the share", "off-route stu:implementer: 0/3 turns not on sonnet (0%)" in out, True)
+    check("settler is routing unknown", "routing unknown: stu:settler" in out, True)
+    # a torn final line is skipped with a warning; the next append does not glue onto it
+    with open(log, "a") as f:
+        f.write('{"slug": "alpha", "nonce"')
+    rc, out, err = pfleet("actuals", PROG)
+    check("torn final line skipped with a warning", (rc, out[0].startswith("actuals: skipped damaged final log line 2")), (0, True))
+    with open(log, "a") as f:
+        f.write("\n" + json.dumps(entry) + "\n")
+    check("a damaged line that is not last is exit 3", pfleet("actuals", PROG)[0], 3)
+    with open(log, "w") as f:
+        f.write(json.dumps(entry) + "\n" + '{"slug": "al')
+    pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": "stu-r2"})
+    pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "r.txt"), o, nxt="owner",
+           cond="4 \u2014 x"))
+    check("append starts a fresh line after a torn one", open(log).read().count("\n"), 3)
+    # wrong fleet-line totals are rewritten from the run lines
+    a = objective("a")
+    program([("alpha", a, "none", "none")], tail="\n## Fleet board\n" + brd("alpha", "settle", a=3, o=40) +
+            "\n- fleet | judgment: 0 | agents: 99 | out: 99 | notices: none\n")
+    pfleet("board", "requeue", PROG, "--run", "alpha")
+    check("fleet totals rewritten", open(PROG).read().rstrip().endswith(
+        "- fleet | judgment: 0 | agents: 3 | out: 40 | notices: none"), True)
 
 
 def test_v2_board_migrates():
@@ -1121,7 +1169,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_actuals, test_v2_board_migrates):
+          test_limits_and_next, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:
