@@ -195,7 +195,10 @@ through step 4 itself. The interactive one-question-at-a-time path above stays t
 3. Dispatch `stu:settler` with `MODE: write`, the draft path from the return, and the owner's line
    verbatim. It performs step 5a only, and an item that needs an explicit `accept <n>`
    and did not get one stays unanswered (UNANSWERED).
-4. Perform every `SCOREBOARD-TODO:` line it returns yourself, under 5b. The settler never does.
+4. Each `SCOREBOARD-TODO:` line it returns is one of `unpark <id>`, `drop <id>` or
+   `add <id> — <one line>`. A hand-run settle session applies them itself, under 5b. A fleet
+   coordinator applies them with `stu-fleet board settled`, which also writes `Run state:`
+   and refuses an `add` (new units need this interactive skill). The settler never does.
    A `talk about` item stays unanswered: walk it through step 4.
 
 ## 6. Hand back one line

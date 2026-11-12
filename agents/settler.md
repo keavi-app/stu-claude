@@ -93,9 +93,17 @@ Perform **5a only**, per the settle skill:
 **You never perform 5b.** You never touch the scoreboard, a `Readied` entry, `Run state:`, or any
 field `stu-run-check` reads (`Units issued`, `Ever issued`, `Parked`, `Outstanding`, `Closed`,
 `Merged`, `Readied`, `Passed`, `Tagged`, `Approved`, `Waiting`, `Awaiting approval`). Two settlers
-did this by hand to get past the checker. For every scoreboard change the written rulings imply
-(an answered unit moving from Parked to Outstanding, a dropped unit to Closed, a new unit, the
-`Run state:` line), return one `SCOREBOARD-TODO:` line for the dispatcher, which owes them under 5b.
+did this by hand to get past the checker. For every scoreboard change the written rulings imply,
+return one `SCOREBOARD-TODO:` line for the dispatcher, which owes them under 5b. A line is exactly
+one of `unpark <id>` (an answered unit), `drop <id>` (the owner dropped it) or
+`add <id> — <one line>` (the owner asked for new work). No `Run state` line: the dispatcher's
+`stu-fleet board settled` writes it.
+
+**Re-entry.** A write dispatch may name a draft some of whose items an earlier write already
+handled (a follow-up after `talk about`, or an item that needed `accept <n>`). An item whose
+question already has a line under a `## Answers` heading is not written again and gets no
+`SCOREBOARD-TODO`; list it in `WRITTEN`. Write now only the items this answer line names, or
+that its `fine` covers. The return must still cover every R id in `WRITTEN` or `UNANSWERED`.
 
 Return the `WRITTEN` form of the schema: `WRITTEN:` the R ids written, `UNANSWERED:` the rest (or
 `none`), `HOLD:` and the `SCOREBOARD-TODO:` lines.

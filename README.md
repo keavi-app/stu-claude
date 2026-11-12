@@ -232,9 +232,9 @@ binding yet.
 
 The coordinator relaunches a supervisor that stopped with units left, holds starts and relaunches
 once the cycle budget is spent or `Stop at:` has passed, and stops relaunching a run whose last two
-launches closed no unit. Not built yet: the settle brief loop, so a run that parks questions is
-listed for you. Treat it as a way to try the shape, not a replacement for starting runs
-yourself.
+launches closed no unit. A run that parks questions is drafted by a settler, batched into one
+brief per wave, answered in a line and requeued. Treat it as a way to try the shape, not a
+replacement for starting runs yourself.
 
 ## Coming from a copied install
 

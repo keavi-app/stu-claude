@@ -1,6 +1,6 @@
 {
   "name": "stu",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "Let it stew. A blind supervisor that runs long autonomous Claude Code sessions: fail-closed returns, SHA-bound independent review, a separate merge gate, and /settle.",
   "author": { "name": "Keavi LLC", "url": "https://keavi.app" },
   "homepage": "https://keavi.app",
