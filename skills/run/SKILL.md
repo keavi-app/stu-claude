@@ -1067,7 +1067,12 @@ A mechanical lookup, not a judgment call.
 | Apply the merge gate to one PR | `stu:merge-gate` | sonnet |
 | Groom, dispatch, decide — **cycle 1**, or any resume with no groomed brief on disk | `stu:orchestrator` | opus |
 | Groom, dispatch, decide — **cycle 2+** resuming a handoff whose briefs are already groomed | `stu:orchestrator` | sonnet |
+| Draft rulings, groom/audit, or one design round (a judgment seat) | `stu:settler` / `stu:groomer` / `stu:designer` (not built yet; see docs/fleet-design.md) | `stu-env section judgment-model` (empty: opus) |
 | One deep pass over a large context that emits little — whole-branch review, large-diff review, premise check spanning many files | as above | the cache-read-cheapest large model available |
+
+The coordinator and supervisor never read `judgment_model`: relays keep the supervisor's model,
+even when the two name the same model. A seat that falls back to a lower model on a usage limit
+may only draft, never auto-apply.
 
 **`stu:scout` is mandatory, not optional.** A locating question answered by reading files
 yourself is a reading-discipline failure. **The discipline binds the agents you dispatch, not just

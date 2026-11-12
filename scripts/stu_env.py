@@ -45,8 +45,9 @@ MERGE_MODES = ("direct", "label-handoff", "report-only", "direct-push")
 MODES = ("work", "pr-only", "park")
 CI_KINDS = ("aggregator", "list", "none")
 FAMILY_ONLY_KEYS = ("run_home", "project", "owner", "triage_extra", "completion_mode",
-                    "stop_condition_2", "deep_pass_model", "merge_lock")
-FAMILY_ONLY_SECTIONS = ("completion-mode", "stop-condition-2", "deep-pass-model")
+                    "stop_condition_2", "deep_pass_model", "judgment_model", "merge_lock")
+FAMILY_ONLY_SECTIONS = ("completion-mode", "stop-condition-2", "deep-pass-model",
+                       "judgment-model")
 MANDATORY = ("slug", "remote", "base", "visibility", "mode", "merge_mode", "ci")
 
 

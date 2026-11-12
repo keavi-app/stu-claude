@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.6
+
+- New family-only config section `judgment-model`: one model (a runtime alias such as `opus` or an
+  exact model ID) for the judgment seats that later fleet work adds (settler, groomer/auditor,
+  designer). Empty means `opus`. A repo row cannot override it.
+- The run skill's routing table gains one row for judgment seats, reading that section. The
+  coordinator and supervisor never read it, and a seat that falls back to a lower model on a
+  usage limit may only draft, never auto-apply.
+- The content lint now checks the judgment row exists and that no agent or skill names a literal
+  Claude model ID.
+
 ## 0.2.5
 
 - New `stu-fleet` helper keeps one merge hold and one merge lock in a single file under the run
