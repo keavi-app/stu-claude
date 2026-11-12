@@ -345,7 +345,10 @@ NEXT: none | settle | relaunch | owner
 nothing outstanding or parked but a unit Waiting or awaiting approval (`Run state: waiting-on-human`);
 `SELF-STOP` a lane stopped itself on a `self-stop:` line and the run can relaunch.
 `RUN-STATE` is copied, never paraphrased. `PARKED` is the count of parked questions in the
-questions file. A coordinator reads `NEXT` and nothing else to decide what to do:
+questions file. A coordinator decides what to do from `NEXT`, and reads `STOP-CONDITION` as well
+when `NEXT` is `settle`: a stop on condition 2 or 3 is the owner's to rule on (a stop-condition-2
+candidate, or a park-or-decide row 2 to 6), so its questions are drafted for the owner's brief and
+never auto-narrowed (`docs/fleet-design.md`, "Always the owner's").
 
 | Why the run ended | `STOP-CONDITION` | `NEXT` |
 | --- | --- | --- |
