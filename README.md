@@ -87,6 +87,7 @@ Requirements:
 | `/stu:run` | The supervisor contract: objective, scoreboard, fail-closed checks, cycle cap. |
 | `/stu:settle` | Answer a stopped run's parked questions in a fresh session. |
 | `/stu:fix-campaign` | Triage open issues and drive fixes to merge; what an orchestrator runs. |
+| `/stu:fleet` | Experimental. One coordinator session runs several objectives as supervised runs. |
 
 Claude Code agents (Codex uses the runtime binding described in [Stu on Codex](docs/codex.md)):
 
@@ -218,6 +219,21 @@ Cost is roughly context size times number of turns, so stu bounds both.
   TTL (`experimental: cacheTtl: 1h` in their frontmatter), so a long wait on children is a
   cache read rather than a rebuild. Every other role keeps the 5-minute default; see
   `docs/design-rationale.md`, "Cache TTL".
+
+## Fleet (experimental)
+
+`/stu:fleet <program path>` turns the main session into a coordinator for several objectives at
+once. It launches one supervised `/stu:run` per objective as a background subagent, keeps a board
+of their states, and brings you what needs you. The scripts hold the state and the decisions
+(`stu-fleet program check`, `board`, `spend`, `next`); the skill carries them out. The program file
+(owner, lane cap, runs and their `after:` and `resources:`, the merge lock) is described in
+[the fleet design](docs/fleet-design.md), "The program file". Claude Code only: Codex has no fleet
+binding yet.
+
+Not built yet: relaunching a stopped supervisor, enforcing the cycle budget and the loop guard,
+and the settle brief loop. A run that parks questions or stops for you is listed for you, and
+`spend` only reports. Treat it as a way to try the shape, not a replacement for starting runs
+yourself.
 
 ## Coming from a copied install
 

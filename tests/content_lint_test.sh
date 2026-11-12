@@ -148,4 +148,17 @@ then echo "ok   settler is on the default judgment model and holds Agent"
 else echo "FAIL settler is on the default judgment model and holds Agent"; fails=$((fails + 1)); fi
 # No agent or skill names a literal Claude model ID; models come from config or aliases.
 none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonnet|haiku|fable|[0-9])' skills agents
+# Runtime binding: the fleet skill names Claude tools and agent-invocation details only inside
+# its "## Runtime binding" section (fleet-design.md, "Built for a second runtime"). The YAML
+# frontmatter is the Claude skill manifest, not instruction text, so it is not scanned.
+fleet_leak=$(awk '
+  NR==1 && /^---$/ { fm = 1; next }
+  fm { if (/^---$/) fm = 0; next }
+  /^## / { bind = ($0 == "## Runtime binding") }
+  !bind && /(^|[^A-Za-z_])(Agent|TaskStop|ListAgents|SendMessage|PushNotification|Monitor|ToolSearch|Bash|subagent_type|run_in_background|cacheTtl)([^A-Za-z_]|$)/ { print FILENAME ":" NR ": " $0 }
+' skills/fleet/SKILL.md)
+check_set "no Claude tool name in the fleet skill outside its Runtime binding section" "$fleet_leak"
+grep -qxF '## Runtime binding' skills/fleet/SKILL.md \
+  && echo "ok   the fleet skill has a Runtime binding section" \
+  || { echo "FAIL the fleet skill has a Runtime binding section"; fails=$((fails + 1)); }
 exit $((fails > 0))

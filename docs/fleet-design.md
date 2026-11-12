@@ -1,6 +1,6 @@
 # Stu fleet mode and judgment seats
 
-Status: design, partly built (S1, S2, S4). Base: the 0.2.2 line. The owner's decisions are listed
+Status: design, partly built (S1, S2, S4, S9). Base: the 0.2.2 line. The owner's decisions are listed
 under "Decisions". The nesting spike (S3) chose subagent supervisors, with two binding changes for
 S8; findings in `design-rationale.md`, "Fleet nesting spike".
 
@@ -99,6 +99,9 @@ Merge lock: on | off          (optional; default on, see "Merge hold and lock")
 The merge hold is not a section of this file; it lives in its own file (see "Merge hold and
 lock"), so a merge gate that has no program path can still read it.
 
+- The program's `Merge lock:` line is checked against the Stu config's `merge_lock` at startup and
+  never overrides it: a gate reads only the config, so a disagreement stops the coordinator rather
+  than being ignored. The line defaults to on while the config key defaults to off.
 - The cycle cap stays in each objective, which owns it. A fleet objective with no `Cycle cap:`
   is a startup stop.
 - `resources:` names what actually conflicts: worktrees, databases, simulators, device runners,

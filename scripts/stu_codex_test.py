@@ -152,6 +152,14 @@ class Contracts(unittest.TestCase):
             self.assertIn('contract ' + name, text)
             self.assertIn('absolute', text)
 
+    def test_fleet_skill_is_not_rendered_for_codex(self):
+        # The fleet skill is Claude-only until a Codex binding exists (codex/runtime.md, "Fleet").
+        module = adapter()
+        self.assertNotIn('fleet', module.SOURCES)
+        self.assertTrue((ROOT / 'skills/fleet/SKILL.md').exists())
+        self.assertFalse((ROOT / 'codex/skills/fleet').exists())
+        self.assertIn('fleet: not bound yet', (ROOT / 'codex/runtime.md').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()
