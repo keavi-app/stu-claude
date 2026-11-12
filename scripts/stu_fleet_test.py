@@ -423,13 +423,21 @@ def test_program_check():
 
 
 BOARD_HEAD = ("- {s} | state: {st} | cycles: {c} | launches: {l} | from: {f} | closed: {k} | "
-              "dry: {d} | nonce: {n} | agents: {a} | out: {o} | handoff: {h} | stop: {p}")
+              "dry: {d} | nonce: {n} | agents: {a} | out: {o} | draft: {dr} | written: {w} | "
+              "handoff: {h} | stop: {p}")
 FLEET0 = "- fleet | judgment: 0 | agents: 0 | out: 0 | notices: none"
 NONCE = "stu-testnonce01"
 
 
-def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0):
-    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n, a=a, o=o)
+def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0,
+        dr="none", w="none"):
+    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n, a=a, o=o, dr=dr, w=w)
+
+
+def v3(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0):
+    return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
+            "nonce: %s | agents: %d | out: %d | handoff: %s | stop: %s") % (
+        s, st, c, l, f, k, d, n, a, o, h, p)
 
 
 def v2(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none"):
@@ -753,7 +761,7 @@ def test_board_v2_grammar():
     check("v1 board migrates on read", (rc, out), (0, [
         brd("alpha", "relaunch", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0]))
     rc, out, err = pfleet("board", "requeue", PROG, "--run", "alpha")
-    check("next write emits v3 for every line", open(PROG).read().endswith(
+    check("next write emits v4 for every line", open(PROG).read().endswith(
         "## Fleet board\n%s\n%s\n%s\n" % (brd("alpha", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0)), True)
     # mixed v1 and v2, a fleet line with notices
     program(prog_runs, tail="\n## Fleet board\n" + brd("alpha", "live", k=2, d=1, n="stu-x1234567") + "\n" +
@@ -928,7 +936,7 @@ def test_v2_board_migrates():
     check("v2 line reads as agents 0, out 0", pfleet("board", "show", PROG)[1], [
         brd("alpha", "live", c=2, l=1, n="stu-x1234567"), "- fleet | judgment: 1 | agents: 0 | out: 0 | notices: none"])
     rc = pfleet("board", "idle", PROG, "--run", "alpha")[0]
-    check("the next write adds the fields", ("agents: 0 | out: 0 | handoff" in open(PROG).read(),
+    check("the next write adds the fields", ("agents: 0 | out: 0 | draft: none" in open(PROG).read(),
           open(PROG).read().rstrip().endswith("| agents: 0 | out: 0 | notices: none")), (True, True))
 
 
@@ -1160,6 +1168,326 @@ def test_limits_and_next():
     check("spend stop-at passed", pfleet("spend", PROG)[1][-1], "stop-at: 2023-11-14T00:00:00+00:00 (passed)")
     check("spend never writes", os.path.exists(PROG + ".lock") and "notices" not in open(PROG).read(), True)
 
+R1 = ("R1: q-recurring-label | rec: keep the label | reverses-if: support sees confusion | "
+      "precondition: none | row: 7 | verifier: HOLDS | flags: none")
+R2 = ("R2: q-new-screen | rec: add the screen | reverses-if: the owner dislikes it | "
+      "precondition: hold the deploy until the migration ran | row: 5 | verifier: STALE | "
+      "flags: owner-only")
+R3 = ("R3: q-export | rec: ship the export | reverses-if: it is slow | precondition: none | "
+      "row: 7 | verifier: HOLDS | flags: none")
+BRIEF3 = ("BRIEF:\nRun demo: 3 rulings drafted\n1. Keep the label? -> recommend yes. Reverses if "
+          "support sees confusion.\n2. Add the screen? -> recommend yes. Reverses if disliked. "
+          "[owner-only]\n3. Ship the export? -> recommend yes.\n"
+          "Answer: fine | accept 2 | reverse 2, 5 | talk about 3\n")
+
+
+def drafted_text(obj, draft="/runs/demo/settle/draft.md", n=3):
+    rs = [R1, R2, R3][:n]
+    brief = BRIEF3 if n == 3 else BRIEF3.replace("3. Ship the export? -> recommend yes.\n", "")
+    return ("SETTLER: DRAFTED \u2014 %d rulings ready\nOBJECTIVE: %s\nDRAFT: %s\nRULINGS: %d\n%s\n%s" % (
+        n, obj, draft, n, "\n".join(rs), brief))
+
+
+def written_text(obj, written, unanswered, todos=(), draft="/runs/demo/settle/draft.md", hold="none", n=3):
+    rs = [R1, R2, R3][:n]
+    return ("SETTLER: WRITTEN \u2014 some written\nOBJECTIVE: %s\nDRAFT: %s\nRULINGS: %d\n%s\n"
+            "WRITTEN: %s\nUNANSWERED: %s\nHOLD: %s\n%s" % (
+        obj, draft, n, "\n".join(rs), written, unanswered, hold,
+        "".join("SCOREBOARD-TODO: %s\n" % x for x in todos)))
+
+
+def settle_board(slug="alpha", dr="none", w="none", st="settle", p="1 \u2014 q"):
+    return "\n## Fleet board\n" + brd(slug, st, c=2, l=1, p=p, dr=dr, w=w) + "\n"
+
+
+def test_board_v4_and_draft():
+    a = objective("a")
+    prog_runs = [("alpha", a, "none", "none")]
+    program(prog_runs, tail="\n## Fleet board\n" + v3("alpha", "settle", c=2, l=1, p="1 \u2014 q") + "\n")
+    check("v3 line reads draft none, written none", pfleet("board", "show", PROG)[1],
+          [brd("alpha", "settle", c=2, l=1, p="1 \u2014 q"), FLEET0])
+    check("next says settle without a draft", pfleet("next", PROG)[1][0], "settle alpha")
+    ret = write(os.path.join(PDIR, "d.txt"), drafted_text(a))
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+    check("draft stores the absolute path", (rc, out), (0, [brd("alpha", "settle", c=2, l=1, p="1 \u2014 q", dr=ret)]))
+    check("the write emitted v4", ("draft: %s | written: none | handoff" % ret) in open(PROG).read(), True)
+    check("next says brief with a draft", pfleet("next", PROG)[1][0], "brief alpha")
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+    check("a second draft is refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    # refusals and BLOCKED
+    program(prog_runs, tail=settle_board())
+    other = objective("other")
+    for name, text, code in (
+            ("other objective", drafted_text(other), 1),
+            ("a WRITTEN return", written_text(a, "R1, R2, R3", "none"), 1),
+            ("malformed", drafted_text(a).replace("RULINGS: 3", "RULINGS: 4"), 1),
+            ("blocked status", "SETTLER: BLOCKED \u2014 nothing\n", 1)):
+        before = open(PROG).read()
+        rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", write(os.path.join(PDIR, "x.txt"), text))
+        check("draft refuses %s with BLOCKED" % name, (rc, out[-1], out[0].startswith("BLOCKED: "),
+              open(PROG).read()), (code, "BLOCKED", True, before))
+    check("draft needs --return", pfleet("board", "draft", PROG, "--run", "alpha")[0], 2)
+    check("draft unreadable return is 3", pfleet("board", "draft", PROG, "--run", "alpha",
+          "--return", os.path.join(PDIR, "nope.txt"))[0], 3)
+    for st in ("queued", "live", "relaunch", "owner", "done"):
+        program(prog_runs, tail=settle_board(st=st, p="none"))
+        rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", ret)
+        check("draft refused 13 on %s" % st, (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
+    # a settle run with owner-only still prints settle owner-only without a draft
+    program(prog_runs, tail=settle_board(p="2 \u2014 q"))
+    check("owner-only unchanged", pfleet("next", PROG)[1][0], "settle alpha owner-only")
+    # every reset
+    for how in ("requeue", "idle", "record", "launch", "relaunch"):
+        o = lifecycle("rs", scoreboard="Run state: stopped \u2014 BLOCKED: x\nCycles used: 4/4\nClosed: NONE\n")
+        st = {"requeue": "settle", "idle": "live", "record": "live", "launch": "queued", "relaunch": "relaunch"}[how]
+        p = {"relaunch": "10 \u2014 cap"}.get(how, "none")
+        program([("alpha", o, "none", "none")], tail=settle_board(st=st, p=p, dr="/x/d.txt", w="1,2"))
+        args = ["board", how, PROG, "--run", "alpha"]
+        if how == "record":
+            args += ["--return", run_ret(os.path.join(PDIR, "rs.txt"), o, cycles="4/4")]
+        rc, out, err = pfleet(*args)
+        check("%s resets draft and written" % how, (rc, field(out[0], "draft"), field(out[0], "written")),
+              (0, "none", "none"))
+
+SB_PLAIN = ("Run state: stopped \u2014 BLOCKED: 1 \u2014 q\nCycles used: 4/4\nUnits issued: S1, S2, S3, S4\n"
+            "Closed: S1\nAwaiting approval: NONE\nWaiting: NONE\nParked: S2, S3\nOutstanding: S4\n"
+            "Last handoff: /x/h.md\n")
+SB_TAIL = "\n## Notes\nParked: S9\nRun state: untouched\n"
+SB_LANES = ("Run state: stopped \u2014 BLOCKED: 1 \u2014 q\nCycles used: 4/4\nUnits added: 0/3\n\n"
+            "Lane: one\nLane state: stopped \u2014 BLOCKED: q\nUnits issued: A1, A2\nClosed: NONE\n"
+            "Awaiting approval: NONE\nWaiting: NONE\nParked: A1\nOutstanding: A2\n\n"
+            "Lane: two\nLane state: running\nUnits issued: B1, B2\nClosed: B1\n"
+            "Awaiting approval: NONE\nWaiting: NONE\nParked: B2\nOutstanding: NONE\n")
+
+
+def settle_fixture(sb=SB_PLAIN, name="st", lanes=None, drafted=True):
+    o = objective(name, scoreboard=sb, mode="overnight" if lanes else "plain")
+    with open(o, "a") as f:
+        f.write(SB_TAIL)
+    program([("alpha", o, "none", "none") + ((lanes,) if lanes else ())], tail=settle_board())
+    d = write(os.path.join(PDIR, name + "-draft.txt"), drafted_text(o))
+    if drafted:
+        pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
+    return o, d
+
+
+def wret(o, name, written, unanswered, todos=()):
+    return write(os.path.join(PDIR, name + ".txt"), written_text(o, written, unanswered, todos))
+
+
+def settled(o, name, written, unanswered, todos=()):
+    return pfleet("board", "settled", PROG, "--run", "alpha", "--return", wret(o, name, written, unanswered, todos))
+
+
+def test_board_settled():
+    o, d = settle_fixture()
+    orig, prog0 = open(o, "rb").read(), open(PROG).read()
+    # refusals and BLOCKED, each leaving everything untouched
+    cases = (("an add", ("add S9 \u2014 a new export",), 13,
+              "REFUSED fleet-board: alpha adds unit S9; settle it with /stu:settle %s" % o),
+             ("add after a good todo", ("unpark S2", "add S9 \u2014 x"), 13, "adds unit S9"),
+             ("unpark of an unknown id", ("unpark S7",), 13, "unpark S7"),
+             ("unpark of a closed id", ("unpark S1",), 13, "unpark S1"),
+             ("drop of an unknown id", ("drop S7",), 13, "drop S7"),
+             ("drop of a merged id", ("drop S1",), 13, "drop S1"),
+             ("a second bad todo after a good one", ("unpark S2", "drop S7"), 13, "drop S7"))
+    for name, todos, code, needle in cases:
+        rc, out, err = settled(o, "s1", "R1, R2, R3", "none", todos)
+        check("%s refused" % name, (rc, needle in out[0], out[0].startswith("REFUSED fleet-board:"),
+              open(o, "rb").read() == orig, open(PROG).read() == prog0), (code, True, True, True, True))
+    check("the add refusal text exactly", settled(o, "s1", "R1, R2, R3", "none", ("add S9 \u2014 x",))[1],
+          ["REFUSED fleet-board: alpha adds unit S9; settle it with /stu:settle %s" % o])
+    other = objective("elsewhere")
+    for name, text in (("a DRAFTED return", drafted_text(o)),
+                       ("another objective", written_text(other, "R1, R2, R3", "none")),
+                       ("another DRAFT", written_text(o, "R1, R2, R3", "none", draft="/runs/other.md")),
+                       ("a malformed todo", written_text(o, "R1, R2, R3", "none", ("move S2",)))):
+        rc, out, err = pfleet("board", "settled", PROG, "--run", "alpha", "--return", write(os.path.join(PDIR, "bad.txt"), text))
+        check("%s is BLOCKED exit 1" % name, (rc, out[0].startswith("BLOCKED: "), out[-1],
+              open(o, "rb").read() == orig, open(PROG).read() == prog0), (1, True, "BLOCKED", True, True))
+    # no Scoreboard
+    nosb = o + ".nosb"
+    write(nosb, OH + "no scoreboard here\n")
+    program([("alpha", nosb, "none", "none")], tail=settle_board(dr=d))
+    p0 = open(PROG).read()
+    rc, out, err = settled(nosb, "s2", "R1, R2, R3", "none")
+    check("no Scoreboard refused 13", (rc, "Scoreboard" in out[0], open(PROG).read()), (13, True, p0))
+    # not settle, or no draft
+    for st, dr in (("settle", "none"), ("queued", d), ("live", "none"), ("owner", "none"), ("done", "none")):
+        program([("alpha", o, "none", "none")], tail=settle_board(st=st, dr=dr, p="none"))
+        rc, out, err = settled(o, "s3", "R1, R2, R3", "none")
+        check("settled refused 13 on %s/%s" % (st, dr), (rc, out[0].startswith("REFUSED fleet-board:"),
+              open(o, "rb").read() == orig), (13, True, True))
+    check("settled needs --return", pfleet("board", "settled", PROG, "--run", "alpha")[0], 2)
+
+    # partial answer: unpark S2, drop S3; stays settle with its draft
+    o, d = settle_fixture()
+    rc, out, err = settled(o, "p1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    check("partial exits 0 with pending last", (rc, out[-1]), (0, "pending alpha: R2, R3"))
+    check("partial board line", out[0], brd("alpha", "settle", c=2, l=1, p="1 \u2014 q", dr=d, w="1"))
+    want = orig.decode().replace("Parked: S2, S3\n", "Parked: NONE\n", 1).replace(
+        "Outstanding: S4\n", "Outstanding: S4, S2\n", 1).replace(
+        "Closed: S1\n", "Closed: S1, S3 (dropped by the owner 2023-11-14)\n", 1)
+    check("exactly three scoreboard lines changed, Run state untouched", open(o).read(), want)
+    check("next says brief again", pfleet("next", PROG)[1][0], "brief alpha")
+    mid = open(o, "rb").read()
+    rc, out, err = settled(o, "p2", "R1, R2, R3", "none", ("unpark S2", "drop S3"))
+    check("final settled requeues", (rc, out[-1], out[0]), (0, "requeued alpha", brd("alpha", "queued", c=2, l=1, p="1 \u2014 q")))
+    fin = open(o, "rb").read()
+    check("no-op repeats leave the lines; Run state carries the summed counts",
+          fin, mid.replace(b"Run state: stopped \xe2\x80\x94 BLOCKED: 1 \xe2\x80\x94 q",
+                           "Run state: settled 2023-11-14 \u2014 3 answered, 1 unparked, 0 added, 1 dropped".encode(), 1))
+    check("the Notes section untouched", b"## Notes\nParked: S9\nRun state: untouched\n" in fin, True)
+    check("sidecar cleared", "alpha" in (json.load(open(PROG + ".settle.json")) if os.path.exists(PROG + ".settle.json") else {}), False)
+
+    # Waiting keeps waiting-on-human
+    o, d = settle_fixture(sb=SB_PLAIN.replace("Waiting: NONE", "Waiting: S4 needs: merge acme/app#9"), name="wt")
+    rc, out, err = settled(o, "w1", "R1, R2, R3", "none", ("unpark S2",))
+    check("waiting lane gives waiting-on-human", (rc, out[-1], "Run state: waiting-on-human\n" in open(o).read()),
+          (0, "requeued alpha", True))
+    o, d = settle_fixture(sb=SB_PLAIN.replace("Awaiting approval: NONE", "Awaiting approval: S4@br@abc"), name="aw")
+    rc, out, err = settled(o, "w2", "R1, R2, R3", "none")
+    check("awaiting approval gives waiting-on-human", "Run state: waiting-on-human\n" in open(o).read(), True)
+    # everything answered with no todos: nothing to move
+    o, d = settle_fixture(name="nt")
+    rc, out, err = settled(o, "n1", "R1, R2, R3", "none")
+    check("no todos settles with 0 unparked", (rc, "Run state: settled 2023-11-14 \u2014 3 answered, 0 unparked, 0 added, 0 dropped\n" in open(o).read()),
+          (0, True))
+    # a drop of an outstanding unit
+    o, d = settle_fixture(name="do")
+    rc, out, err = settled(o, "d1", "R1, R2, R3", "none", ("drop S4",))
+    txt = open(o).read()
+    check("drop of an outstanding unit", (rc, "Outstanding: NONE\n" in txt,
+          "Closed: S1, S4 (dropped by the owner 2023-11-14)\n" in txt, "Units issued: S1, S2, S3, S4\n" in txt),
+          (0, True, True, True))
+    # overnight: two lanes, a global Run state
+    o, d = settle_fixture(sb=SB_LANES, name="ln", lanes="2")
+    rc, out, err = settled(o, "l1", "R1, R2, R3", "none", ("unpark A1", "drop B2", "unpark B2"))
+    check("an id dropped then unparked in one return", (rc, out[0].startswith("REFUSED")), (13, True))
+    rc, out, err = settled(o, "l1", "R1, R2, R3", "none", ("unpark A1", "drop B2"))
+    txt = open(o).read()
+    check("lane lines edited per lane", (rc, "Parked: NONE\nOutstanding: A2, A1\n" in txt,
+          "Closed: B1, B2 (dropped by the owner 2023-11-14)\nAwaiting approval: NONE\nWaiting: NONE\nParked: NONE\nOutstanding: NONE\n" in txt,
+          "Run state: settled 2023-11-14 \u2014 3 answered, 1 unparked, 0 added, 1 dropped\n" in txt), (0, True, True, True))
+    # a v3 board settles into v4
+    o, d = settle_fixture(name="v3")
+    program([("alpha", o, "none", "none")], tail="\n## Fleet board\n" + v3("alpha", "settle", c=2, l=1, p="1 \u2014 q") + "\n")
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
+    check("a v3 board takes a draft", (rc, field(out[0], "draft")), (0, d))
+
+
+def test_settled_crash_and_guards():
+    side = PROG + ".settle.json"
+    # crash after the objective write, before the board/sidecar write: the retry counts the same
+    for finishing in (True, False):
+        o, d = settle_fixture(name="cr%d" % finishing)
+        prog0 = open(PROG).read()
+        un = "none" if finishing else "R2, R3"
+        rc, out, err = settled(o, "c1", "R1, R2, R3" if finishing else "R1", un, ("unpark S2", "drop S3"))
+        if os.path.exists(side):
+            os.remove(side)
+        write(PROG, prog0)
+        rc, out, err = settled(o, "c1", "R1, R2, R3" if finishing else "R1", un, ("unpark S2", "drop S3"))
+        if not finishing:
+            rc, out, err = settled(o, "c2", "R1, R2, R3", "none", ("unpark S2", "drop S3"))
+        check("retry after a crash (finishing=%s) keeps the counts" % finishing,
+              (rc, "Run state: settled 2023-11-14 — 3 answered, 1 unparked, 0 added, 1 dropped\n" in open(o).read()),
+              (0, True))
+    # a retried identical partial call is idempotent on the sidecar
+    o, d = settle_fixture(name="cs")
+    settled(o, "s1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    first = open(side).read()
+    settled(o, "s1", "R1", "R2, R3", ("unpark S2", "drop S3"))
+    check("sidecar holds id sets, stable on retry", (open(side).read(), json.load(open(side))["alpha"]["unparked"]),
+          (first, ["S2"]))
+    # Run state: running refuses before writing
+    o, d = settle_fixture(sb=SB_PLAIN.replace("stopped — BLOCKED: 1 — q", "running"), name="rn")
+    orig, prog0 = open(o, "rb").read(), open(PROG).read()
+    rc, out, err = settled(o, "r1", "R1, R2, R3", "none", ("unpark S2",))
+    check("running refused 13, nothing written", (rc, out[0].startswith("REFUSED fleet-board:"), "running" in out[0],
+          open(o, "rb").read() == orig, open(PROG).read() == prog0), (13, True, True, True, True))
+    # drop of an id already dropped in Closed: with a stale Parked: entry
+    sb = SB_PLAIN.replace("Closed: S1\n", "Closed: S1, S3 (dropped by the owner 2023-11-01)\n")
+    o, d = settle_fixture(sb=sb, name="dd")
+    rc, out, err = settled(o, "dd1", "R1, R2, R3", "none", ("drop S3",))
+    txt = open(o).read()
+    check("drop of an already-dropped id only cleans the stale list", (rc, "Parked: S2\n" in txt,
+          txt.count("S3 (dropped"), "Closed: S1, S3 (dropped by the owner 2023-11-01)\n" in txt,
+          "0 unparked, 0 added, 1 dropped" in txt), (0, True, 1, True, True))
+
+
+def two_drafts():
+    """alpha (3 rulings, R1 written) and beta (2 rulings) both with a recorded draft."""
+    oa = objective("ba")
+    ob = objective("bb")
+    program([("alpha", oa, "none", "none"), ("beta", ob, "none", "none"), ("gamma", objective("bc"), "none", "none")],
+            tail="\n## Fleet board\n" + "".join(x + "\n" for x in (
+                brd("alpha", "settle", p="1 \u2014 q"), brd("beta", "settle", p="1 \u2014 q"), brd("gamma"))))
+    da = write(os.path.join(PDIR, "ba-d.txt"), drafted_text(oa, draft="/runs/a/draft.md"))
+    db = write(os.path.join(PDIR, "bb-d.txt"), drafted_text(ob, draft="/runs/b/draft.md", n=2))
+    pfleet("board", "draft", PROG, "--run", "alpha", "--return", da)
+    pfleet("board", "draft", PROG, "--run", "beta", "--return", db)
+    return oa, ob, da, db
+
+
+def test_brief_and_answer():
+    program([("alpha", objective("bq0"), "none", "none")], tail=settle_board())
+    check("brief with no drafts", pfleet("brief", PROG)[:2], (0, ["brief: none"]))
+    check("answer with no drafts is BLOCKED", pfleet("answer", PROG, "--line", "fine")[:2],
+          (1, ["BLOCKED: 'fine' answers nothing: no run has a draft", "BLOCKED"]))
+    o, d = settle_fixture(name="bq")
+    before = open(PROG).read()
+    rc, out, err = pfleet("brief", PROG)
+    check("brief for one run: the block, a blank line, one Answer line", (rc, out), (0, [
+        "Run demo: 3 rulings drafted",
+        "1. Keep the label? -> recommend yes. Reverses if support sees confusion.",
+        "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]",
+        "3. Ship the export? -> recommend yes.", "",
+        "Answer: alpha: fine | accept 2 | reverse 2, 5 | talk about 3"]))
+    check("brief never writes", open(PROG).read(), before)
+    # written items vanish, numbering stays
+    rc, out, err = settled(o, "bw", "R1, R3", "R2")
+    rc, out, err = pfleet("brief", PROG)
+    check("brief hides written items and keeps numbering", out[1:3], [
+        "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]", ""])
+    check("two lines of the block gone", ("1. Keep" in "\n".join(out), "3. Ship" in "\n".join(out)), (False, False))
+    # answers, single run
+    rc, out, err = pfleet("answer", PROG, "--line", "accept 2")
+    check("single run, no prefix", (rc, out), (0, ["answer alpha | draft: /runs/demo/settle/draft.md | line: accept 2"]))
+    check("single run with prefix and extra words", pfleet("answer", PROG, "--line", "alpha: reverse 2 because the label is wrong")[1],
+          ["answer alpha | draft: /runs/demo/settle/draft.md | line: reverse 2 because the label is wrong"])
+    check("fine passes", pfleet("answer", PROG, "--line", "fine")[1][0].endswith("line: fine"), True)
+    for name, line, needle in (("number 0", "accept 0", "outside the draft's 1..3"),
+                               ("number past RULINGS", "reverse 2, 4", "reverse 4 is outside"),
+                               ("talk about past", "talk about 9", "talk about 9 is outside"),
+                               ("already written", "accept 1", "accept 1 is already written"),
+                               ("unknown slug", "ghost: fine", "ghost is not a run"),
+                               ("twice", "alpha: fine; alpha: accept 2", "alpha is answered twice")):
+        rc, out, err = pfleet("answer", PROG, "--line", line)
+        check("answer BLOCKED: %s" % name, (rc, out[-1], any(needle in x for x in out), len(out) >= 2), (1, "BLOCKED", True, True))
+    rc, out, err = pfleet("answer", PROG, "--line", "accept 1")
+    check("BLOCKED prints nothing but BLOCKED lines", all(x.startswith("BLOCKED") for x in out), True)
+    # several runs
+    oa, ob, da, db = two_drafts()
+    rc, out, err = pfleet("brief", PROG)
+    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if x.startswith("Run demo:")])),
+          (0, "Run demo: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
+    rc, out, err = pfleet("answer", PROG, "--line", "beta: reverse 1\nalpha: fine; ")
+    check("several runs answered in Runs order", (rc, out), (0, [
+        "answer alpha | draft: /runs/a/draft.md | line: fine", "answer beta | draft: /runs/b/draft.md | line: reverse 1"]))
+    rc, out, err = pfleet("answer", PROG, "--line", "alpha: accept 2")
+    check("an unanswered run is reported", (rc, out), (0, ["answer alpha | draft: /runs/a/draft.md | line: accept 2", "unanswered beta"]))
+    check("beta has 2 rulings", pfleet("answer", PROG, "--line", "alpha: fine; beta: accept 3")[1][:1],
+          ["BLOCKED: beta: accept 3 is outside the draft's 1..2"])
+    rc, out, err = pfleet("answer", PROG, "--line", "fine")
+    check("several runs, no prefix is BLOCKED", (rc, out[0].startswith("BLOCKED: 'fine' names no run")), (1, True))
+    rc, out, err = pfleet("answer", PROG, "--line", "gamma: fine")
+    check("a run with no draft is BLOCKED", (rc, out[0]), (1, "BLOCKED: gamma has no draft to answer"))
+    rc, out, err = pfleet("answer", PROG, "--line", "alpha: fine\nbeta: fine\nbeta: fine")
+    check("duplicate across newlines", (rc, out[0]), (1, "BLOCKED: beta is answered twice"))
+    check("answer needs --line", pfleet("answer", PROG)[0], 2)
+    check("answer and brief never write", ("brief" in open(PROG).read()), False)
+
 
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
@@ -1169,7 +1497,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates):
     t()
 
 if FAILURES:

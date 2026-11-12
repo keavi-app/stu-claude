@@ -28,6 +28,13 @@
                                         run; budget, judgment jobs and Stop at
   stu-fleet actuals PROGRAM             read-only: per run and fleet, launches, agents, output tokens
                                         and a seat/model table from the detail log
+  stu-fleet board draft PROGRAM --run SLUG --return FILE
+                                        record a settle run's DRAFTED settler return (refused 13 unless
+                                        settle with no draft; exit 1 unless it validates for the run)
+  stu-fleet board settled PROGRAM --run SLUG --return FILE
+                                        apply a WRITTEN settler return to the scoreboard and board
+  stu-fleet brief PROGRAM               read-only: every drafted brief, written items hidden, one Answer line
+  stu-fleet answer PROGRAM --line TEXT  read-only: route the owner's reply to the runs with drafts
   stu-fleet next PROGRAM                one decision line per run, notices, hold, lanes, limits
 
 State: <RUN_HOME>/merge-hold.json (override: STU_FLEET_FILE), RUN_HOME from stu-env. Every
@@ -39,6 +46,7 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
 
   - <slug> | state: <queued|live|settle|relaunch|owner|done> | cycles: <n> | launches: <n> |
     from: <n> | closed: <n> | dry: <n> | nonce: <nonce|none> | agents: <n> | out: <n> |
+    draft: <abs path|none> | written: <comma list of item numbers|none> |
     handoff: <abs path|none> | stop: <none|STOP-CONDITION verbatim>
   - fleet | judgment: <n> | agents: <n> | out: <n> | notices: <none|comma list of cycle-80,
     cycle-100,judgment-80,judgment-100,stop-at>
@@ -46,7 +54,8 @@ The program file (docs/fleet-design.md, "The program file") carries the board in
 (one physical line each; `|` inside copied text is written `/`). `fleet` is reserved: a run slug
 named `fleet` is a `program check` problem. A v1 run line (the seven fields without closed, dry
 and nonce) reads as closed 0, dry 0, nonce none, a v2 line (no agents, out) as agents 0, out 0,
-and a missing fleet line as judgment 0, notices none; the next write emits v3. Anything else malformed, a fleet line that is not last, a
+and a missing fleet line as judgment 0, notices none; the next write emits v4. A v3 line (no
+draft, written) reads as `draft: none`, `written: none`. Anything else malformed, a fleet line that is not last, a
 duplicate, or an unknown notice id is exit 3. Only stu-fleet writes the section: under an
 exclusive flock on `<program>.lock`, replacing the program file atomically and touching nothing
 outside that section. `cycles` is fleet-cumulative; `from` is the count the current launch
@@ -100,10 +109,48 @@ the table but not in the off-route share. Actuals are a report: nothing enforces
 `relaunch` for it right now (re-evaluated under the lock, so a stale `next` cannot override a
 limit). Then, in one step, it rewrites the first `Run state:` line inside the objective's
 `## Scoreboard` to `fleet-relaunch <YYYY-MM-DD>` (the program clock's date) and launches as
-`board launch` does (so `from` is 0), printing the board line and the nonce. This is the one
-place stu-fleet writes an objective: under a flock on `<objective>.lock`, atomic replace,
-nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
+`board launch` does (so `from` is 0), printing the board line and the nonce. This is one of
+two places stu-fleet writes an objective (the other is `board settled`, below), both through one
+writer: under a flock on `<objective>.lock`, atomic replace, nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
 is refused (13) before anything is written. It never edits a `Cycle cap:`.
+
+The settle loop (docs/fleet-design.md, "Settling"). `draft` is the absolute path of the saved
+DRAFTED settler return for the run's current settle, `written` the brief item numbers already
+written from it; `board record`, `launch`, `relaunch`, `idle` and `requeue` reset both to none.
+`board draft` is refused (13) unless the run is `settle` with `draft: none`; the return must
+validate (settler_return.check), be `SETTLER: DRAFTED` and name the run's objective (exit 1,
+`BLOCKED: <problem>` lines then `BLOCKED`, otherwise); it also clears the run's counts in the
+sidecar `<program>.settle.json`. That sidecar holds, per run, the draft path and the SETS of ids
+named by `unpark` and `drop` TODOs under it (applied or already done; the summary counts are the
+set sizes, so a retry after a crash between the objective write and the board write counts the
+same). `board settled` writes it when the run stays `settle`; `board draft` and a finishing
+`board settled` clear the run's entry; it is the only place those ids live between calls. `next` prints `brief <slug>` for a
+`settle` run with a draft, else `settle <slug>[ owner-only]` as before.
+`board settled` is refused (13) unless the run is `settle` with a draft. The return must validate
+as `SETTLER: WRITTEN` with the same OBJECTIVE and DRAFT as the stored drafted return (exit 1
+otherwise). Under the program lock and a flock on `<objective>.lock` it checks everything before it
+writes anything, then rewrites only scoreboard lines, atomically. Refused (13), nothing written: an
+`add` TODO (`fleet-board: <slug> adds unit <id>; settle it with /stu:settle <objective path>`), an
+`unpark` of an id in no lane's `Parked:` and not already `Outstanding:`, a `drop` of an id in no
+lane's `Parked:`/`Outstanding:` and not already dropped in `Closed:`, an objective with no
+`## Scoreboard` (or, finishing, no `Run state:` in it), a `Run state:` reading `running`. `unpark` and `drop` move the id between the
+lane's `Parked:`/`Outstanding:`/`Closed:` lines (`NONE` when empty; a drop appends `<id> (dropped
+by the owner <date>)` unless `Closed:` already has one); repeats are no-ops. `written` becomes its union with the return's WRITTEN
+ids. With `UNANSWERED: none` the first `Run state:` in the scoreboard becomes `waiting-on-human`
+when any lane's `Waiting:` or `Awaiting approval:` is not NONE, else `settled <date> — <w>
+answered, <u> unparked, 0 added, <d> dropped`, and the run goes to `queued` with draft and
+written reset; otherwise the run stays `settle`. The last stdout line is `requeued <slug>` or
+`pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
+Runs order, the drafted BRIEF block without its `BRIEF:` label, its own `Answer:` line and the
+numbered item lines already written, then a blank line, then one `Answer:` line for the whole
+brief (`Answer: <slug>: fine | accept 2 | reverse 2, 5 | talk about 3` for one run, `Answer per
+run, one per line or separated by ';': <slug>: <answer>` for several); `brief: none` with no
+drafts. `answer` (read-only) splits `--line` on newlines and `;` into `<slug>: <answer>`
+segments (a segment with no slug belongs to the only run with a draft); it prints `answer <slug>
+| draft: <DRAFT path> | line: <answer>` for each answered run and `unanswered <slug>` for each
+drafted run left out, or exit 1 with `BLOCKED: <detail>` lines then `BLOCKED` for an unknown or
+draft-less slug, a slug twice, or an accept, reverse or talk about number outside 1..RULINGS or
+already written. It does not interpret the answer further.
 
 Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `board judgment`:
 the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
@@ -154,7 +201,8 @@ Exit codes: 0 ok; 1 the program file or a supervisor return is invalid (BLOCKED 
 set; 11 refused, lock held; 12 refused, holder not checkable on the forge; 13 refused, board
 state (launching a run that is not queued, recording or idling a run that is not live, a negative cycle
 delta, requeuing from a state that cannot be requeued, relaunching a run the policy does not
-allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite). A refusal prints one line that
+allow, a judgment job past its limit or Stop at, an objective with no `Run state:` to rewrite, `board draft` or `board settled` on a run in the wrong
+state, a `board settled` that would move an id that is not there or add a unit). A refusal prints one line that
 begins `REFUSED ` followed by the reason text a gate returns (`fleet-hold: ...`,
 `fleet-lock: ...` or `fleet-board: ...`).
 """
@@ -561,6 +609,9 @@ def split_list(v):
 
 
 NOTICE_IDS = ("cycle-80", "cycle-100", "judgment-80", "judgment-100", "stop-at")
+V4_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
+           r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| agents: (\d+) \| out: (\d+) \| "
+           r"draft: (.+?) \| written: (none|\d+(?:,\d+)*) \| handoff: (.+?) \| stop: (.+)" % SLUG_RE)
 V3_LINE = (r"- (%s) \| state: (\S+) \| cycles: (\d+) \| launches: (\d+) \| from: (\d+) \| "
            r"closed: (\d+) \| dry: (\d+) \| nonce: (\S+) \| agents: (\d+) \| out: (\d+) \| "
            r"handoff: (.+?) \| stop: (.+)" % SLUG_RE)
@@ -574,24 +625,33 @@ FLEET_LINE = r"- fleet \| judgment: (\d+) \| (?:agents: (\d+) \| out: (\d+) \| )
 def parse_board_line(ln, where):
     """A v2 run line, or a v1 one (S9a's seven fields) read with closed 0, dry 0, nonce none."""
     ln = ln.rstrip("\n")
+    m = re.fullmatch(V4_LINE, ln)
+    if m and m.group(2) in STATES:
+        g = m.groups()
+        return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
+                "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
+                "agents": int(g[8]), "out": int(g[9]), "draft": g[10],
+                "written": [] if g[11] == "none" else [int(x) for x in g[11].split(",")],
+                "handoff": g[12], "stop": g[13]}
     m = re.fullmatch(V3_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
-                "agents": int(g[8]), "out": int(g[9]), "handoff": g[10], "stop": g[11]}
+                "agents": int(g[8]), "out": int(g[9]), "draft": "none", "written": [],
+                "handoff": g[10], "stop": g[11]}
     m = re.fullmatch(V2_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": int(g[5]), "dry": int(g[6]), "nonce": g[7],
-                "agents": 0, "out": 0, "handoff": g[8], "stop": g[9]}
+                "agents": 0, "out": 0, "draft": "none", "written": [], "handoff": g[8], "stop": g[9]}
     m = re.fullmatch(V1_LINE, ln)
     if m and m.group(2) in STATES:
         g = m.groups()
         return {"slug": g[0], "state": g[1], "cycles": int(g[2]), "launches": int(g[3]),
                 "from": int(g[4]), "closed": 0, "dry": 0, "nonce": "none",
-                "agents": 0, "out": 0, "handoff": g[5], "stop": g[6]}
+                "agents": 0, "out": 0, "draft": "none", "written": [], "handoff": g[5], "stop": g[6]}
     raise Fail(EXIT_ERROR, "%s: malformed board line %r; fix or delete it" % (where, ln.strip()))
 
 
@@ -607,9 +667,11 @@ def parse_fleet_line(ln, where):
 def board_line(b):
     clean = lambda v: str(v).replace("|", "/").replace("\n", " ")
     return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
-            "nonce: %s | agents: %d | out: %d | handoff: %s | stop: %s") % (
+            "nonce: %s | agents: %d | out: %d | draft: %s | written: %s | handoff: %s | stop: %s") % (
         b["slug"], b["state"], b["cycles"], b["launches"], b["from"], b["closed"], b["dry"],
-        b["nonce"], b["agents"], b["out"], clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
+        b["nonce"], b["agents"], b["out"], clean(b["draft"]) or "none",
+        ",".join(str(n) for n in sorted(b["written"])) or "none",
+        clean(b["handoff"]) or "none", clean(b["stop"]) or "none")
 
 
 def fleet_line(f, board):
@@ -837,8 +899,8 @@ def effective_board(prog):
     for r in prog["runs"]:
         out.append(prog["board"].get(r["slug"]) or {
             "slug": r["slug"], "state": "queued", "cycles": 0, "launches": 0, "from": 0,
-            "closed": 0, "dry": 0, "nonce": "none", "agents": 0, "out": 0, "handoff": "none",
-            "stop": "none"})
+            "closed": 0, "dry": 0, "nonce": "none", "agents": 0, "out": 0, "draft": "none",
+            "written": [], "handoff": "none", "stop": "none"})
     return out
 
 
@@ -962,6 +1024,7 @@ def begin_launch(run, b):
     b["from"] = resume_count(text)
     b["closed"] = closed_count(text)
     b["state"] = "live"
+    b["draft"], b["written"] = "none", []
     b["launches"] += 1
     b["nonce"] = new_nonce()
     return b["nonce"]
@@ -1046,6 +1109,8 @@ def decide(prog, board, cap, lim):
                 live += r["lanes"]
                 for x in r["resources"]:
                     held.setdefault(x, slug)
+        elif b["state"] == "settle" and b["draft"] != "none":
+            out.append((slug, "brief", ""))
         elif b["state"] == "settle":
             out.append((slug, "settle", "owner-only" if re.match(r"[23]\b", b["stop"]) else ""))
         elif b["state"] == "owner":
@@ -1113,25 +1178,60 @@ def find_run(prog, slug):
     raise Fail(EXIT_USAGE, "--run %s is not a run in this program" % slug)
 
 
-def set_run_state(path, date):
-    """Write `Run state: fleet-relaunch <date>` over the first `Run state:` line inside the
-    objective's `## Scoreboard`, nothing else changed: under a flock on <objective>.lock, replacing
-    the file atomically. -> None, or the refusal text when there is no such scoreboard or line."""
+class ObjectiveRefusal(Exception):
+    """Raised inside a rewrite_objective transform: refuse, write nothing."""
+
+
+def find_run_state(lines):
+    """-> (line index, current value) of the first `Run state:` line inside `## Scoreboard` (the
+    heading line up to the next `## ` heading), or None. The one parser of that line."""
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("## Scoreboard")), None)
+    if at is None:
+        return None
+    end = next((i for i in range(at + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    for i in range(at, end):
+        m = re.match(r"^[ \t]*Run state:[ \t]*([^\r\n]*)", lines[i])
+        if m:
+            return i, m.group(1).strip()
+    return None
+
+
+def rewrite_objective(path, transform):
+    """The one objective writer: under a flock on <objective>.lock, read the file, call
+    transform(lines) -> (changed lines or None for no change, result), replace the file
+    atomically when the text changed. -> (refusal text or None, result). transform refuses by
+    raising ObjectiveRefusal, before anything is written."""
     try:
         with open(path + ".lock", "a") as lk:
             fcntl.flock(lk, fcntl.LOCK_EX)
             with open(path, encoding="utf-8", newline="") as f:
                 text = f.read()
-            at = text.find("## Scoreboard")
-            m = re.compile(r"(?m)^([ \t]*Run state:)[ \t]*[^\r\n]*").search(text, at) if at >= 0 else None
-            if not m:
-                return ("fleet-board: %s has no '## Scoreboard' with a 'Run state:' line to "
-                        "rewrite" % path)
-            new = text[:m.start()] + "%s fleet-relaunch %s" % (m.group(1), date) + text[m.end():]
-            atomic_write(path, new, prefix=".fleet-objective-")
-            return None
+            lines = text.splitlines(keepends=True)
+            try:
+                out, result = transform(lines)
+            except ObjectiveRefusal as e:
+                return str(e), None
+            new = "".join(lines if out is None else out)
+            if new != text:
+                atomic_write(path, new, prefix=".fleet-objective-")
+            return None, result
     except OSError as e:
         raise Fail(EXIT_ERROR, "cannot rewrite objective %s: %s" % (path, e))
+
+
+def set_run_state(path, date):
+    """Write `Run state: fleet-relaunch <date>` over the first `Run state:` line inside the
+    objective's `## Scoreboard`, nothing else changed. -> None, or the refusal text when there is
+    no such scoreboard or line."""
+    def transform(lines):
+        at = find_run_state(lines)
+        if not at:
+            raise ObjectiveRefusal("fleet-board: %s has no '## Scoreboard' with a 'Run state:' line "
+                                   "to rewrite" % path)
+        m = re.match(r"^([ \t]*Run state:)[ \t]*[^\r\n]*(\r?\n?)$", lines[at[0]])
+        lines[at[0]] = "%s fleet-relaunch %s%s" % (m.group(1), date, m.group(2))
+        return None, None
+    return rewrite_objective(path, transform)[0]
 
 
 def cmd_board(sub, a):
@@ -1147,7 +1247,7 @@ def cmd_board(sub, a):
     if sub == "judgment":
         return cmd_judgment(a)
     need(a, "run")
-    if sub == "record":
+    if sub in ("record", "draft", "settled"):
         need(a, "return")
     with ProgramLocked(a["program"]) as st:
         prog = st.prog
@@ -1195,12 +1295,27 @@ def cmd_board(sub, a):
             b["state"] = "relaunch"
             b["stop"] = "idle \u2014 no return"
             b["handoff"] = last_handoff(text)
+            b["draft"], b["written"] = "none", []
             loop_guard(run, b)
         elif sub == "requeue":
             if b["state"] not in ("settle", "relaunch", "owner"):
                 return refuse(EXIT_BOARD, "fleet-board: %s is %s; only settle, relaunch or "
                                           "owner can be requeued" % (run["slug"], b["state"]))
             b["state"] = "queued"
+            b["draft"], b["written"] = "none", []
+        elif sub == "draft":
+            rc = record_draft(run, b, a["return"])
+            if rc:
+                return rc
+            write_settle_counts(a["program"], run["slug"], None, (), ())
+        elif sub == "settled":
+            rc, last = record_settled(a["program"], run, b, a["return"])
+            if rc:
+                return rc
+            st.write(board)
+            print(board_line(b))
+            print(last)
+            return 0
         else:  # record
             rc = record_return(run, b, a["return"])
             if rc:
@@ -1407,6 +1522,238 @@ def cmd_judgment(a):
         return 0
 
 
+def read_settler_return(path, status, run):
+    """Validate a settler return file with settler_return.check. -> (block, None) or (None, rc)
+    after printing `BLOCKED: <problem>` lines and `BLOCKED` (exit 1): the file must check clean,
+    carry SETTLER: <status>, and name the run's objective."""
+    import settler_return
+    text = read_text(path, "settler return")
+    problems = settler_return.check(text)
+    block = settler_return.parse(text)[0]
+    if not problems and block["status"] != status:
+        problems.append("the return says SETTLER: %s, but this command takes %s" % (
+            block["status"], status))
+    if not problems and os.path.realpath(block["objective"]) != os.path.realpath(run["objective"]):
+        problems.append("the return is for objective %s, not %s's %s" % (
+            block["objective"], run["slug"], run["objective"]))
+    if problems:
+        for p in problems:
+            print("BLOCKED: %s" % p)
+        print("BLOCKED")
+        return None, EXIT_INVALID
+    return block, None
+
+
+def record_draft(run, b, ret_path):
+    """`board draft`: store the DRAFTED return's absolute path on a settle run with no draft."""
+    if b["state"] != "settle" or b["draft"] != "none":
+        return refuse(EXIT_BOARD, "fleet-board: %s is %s%s; a draft is recorded only on a settle "
+                                  "run that has none" % (
+            run["slug"], b["state"], " with a draft" if b["draft"] != "none" else ""))
+    block, rc = read_settler_return(ret_path, "DRAFTED", run)
+    if rc:
+        return rc
+    b["draft"] = os.path.abspath(ret_path)
+    b["written"] = []
+    return 0
+
+
+def settle_counts_path(program):
+    return program + ".settle.json"
+
+
+def read_settle_counts(program, slug, draft):
+    """-> (unparked ids, dropped ids) named by `unpark` / `drop` TODOs of earlier `board settled`
+    calls under this draft, applied or not."""
+    try:
+        with open(settle_counts_path(program), encoding="utf-8") as f:
+            e = json.load(f).get(slug) or {}
+    except FileNotFoundError:
+        return set(), set()
+    except (OSError, ValueError, AttributeError) as e:
+        raise Fail(EXIT_ERROR, "cannot read %s: %s; fix or delete it" % (settle_counts_path(program), e))
+    if not isinstance(e, dict) or e.get("draft") != draft:
+        return set(), set()
+    try:
+        return set(map(str, e.get("unparked", []))), set(map(str, e.get("dropped", [])))
+    except TypeError:
+        raise Fail(EXIT_ERROR, "%s has an unexpected shape; fix or delete it" % settle_counts_path(program))
+
+
+def write_settle_counts(program, slug, draft, unparked, dropped):
+    """Record the id sets for `slug`'s current draft (draft None clears the entry); called under
+    the program lock. The file is a sidecar of the program, never part of it."""
+    path = settle_counts_path(program)
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except FileNotFoundError:
+        doc = {}
+    except (OSError, ValueError) as e:
+        raise Fail(EXIT_ERROR, "cannot read %s: %s; fix or delete it" % (path, e))
+    if not isinstance(doc, dict):
+        raise Fail(EXIT_ERROR, "%s has an unexpected shape; fix or delete it" % path)
+    if draft is None:
+        if slug not in doc:
+            return
+        del doc[slug]
+    else:
+        doc[slug] = {"draft": draft, "unparked": sorted(unparked), "dropped": sorted(dropped)}
+    atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n", prefix=".fleet-settle-")
+
+
+_FIELD = r"^([ \t]*%s:[ \t]*)(.*?)([ \t]*)((?:\r?\n)?)$"
+
+
+def _sb_blocks(lines):
+    """-> list of (start, end) line ranges inside `## Scoreboard`: one per `Lane:` heading (the
+    preamble before the first heading too, when there are headings), or the whole scoreboard
+    when it has none. None when there is no `## Scoreboard`."""
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("## Scoreboard")), None)
+    if at is None:
+        return None
+    end = next((i for i in range(at + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    heads = [i for i in range(at + 1, end) if re.match(r"\s*(?:#+\s*)?Lane:\s*\S", lines[i])]
+    if not heads:
+        return [(at, end)]
+    cuts = [at] + heads + [end]
+    return [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1)]
+
+
+def _field_at(lines, block, label):
+    """-> (line index, items) of the first `<label>:` line in the block, or None."""
+    for i in range(block[0], block[1]):
+        m = re.match(_FIELD % label, lines[i])
+        if m:
+            v = m.group(2).strip()
+            items = [] if not v or v.upper() == "NONE" else [x.strip() for x in v.split(",") if x.strip()]
+            return i, items
+    return None
+
+
+def _set_items(lines, i, label, items):
+    m = re.match(_FIELD % label, lines[i])
+    lines[i] = m.group(1) + (", ".join(items) or "NONE") + m.group(3) + m.group(4)
+
+
+def _has(items, uid):
+    return any(x.split()[0] == uid for x in items)
+
+
+def _without(items, uid):
+    return [x for x in items if x.split()[0] != uid]
+
+
+def edit_scoreboard(path, todos, written_n, prior, finish, date):
+    """Apply `unpark` and `drop` TODOs to the objective's scoreboard lines and, when `finish`,
+    rewrite the first `Run state:` there, all in memory first: a refusal writes nothing. Refused
+    too while `Run state:` reads `running`. Only scoreboard lines change. `prior` is the
+    (unparked ids, dropped ids) already named under this draft. -> (refusal or None, unparked
+    ids, dropped ids): the ids named by this call's TODOs, whether applied now or already done."""
+    def transform(lines):
+        blocks = _sb_blocks(lines)
+        if blocks is None:
+            raise ObjectiveRefusal("fleet-board: %s has no '## Scoreboard' to settle into" % path)
+        rs = find_run_state(lines)
+        if rs and re.match(r"running\b", rs[1]):
+            raise ObjectiveRefusal("fleet-board: %s reads 'Run state: running'; settles edit only "
+                                   "while it reads stopped, waiting-on-human, settled or "
+                                   "fleet-relaunch" % path)
+        unparked, dropped = set(), set()
+        for verb, uid in todos:
+            found = {lab: [(b, _field_at(lines, b, lab)) for b in blocks] for lab in
+                     ("Parked", "Outstanding", "Closed")}
+            hit = lambda lab: [(b, f) for b, f in found[lab] if f and _has(f[1], uid)]
+            if verb == "unpark":
+                if hit("Parked"):
+                    b, f = hit("Parked")[0]
+                    out = _field_at(lines, b, "Outstanding")
+                    if not out:
+                        raise ObjectiveRefusal("fleet-board: no 'Outstanding:' line to move %s into" % uid)
+                    _set_items(lines, f[0], "Parked", _without(f[1], uid))
+                    _set_items(lines, out[0], "Outstanding", out[1] + [uid])
+                elif not hit("Outstanding"):
+                    raise ObjectiveRefusal("fleet-board: unpark %s, which is in no lane's Parked: and "
+                                           "not already Outstanding:" % uid)
+                unparked.add(uid)
+            else:
+                live = hit("Parked") + hit("Outstanding")
+                dropped_already = any(_has(f[1], uid) and "dropped by the owner" in
+                                      [x for x in f[1] if x.split()[0] == uid][0]
+                                      for b, f in found["Closed"] if f)
+                if live:
+                    b = live[0][0]
+                    clo = _field_at(lines, b, "Closed")
+                    if not clo and not dropped_already:
+                        raise ObjectiveRefusal("fleet-board: no 'Closed:' line to record %s in" % uid)
+                    for lab in ("Parked", "Outstanding"):
+                        f = _field_at(lines, b, lab)
+                        if f and _has(f[1], uid):
+                            _set_items(lines, f[0], lab, _without(f[1], uid))
+                    if not dropped_already:
+                        _set_items(lines, clo[0], "Closed",
+                                   clo[1] + ["%s (dropped by the owner %s)" % (uid, date)])
+                elif not dropped_already:
+                    raise ObjectiveRefusal("fleet-board: drop %s, which is in no lane's Parked: or "
+                                           "Outstanding: and is not already dropped" % uid)
+                dropped.add(uid)
+        if finish:
+            at = find_run_state(lines)
+            if at is None:
+                raise ObjectiveRefusal("fleet-board: %s has no 'Run state:' line in its Scoreboard" % path)
+            waiting = any(f and f[1] for b in blocks for lab in ("Waiting", "Awaiting approval")
+                          for f in [_field_at(lines, b, lab)])
+            m = re.match(_FIELD % "Run state", lines[at[0]])
+            state = "waiting-on-human" if waiting else (
+                "settled %s \u2014 %d answered, %d unparked, 0 added, %d dropped" % (
+                    date, written_n, len(set(prior[0]) | unparked), len(set(prior[1]) | dropped)))
+            lines[at[0]] = m.group(1) + state + m.group(3) + m.group(4)
+        return None, (unparked, dropped)
+    bad, res = rewrite_objective(path, transform)
+    return (bad, set(), set()) if bad else (None,) + res
+
+
+def record_settled(program, run, b, ret_path):
+    """`board settled`: fold a WRITTEN settler return into the board and the objective's
+    scoreboard lines. -> (rc, last line to print or None); the caller writes the board."""
+    import settler_return
+    if b["state"] != "settle" or b["draft"] == "none":
+        return refuse(EXIT_BOARD, "fleet-board: %s is %s%s; settled applies to a settle run that "
+                                  "has a recorded draft" % (
+            run["slug"], b["state"], " with no draft" if b["state"] == "settle" else "")), None
+    block, rc = read_settler_return(ret_path, "WRITTEN", run)
+    if rc:
+        return rc, None
+    drafted = settler_return.parse(read_text(b["draft"], "drafted settler return"))[0]
+    if os.path.realpath(block["draft"]) != os.path.realpath(drafted["draft"] or ""):
+        print("BLOCKED: the return's DRAFT %s is not the recorded draft's %s" % (
+            block["draft"], drafted["draft"]))
+        print("BLOCKED")
+        return EXIT_INVALID, None
+    todos = [settler_return.parse_todo(t) for t in block["todos"]]
+    for verb, uid, _ in todos:
+        if verb == "add":
+            return refuse(EXIT_BOARD, "fleet-board: %s adds unit %s; settle it with /stu:settle %s" % (
+                run["slug"], uid, run["objective"])), None
+    ids = [int(x[1:]) for x in block["written"]]
+    union = sorted(set(b["written"]) | set(ids))
+    finish = not block["unanswered"]
+    prior = read_settle_counts(program, run["slug"], b["draft"])
+    date = stamp()[:10]
+    bad, u, d = edit_scoreboard(run["objective"], [(v, i) for v, i, _ in todos], len(union),
+                                prior, finish, date)
+    if bad:
+        return refuse(EXIT_BOARD, bad), None
+    b["written"] = union
+    if finish:
+        write_settle_counts(program, run["slug"], None, (), ())
+        b["state"] = "queued"
+        b["draft"], b["written"] = "none", []
+        return 0, "requeued %s" % run["slug"]
+    write_settle_counts(program, run["slug"], b["draft"], prior[0] | u, prior[1] | d)
+    return 0, "pending %s: %s" % (run["slug"], ", ".join(block["unanswered"]))
+
+
 def record_return(run, b, ret_path):
     import run_check
     text = read_text(ret_path, "supervisor return")
@@ -1436,6 +1783,7 @@ def record_return(run, b, ret_path):
     b["state"] = NEXT_STATE[f["NEXT"]]
     b["handoff"] = f["LAST-HANDOFF"]
     b["stop"] = f["STOP-CONDITION"]
+    b["draft"], b["written"] = "none", []
     loop_guard(run, b)
     return 0
 
@@ -1537,6 +1885,105 @@ def cmd_next(sub, a):
     return code
 
 
+def drafted_runs(prog):
+    """-> [(run, board line, parsed drafted return)] for every run with a draft, in Runs order."""
+    import settler_return
+    out = []
+    for b in effective_board(prog):
+        if b["draft"] != "none":
+            run = find_run(prog, b["slug"])
+            out.append((run, b, settler_return.parse(read_text(b["draft"], "drafted settler return"))[0]))
+    return out
+
+
+def cmd_brief(sub, a):
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    drafts = drafted_runs(prog)
+    if not drafts:
+        print("brief: none")
+        return 0
+    for run, b, d in drafts:
+        keep = []
+        for ln in (d["brief"] or "").splitlines():
+            m = re.match(r"^\s*(\d+)\.\s", ln)
+            if m and int(m.group(1)) in b["written"]:
+                continue
+            keep.append(ln)
+        while keep and (not keep[-1].strip() or keep[-1].startswith("Answer:")):
+            keep.pop()  # the run's own Answer: line; one line for the whole brief follows
+        print("\n".join(keep))
+        print()
+    if len(drafts) == 1:
+        print("Answer: %s: fine | accept 2 | reverse 2, 5 | talk about 3" % drafts[0][0]["slug"])
+    else:
+        print("Answer per run, one per line or separated by ';': <slug>: <answer>")
+    return 0
+
+
+ANSWER_WORDS = ("fine", "accept", "reverse", "talk")
+
+
+def cmd_answer(sub, a):
+    need(a, "line")
+    prog = load_program(a["program"])
+    rc = need_valid(prog)
+    if rc:
+        return rc
+    drafts = drafted_runs(prog)
+    by_slug = {r["slug"]: (b, d) for r, b, d in drafts}
+    known = [r["slug"] for r in prog["runs"]]
+    problems, answers = [], {}
+    for seg in re.split(r"[\n;]", a["line"]):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = re.match(r"^(%s)\s*:\s*(.*)$" % SLUG_RE, seg)
+        if m and m.group(1).lower() not in ANSWER_WORDS:
+            slug, text = m.group(1), m.group(2).strip()
+        elif len(drafts) == 1:
+            slug, text = drafts[0][0]["slug"], seg
+        elif drafts:
+            problems.append("%r names no run; several runs have a draft, so prefix it with "
+                            "<slug>:" % seg)
+            continue
+        else:
+            problems.append("%r answers nothing: no run has a draft" % seg)
+            continue
+        if slug not in known:
+            problems.append("%s is not a run in this program" % slug)
+            continue
+        if slug not in by_slug:
+            problems.append("%s has no draft to answer" % slug)
+            continue
+        if slug in answers:
+            problems.append("%s is answered twice" % slug)
+            continue
+        answers[slug] = text
+        b, d = by_slug[slug]
+        n = int(d["rulings_n"])
+        for kind, nums in re.findall(r"\b(accept|reverse|talk about)\b\s+(\d+(?:\s*,\s*\d+)*)", text):
+            for num in re.findall(r"\d+", nums):
+                k = int(num)
+                if not 1 <= k <= n:
+                    problems.append("%s: %s %d is outside the draft's 1..%d" % (slug, kind, k, n))
+                elif k in b["written"]:
+                    problems.append("%s: %s %d is already written" % (slug, kind, k))
+    if problems:
+        for p in problems:
+            print("BLOCKED: %s" % p)
+        print("BLOCKED")
+        return EXIT_INVALID
+    for run, b, d in drafts:
+        if run["slug"] in answers:
+            print("answer %s | draft: %s | line: %s" % (run["slug"], d["draft"], answers[run["slug"]]))
+        else:
+            print("unanswered %s" % run["slug"])
+    return 0
+
+
 # ---- command line -----------------------------------------------------------------------
 
 SPEC = {
@@ -1557,16 +2004,21 @@ PROGRAM_SPEC = {
     ("board", "idle"): (("run",), ()),
     ("board", "relaunch"): (("run",), ()),
     ("board", "judgment"): (("job",), ()),
+    ("board", "draft"): (("run", "return"), ()),
+    ("board", "settled"): (("run", "return"), ()),
+    ("brief", None): ((), ()),
+    ("answer", None): (("line",), ()),
     ("spend", None): ((), ()),
     ("actuals", None): ((), ()),
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue|idle|relaunch|judgment P [flags] | spend P | actuals P | next P")
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|draft|settled P [flags] | spend P | actuals P | next P | "
+         "brief P | answer P --line TEXT")
 
 
 def parse(argv):
-    if argv and argv[0] in ("spend", "next", "actuals"):
+    if argv and argv[0] in ("spend", "next", "actuals", "brief", "answer"):
         key, rest = (argv[0], None), argv[1:]
     elif len(argv) >= 2 and (argv[0], argv[1]) in PROGRAM_SPEC:
         key, rest = (argv[0], argv[1]), argv[2:]
@@ -1598,7 +2050,8 @@ def parse(argv):
 
 
 DISPATCH = {"hold": cmd_hold, "lock": cmd_lock, "program": cmd_program, "board": cmd_board,
-            "spend": cmd_spend, "actuals": cmd_actuals, "next": cmd_next}
+            "spend": cmd_spend, "actuals": cmd_actuals, "next": cmd_next, "brief": cmd_brief,
+            "answer": cmd_answer}
 
 
 def main(argv):

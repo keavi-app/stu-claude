@@ -400,8 +400,16 @@ first line. `DRAFTED` needs `BRIEF:`, which ends in an `Answer:` line, and carri
 WRITTEN: <R ids written>
 UNANSWERED: <R ids or none>
 HOLD: none | set — <reason>
-SCOREBOARD-TODO: <one 5b write the dispatcher still owes>      (zero or more lines)
+SCOREBOARD-TODO: unpark <id> | drop <id> | add <id> — <one line>      (zero or more lines)
 ```
 
 `WRITTEN` and `UNANSWERED` together cover exactly the `R` ids. Bare `fine` covers only unflagged items and items flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier verdict is not `HOLDS`, needs an explicit `accept <n>`. The brief's `Answer:` line is `Answer: fine | accept 2 | reverse 2, 5 | talk about 3`, combinable. A `SCOREBOARD-TODO` line is one
-change under the settle skill's step 5b, for example a unit moving from Parked to Outstanding.
+scoreboard change under the settle skill's step 5b, and is exactly one of three forms; anything else is malformed:
+
+- `unpark <id>`: an answered unit moves from Parked to Outstanding;
+- `drop <id>`: the owner dropped the unit;
+- `add <id> — <one line>`: the owner asked for new work.
+
+The settler never writes a `Run state` line, and never returns a `Run state` TODO: `stu-fleet board settled` owns that
+line, and applies `unpark` and `drop` itself. It refuses an `add`, which needs the interactive `/stu:settle`
+(lane choice, the units table, ID checks).

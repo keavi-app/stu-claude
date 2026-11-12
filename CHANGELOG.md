@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.17
+
+- `stu-fleet` now carries a stopped run's settle through to the next launch. `board draft` records
+  the settler's drafted return against a run in `settle`; `next` then says `brief <slug>`; `brief`
+  prints every draft as one owner brief, hiding items already written; `answer` splits the owner's
+  one-line reply per run and checks the item numbers; `board settled` takes the settler's written
+  return, moves unparked and dropped units on the scoreboard itself, writes the `Run state:` line,
+  and requeues the run once nothing is left unanswered. A new unit the owner asks for is refused
+  there and stays with the interactive `/stu:settle`.
+- A `SCOREBOARD-TODO:` line from the settler is now exactly `unpark <id>`, `drop <id>` or
+  `add <id> — <one line>`; the settler no longer returns a `Run state` line.
+- The board line gains `draft:` and `written:` after `out:`. A 0.2.16 board reads as none and gains
+  the fields on its next write.
+
 ## 0.2.16
 
 - `/stu:fleet` now acts on what `stu-fleet` decides: it launches with the nonce `board launch`
