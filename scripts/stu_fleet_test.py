@@ -323,9 +323,13 @@ def program(runs, header=HEADER, tail=""):
             " | lanes: %s" % r[4] if len(r) > 4 else "",)) for r in runs) + tail)
 
 
+NO_PROJECTS = os.path.join(TMP, "no-projects")
+
+
 def pfleet(*args, **kw):
     kw.setdefault("extra", {})
     kw["extra"].setdefault("STU_FLEET_MAX_LANES", "4")
+    kw["extra"].setdefault("STU_PROJECTS_ROOT", NO_PROJECTS)  # never the real transcripts
     return fleet(*args, **kw)
 
 
@@ -419,13 +423,18 @@ def test_program_check():
 
 
 BOARD_HEAD = ("- {s} | state: {st} | cycles: {c} | launches: {l} | from: {f} | closed: {k} | "
-              "dry: {d} | nonce: {n} | handoff: {h} | stop: {p}")
-FLEET0 = "- fleet | judgment: 0 | notices: none"
+              "dry: {d} | nonce: {n} | agents: {a} | out: {o} | handoff: {h} | stop: {p}")
+FLEET0 = "- fleet | judgment: 0 | agents: 0 | out: 0 | notices: none"
 NONCE = "stu-testnonce01"
 
 
-def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none"):
-    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n)
+def brd(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none", a=0, o=0):
+    return BOARD_HEAD.format(s=s, st=st, c=c, l=l, f=f, h=h, p=p, k=k, d=d, n=n, a=a, o=o)
+
+
+def v2(s, st="queued", c=0, l=0, f=0, h="none", p="none", k=0, d=0, n="none"):
+    return ("- %s | state: %s | cycles: %d | launches: %d | from: %d | closed: %d | dry: %d | "
+            "nonce: %s | handoff: %s | stop: %s") % (s, st, c, l, f, k, d, n, h, p)
 
 
 def v1(s, st="queued", c=0, l=0, f=0, h="none", p="none"):
@@ -462,8 +471,9 @@ def test_board():
     # record
     ret = run_ret(os.path.join(PDIR, "ret.txt"), a)
     rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", ret)
-    check("record ok", (rc, out), (0, [brd("alpha", "relaunch", c=3, l=1, h=HANDOFF, d=1, n=NONCE,
-                                           p="10 — cycle cap exhausted")]))
+    check("record ok", (rc, out[:1], len(out), out[1].startswith("actuals: unavailable \u2014 ")),
+          (0, [brd("alpha", "relaunch", c=3, l=1, h=HANDOFF, d=1, n=NONCE,
+                   p="10 — cycle cap exhausted")], 2, True))
     check("record on non-live refused", pfleet("board", "record", PROG, "--run", "alpha",
                                                "--return", ret)[0], 13)
     # requeue
@@ -572,8 +582,8 @@ def test_spend():
             tail="\n## Fleet board\n" + brd("alpha", "done", c=5, l=2) + "\n" + brd("beta", "live", c=3, l=1) + "\n")
     rc, out, err = pfleet("spend", PROG)
     check("spend default budget is the sum of caps", (rc, out), (0, [
-        "run alpha: cycles 5, launches 2, dry 0", "run beta: cycles 3, launches 1, dry 0",
-        "fleet: cycles 8", "budget: 8/10 (80%)", "judgment-jobs: 0/none", "stop-at: none (not passed)"]))
+        "run alpha: cycles 5, launches 2, dry 0, agents 0, out 0", "run beta: cycles 3, launches 1, dry 0, agents 0, out 0",
+        "fleet: cycles 8, agents 0, out 0", "budget: 8/10 (80%)", "judgment-jobs: 0/none", "stop-at: none (not passed)"]))
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: 40\n")
     check("explicit budget", pfleet("spend", PROG)[1][-3], "budget: 0/40 (0%)")
     program([("alpha", a, "none", "none")], header=HEADER + "Cycle budget: none\n")
@@ -743,7 +753,7 @@ def test_board_v2_grammar():
     check("v1 board migrates on read", (rc, out), (0, [
         brd("alpha", "relaunch", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0]))
     rc, out, err = pfleet("board", "requeue", PROG, "--run", "alpha")
-    check("next write emits v2 for every line", open(PROG).read().endswith(
+    check("next write emits v3 for every line", open(PROG).read().endswith(
         "## Fleet board\n%s\n%s\n%s\n" % (brd("alpha", c=2, l=1, h="/h.md", p="10 — cap"), brd("beta"), FLEET0)), True)
     # mixed v1 and v2, a fleet line with notices
     program(prog_runs, tail="\n## Fleet board\n" + brd("alpha", "live", k=2, d=1, n="stu-x1234567") + "\n" +
@@ -751,7 +761,7 @@ def test_board_v2_grammar():
     rc, out, err = pfleet("board", "show", PROG)
     check("mixed board", (rc, out), (0, [brd("alpha", "live", k=2, d=1, n="stu-x1234567"),
                                          brd("beta", "done", c=3),
-                                         "- fleet | judgment: 2 | notices: cycle-80,stop-at"]))
+                                         "- fleet | judgment: 2 | agents: 0 | out: 0 | notices: cycle-80,stop-at"]))
     for name, tail in (
             ("fleet line not last", brd("alpha") + "\n- fleet | judgment: 0 | notices: none\n" + brd("beta") + "\n"),
             ("duplicate fleet line", FLEET0 + "\n" + FLEET0 + "\n"),
@@ -926,7 +936,7 @@ def test_limits_and_next():
     rc, out2, err = pfleet("next", PROG)
     check("each notice prints once across calls", [x for x in out2 if x.startswith("notice")], [])
     check("fleet line records them", open(PROG).read().rstrip().endswith(
-        "- fleet | judgment: 0 | notices: cycle-80,cycle-100"), True)
+        "- fleet | judgment: 0 | agents: 0 | out: 0 | notices: cycle-80,cycle-100"), True)
     # 80% only
     program(two, header=HEADER + "Cycle budget: 10\n", tail="\n## Fleet board\n" + brd("alpha", "done", c=8) + "\n")
     out = pfleet("next", PROG)[1]

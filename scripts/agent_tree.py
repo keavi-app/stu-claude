@@ -91,14 +91,19 @@ def first_record_text(path):
     return ""
 
 
+def nonce_hits(sdir, nonce):
+    """Every agent file under one subagents dir whose first record holds the nonce line."""
+    line = re.compile(r"(?m)^(?:STU-SUPERVISED|STU-NONCE):[ \t]*%s[ \t]*$" % re.escape(nonce))
+    return [p for p in sorted(glob.glob(os.path.join(sdir, "agent-*.jsonl")))
+            if line.search(first_record_text(p))]
+
+
 def find_by_nonce(session, nonce):
     """-> (agent id, jsonl path) of the one agent whose first record has the nonce line."""
     if not nonce or not NONCE_RE.match(nonce):
         raise NotFound("nonce must be 6-80 characters of letters, digits, . _ -")
     sdir = subagents_dir(session)
-    line = re.compile(r"(?m)^(?:STU-SUPERVISED|STU-NONCE):[ \t]*%s[ \t]*$" % re.escape(nonce))
-    hits = [p for p in sorted(glob.glob(os.path.join(sdir, "agent-*.jsonl")))
-            if line.search(first_record_text(p))]
+    hits = nonce_hits(sdir, nonce)
     if not hits:
         raise NotFound("no agent file under %s has the nonce line %s" % (sdir, nonce))
     if len(hits) > 1:
