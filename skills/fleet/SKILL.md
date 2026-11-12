@@ -80,9 +80,36 @@ answer. Act on the lines, then run `next` again after every state change.
   owner raises the cycle budget or `Stop at:` or edits the program, or looks at why two launches
   closed no unit. You never raise a limit or edit the program. Live supervisors are never
   stopped for a limit; only starts and relaunches are held.
-- `settle <slug>` and `settle <slug> owner-only`: **the settle brief loop is not built yet.**
-  List it in the owner report (operation 7) with the objective path and the line
-  `/stu:settle <objective path>`, and leave it unrequeued.
+- `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
+  `MODE: draft` and the objective path; the model is the judgment-model value (empty means
+  opus). Several in one message when several runs are in `settle`. A settler dispatch is never
+  counted as a judgment job. Save its return under `RUN_HOME/runs/<slug>/settle/`, then run
+  `stu-fleet board draft <program path> --run <slug> --return <file>`. A `BLOCKED` settler
+  return, a refusal, or a `board draft` refusal goes to the owner with the line
+  `/stu:settle <objective path>`, and the run is left alone. `owner-only` changes nothing in
+  draft mode (every item is drafted for the owner already); it matters only to the later
+  auto-narrow mode.
+- `brief <slug>`: once `next` shows no `settle` line still drafting (every pending draft is in),
+  send the output of `stu-fleet brief <program path>` to the owner exactly as printed
+  (operation 6). Other runs keep moving while it is open.
+- **The owner's answer.** Run `stu-fleet answer <program path> --line "<reply verbatim>"`. Exit 1:
+  show its `BLOCKED` lines and ask again. For each line
+  `answer <slug> | draft: <path> | line: <text>`, dispatch a `stu:settler` with `MODE: write`,
+  the draft path and the text verbatim; save its return under `RUN_HOME/runs/<slug>/settle/`; run
+  `stu-fleet board settled <program path> --run <slug> --return <file>`. Its last line is
+  `requeued <slug>` (the run is queued, and `next` starts it) or
+  `pending <slug>: <ids>` (the run stays in the brief). An `unanswered <slug>` line from
+  `answer` also stays in the brief.
+- `talk about <n>`: discuss that item with the owner in this session, one question per message,
+  as the settle skill's step 4 does (the worked example, the options, your recommendation first).
+  It ends in a follow-up answer for that run, `<slug>: accept <n>` or
+  `<slug>: reverse <n> <their words>`, which goes through `answer` and a write dispatch like any
+  other.
+- A `board settled` refusal (13), for an `add` or any other reason: give the owner the printed
+  line, which names `/stu:settle <objective path>`. After the owner says that settle is done,
+  run `stu-fleet board requeue <program path> --run <slug>`.
+- You never write the objective or the scoreboard, and you never perform a `SCOREBOARD-TODO`
+  yourself: `board settled` does.
 - `owner <slug> — <stop>` from the board: a stop that goes straight to the owner (conditions 4,
   7, 8, 9 and 11 of the run skill, or a wait on a merge, tag or approval). Send it to the owner
   as it is. Never relaunch it and never settle around it.
@@ -109,13 +136,14 @@ goes to the owner as it is; do not edit the board to get past it. Then run `next
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
 
-`requeue` (`stu-fleet board requeue`) happens only after the owner has settled or answered,
-never before, and never on your own judgment.
+`requeue` (`stu-fleet board requeue`) is for a settle the owner did by hand with `/stu:settle`,
+and only after they say it is done, never before and never on your own judgment. A settle done
+through `answer` and `board settled` requeues itself.
 
 ## 3. What you read, and what you do not
 
-You read board lines, supervisor return blocks, and `next`, `spend` and `actuals` output. Not diffs, logs,
-handoffs or reports. A fact you need that is not on those goes to a `stu:verifier` (operation
+You read board lines, supervisor return blocks, settler returns, and `next`, `spend`, `actuals`,
+`brief` and `answer` output. Not diffs, logs, handoffs, reports or the settler's draft files. A fact you need that is not on those goes to a `stu:verifier` (operation
 2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
 brief, review a diff, merge, or write an objective, scoreboard or the main checkout. The board is
 written only by `stu-fleet`.
@@ -138,8 +166,8 @@ drafts and verifier or scout dispatches are never counted.
 
 Stated here so nothing assumes it:
 
-- The settle brief loop: settle and owner-only settle stops are listed for the owner. (S11.)
 - Judgment seats other than the settler and verifier (groom, audit, design).
+- Auto-narrow settle mode (a program that asks for it behaves as draft mode).
 - Codex: there is no Codex binding for this skill; `codex/runtime.md` says `fleet: not bound yet`.
 
 ## Runtime binding
