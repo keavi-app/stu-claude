@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.12
+
+- `stu-fleet` can now read a fleet program file. `stu-fleet program check <program>` validates it
+  (header lines, runs, judgment work) and prints a one-line-per-field summary, or one `BLOCKED`
+  line per problem: a missing owner or settle mode, a bad number or time, an objective that is not
+  an absolute existing path, a run whose objective has no `Cycle cap:` line, an unknown or circular
+  `after:`.
+- The program file's `## Fleet board` section is the board, one line per run with its state,
+  fleet-cumulative cycles, launches, the count the current launch resumed from, last handoff and
+  last stop. Only `stu-fleet` writes it, under a lock and by atomic replace, and never touches
+  anything outside that section. `board show`, `launch`, `record` and `requeue` read and move it:
+  a live or done run is never launched, a return is checked with the same validator as
+  `stu-run-check --supervisor-return` before its cycles are counted, and a negative cycle delta is
+  refused rather than clamped. A board line that names no run, or is malformed, is an error.
+- `stu-fleet spend <program>` reports cycles and launches per run and the fleet's cycle budget (the
+  program's `Cycle budget:`, or by default the sum of the runs' caps). It reports only; enforcement
+  and judgment-job counting come later, and the output says so.
+- `stu-fleet next <program>` says what to do for each run (`start`, `wait` with the reason,
+  `settle`, `owner`, `relaunch`, `live`, `done`), then the merge hold and the live lane count. It
+  first releases a merge lock whose PR has merged, closed or lost its label.
+- New family-only config key `fleet_max_lanes` (positive integer, default 4, no ceiling), exposed by
+  `stu-env` as `FLEET_MAX_LANES`. A program's `Max live lanes:` overrides it.
+
 ## 0.2.11
 
 - The content lint that checks every repo-scoped `stu-env` call in `agents/` carries `--repo` now
