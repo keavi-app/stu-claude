@@ -16,6 +16,10 @@
 - `stu-fleet brief` heads each run with the program's run slug (the one `answer` takes), not the
   settler's run-directory slug, says `1 ruling` for one, and builds the single-run `Answer:`
   example from the brief's own item numbers.
+- The groomer writes only its report, the objective it feeds, filed issues and ledger-inbox files,
+  never stray copies of its return block, and marks a program or scope instruction in an
+  objective's rulings `(by: program)`, never `(by: owner)`. `(by: program)` joins the provenance
+  marks in the handoff format.
 
 ## 0.2.22
 

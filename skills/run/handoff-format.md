@@ -88,6 +88,8 @@ Every line ends with a provenance mark, so a later reversal is detectable:
 
 - `(by: owner)` — the owner gave the ruling.
 - `(by: settler; owner-approved <YYYY-MM-DD>)` — a settler drafted it and the owner accepted it in a brief.
+- `(by: program)` — an instruction from the fleet program or the job's scope, which a groomer
+  copied in; it is not the owner's ruling.
 - `(by: settler; auto-narrow)` — reserved for the opt-in auto-narrow mode; nothing writes it yet.
 
 A reversal line names the ruling it reverses by date and text, and carries its own mark. A line
