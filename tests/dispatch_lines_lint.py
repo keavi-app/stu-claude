@@ -12,11 +12,15 @@ def agent_lines(seat):
     t = open("agents/%s.md" % seat).read()
     if seat == "groomer":
         m = re.search(r"## Dispatch\n.*?```\n(.*?)```", t, re.S)
-        return [l.strip() for l in m.group(1).splitlines() if l.strip()]
+        return [l.strip() for l in m.group(1).splitlines() if l.strip()] if m else None
     if seat == "designer":
         m = re.search(r"## Dispatch\n\n(.*?)\n\n", t, re.S)
+        if not m:
+            return None
         return re.findall(r"`([A-Z]+: [^`]*)`", re.split(r"A\s+missing\s+line", m.group(1))[0])
     m = re.search(r"The dispatch carries one line, (.*?)\. No `MODE:`", t, re.S)
+    if not m:
+        return None
     return [x for x in re.findall(r"`(MODE: [a-z]+)`", m.group(1))]
 for seat, full in (("groomer", True), ("designer", True), ("settler", False)):
     have, want = skill_block(seat), agent_lines(seat)

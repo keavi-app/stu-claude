@@ -182,6 +182,9 @@ grep -qxF '## Runtime binding' skills/fleet/SKILL.md \
 # `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
 # file defines, so the two cannot drift. The groomer's and designer's lines match in full; the
 # settler's only by key (its agent file gives the values in prose).
-drift=$(python3 tests/dispatch_lines_lint.py)
+# A crash must fail the check, not print nothing: capture stderr and the exit status too.
+drift=$(python3 tests/dispatch_lines_lint.py 2>&1); rc=$?
+[ "$rc" -eq 0 ] || drift="${drift}${drift:+
+}dispatch_lines_lint.py exited $rc"
 check_set "the fleet skill's dispatch lines match each seat's agent file" "$drift"
 exit $((fails > 0))
