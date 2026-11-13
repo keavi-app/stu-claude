@@ -968,11 +968,12 @@ the default:
 
 Report `CYCLES_USED/CAP` in the morning line.
 
-**The cap counts per run**, not per invocation. At Resume, below the cap, the
-count continues (`<n+1>/<cap>`) if `Run state:` reads `settled <date> — nothing to settle`, or
-reads `stopped —` and any lane line carries `self-stop:`. Anything else, every `/stu:settle` line
-included, starts at `0/<cap>`; so does `Run state: fleet-relaunch <date>`, which only a fleet
-coordinator writes, because the objective's cap is per launch.
+**The cap counts per run**, not per invocation, and a settle does not reset it. At Resume the
+count continues from `Cycles used:` (`<n+1>/<cap>`) whatever `Run state:` reads, every
+`/stu:settle` line included; a run resuming at its cap stops at once with condition 10, and the
+owner raises the objective's `Cycle cap:` to grant more. The one exception is
+`Run state: fleet-relaunch <date>`, which only a fleet coordinator writes: that run starts at
+`0/<cap>`, and the fleet's cycle budget bounds the total.
 
 ## Turn discipline
 

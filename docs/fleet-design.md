@@ -191,7 +191,8 @@ cycle each was has not been checked.
 
 Four different needs:
 
-1. **A ceiling that survives settling.** The cycle cap is per run and a settle resets it. In an
+1. **A ceiling that survives settling.** The cycle cap is per run; since S16 a settle no longer
+   resets it, but a coordinator relaunch (`fleet-relaunch`) does. In an
    ordinary week something has to say "this fleet may spend this much, total".
 2. **A loop guard.** A run that relaunches without closing anything.
 3. **A deadline.** Three of the big sessions were the opposite of a ceiling: spare quota and a
@@ -378,6 +379,11 @@ rough edges. Decisions, each with what would reverse it:
    `owner_hold` (`owner-only` default, `any-question`, `none`) sets which entries hold. Owner:
    `skills/run/handoff-format.md`, section 3. Reverses if held units cost more than a ruled-after-merge
    change does, which `none` already allows per family.
+2. **A settle does not reset the cycle cap.** Trial 3's undo-bar-spec (`Cycle cap: 2`) ran one cycle,
+   settled, and the relaunch counted from `0/2` (any `/stu:settle` line reset the count), so the
+   board showed 3 cycles. Resume now continues from `Cycles used:` in every state but
+   `fleet-relaunch`, and `resume_count` agrees, so the board's `from` matches. Reverses if a settle
+   should grant a fresh cap; that would then be counted against the cycle budget explicitly.
 
 ## Merge hold and lock
 

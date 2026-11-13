@@ -344,19 +344,20 @@ def test_resume_count():
     rc = stu_fleet.resume_count
     sb = lambda st, used="3/4", extra="": "Run state: %s\nCycles used: %s\n%s" % (st, used, extra)
     check("settled nothing to settle continues", rc(sb("settled 2026-01-02 — nothing to settle")), 3)
-    check("settled other starts 0", rc(sb("settled 2026-01-02 — ruled 2 questions")), 0)
-    check("stopped plain starts 0", rc(sb("stopped — BLOCKED: x")), 0)
+    # A settle never grants a fresh cap (fleet trial 3: cap 2 ran 3 cycles across a settle).
+    check("settled with answers continues", rc(sb("settled 2026-01-02 — 1 answered, 1 unparked, "
+                                                  "0 added, 0 dropped", used="1/2")), 1)
+    check("stopped plain continues", rc(sb("stopped — BLOCKED: x")), 3)
     check("stopped with self-stop lane continues",
           rc(sb("stopped — BLOCKED: x", extra="Lane state: stopped — self-stop: context\n")), 3)
-    check("self-stop text but state not stopped", rc(sb("running", extra="Lane state: self-stop: x\n")), 0)
+    check("running continues", rc(sb("running", extra="Lane state: self-stop: x\n")), 3)
     check("fleet-relaunch starts 0", rc(sb("fleet-relaunch 2026-01-03")), 0)
-    check("running starts 0", rc(sb("running")), 0)
-    check("waiting-on-human starts 0", rc(sb("waiting-on-human")), 0)
+    check("waiting-on-human continues", rc(sb("waiting-on-human")), 3)
     check("no scoreboard starts 0", rc("# Objective: x\n"), 0)
     check("no cycles used starts 0", rc("Run state: settled 2026-01-02 — nothing to settle\n"), 0)
     check("template text above the scoreboard is ignored",
           rc("Run state: settled 2026-01-02 — nothing to settle\nCycles used: 9/9\n"
-             "## Scoreboard\nRun state: running\nCycles used: 1/4\n"), 0)
+             "## Scoreboard\nRun state: fleet-relaunch 2026-01-03\nCycles used: 1/4\n"), 0)
 
 
 def test_program_check():
@@ -1000,7 +1001,8 @@ def test_nonces():
 
 
 def test_idle():
-    o = lifecycle(scoreboard="Run state: running\nCycles used: 3/4\nClosed: NONE\nLast handoff: /x/last.md\n"
+    # fleet-relaunch is the one state a resume counts from 0 (resume_count).
+    o = lifecycle(scoreboard="Run state: fleet-relaunch 2026-01-01\nCycles used: 3/4\nClosed: NONE\nLast handoff: /x/last.md\n"
                              "Last handoff: /x/later.md\n")
     rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
     check("idle on queued refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
@@ -1054,7 +1056,7 @@ def test_relaunch():
     check("relaunch exits 0 and prints the nonce last", (rc, out[-1]), (0, "nonce: " + NONCE))
     check("only the Run state line changed", after, want)
     check("board is live from 0, launches 2", (field(out[0], "state"), field(out[0], "from"), field(out[0], "launches"),
-          field(out[0], "cycles")), ("live", "0", "2", "4"))
+          field(out[0], "cycles")), ("live", "0", "2", "0"))  # the first launch resumed at 4/4
     check("objective lock file is the only extra", sorted(f for f in os.listdir(PDIR) if f.startswith("rl-objective")),
           ["rl-objective.md", "rl-objective.md.lock"])
     rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")

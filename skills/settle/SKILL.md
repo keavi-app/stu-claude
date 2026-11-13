@@ -167,7 +167,7 @@ performs these.
     `waiting-on-human` (the answers above are still written) until they resolve.
 
 Do not touch `Cycles used`, `Model overrides`, or the check-5 counters. They belong to
-the supervisor, and the next `/stu:run` starts a fresh cycle count (the run skill's SKILL.md, "The cycle cap").
+the supervisor, and the next `/stu:run` continues the cycle count; a settle grants no fresh cap (the run skill's SKILL.md, "The cycle cap").
 
 ### Always the owner's
 

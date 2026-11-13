@@ -9,6 +9,10 @@
   armed or not parked (`owner-question-not-held`). There is no "non-blocking" owner question.
 - New family-only config key `owner_hold` (`owner-only`, default; `any-question`; `none`, the old
   behaviour), exported by `stu-env` as `OWNER_HOLD`.
+- Fix: a settle reset a run's cycle count, so a fleet run with `Cycle cap: 2` ran three cycles
+  across one settle. Resume now continues from `Cycles used:` in every run state except
+  `fleet-relaunch`; the owner raises `Cycle cap:` to grant more. `stu-fleet`'s `resume_count`
+  follows the same rule.
 
 ## 0.2.22
 

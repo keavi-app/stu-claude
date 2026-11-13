@@ -625,23 +625,17 @@ def objective_facts(path):
 
 def resume_count(text):
     """The count a supervisor resuming from this objective starts from (the run skill's "The
-    cycle cap", At Resume): the scoreboard's `Cycles used:` numerator when `Run state:` reads
-    `settled <date> -- nothing to settle`, or reads `stopped --` and any `Lane state:` line
-    carries `self-stop:`; 0 otherwise, every other state (`fleet-relaunch`, `/stu:settle` lines,
-    running) and any missing field included."""
+    cycle cap", At Resume): the scoreboard's `Cycles used:` numerator in every `Run state:`,
+    `/stu:settle` and `board settled` lines included, so a settle never grants a fresh cap; 0
+    only for `fleet-relaunch <date>` (the coordinator's relaunch, counted against the fleet's
+    cycle budget) or a missing field."""
     if "## Scoreboard" in text:
         text = text[text.index("## Scoreboard"):]
-    dash = r"(?:—|–|--|-)"
     state = re.search(r"(?m)^\s*Run state:\s*(.*)$", text)
     used = re.search(r"(?m)^\s*Cycles used:\s*(\d+)\s*/\s*\d+", text)
-    if not state or not used:
+    if not state or not used or state.group(1).strip().startswith("fleet-relaunch"):
         return 0
-    st = state.group(1).strip()
-    cont = bool(re.match(r"settled\s+\S+\s*%s\s*nothing to settle" % dash, st))
-    if not cont and re.match(r"stopped\s*%s" % dash, st):
-        cont = any("self-stop:" in ln for ln in text.splitlines()
-                   if re.match(r"\s*Lane state:", ln))
-    return int(used.group(1)) if cont else 0
+    return int(used.group(1))
 
 
 def split_list(v):
