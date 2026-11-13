@@ -1092,6 +1092,19 @@ def test_supervisor_return():
                                       "RUN-STATE": "settled 2026-01-01 \u2014 x"})[:2], (0, ["OK"]))
         check("sup_done_parked", sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none",
                                              "NEXT": "settle", "PARKED": "2"})[0], 0)
+        # every unit done, nothing parked, but Run state stopped (skim decisions): settle
+        check("sup_done_stopped_settle", sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none",
+                                                     "NEXT": "settle", "PARKED": "0",
+                                                     "RUN-STATE": "stopped \u2014 DONE"})[0], 0)
+        rc, out, _ = sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none", "NEXT": "none",
+                                 "PARKED": "0", "RUN-STATE": "stopped \u2014 DONE"})
+        check("sup_done_stopped_needs_settle", (rc, out[-1]), (1, "BLOCKED"))
+        check("sup_done_waiting_on_human_none", sup(tmp, **{
+            "STU-RUN": "DONE", "STOP-CONDITION": "none", "NEXT": "none", "PARKED": "0",
+            "RUN-STATE": "waiting-on-human"})[0], 0)
+        rc, out, _ = sup(tmp, **{"STU-RUN": "DONE", "STOP-CONDITION": "none", "NEXT": "settle",
+                                 "PARKED": "0", "RUN-STATE": "settled 2026-01-01 \u2014 x"})
+        check("sup_done_settled_needs_none", (rc, out[-1]), (1, "BLOCKED"))
         check("sup_waiting", sup(tmp, **{"STU-RUN": "WAITING", "STOP-CONDITION": "none",
                                          "NEXT": "owner"})[0], 0)
         check("sup_self_stop", sup(tmp, **{"STU-RUN": "SELF-STOP", "STOP-CONDITION": "none",

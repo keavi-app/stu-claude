@@ -831,7 +831,9 @@ If `waiting-on-human`, print `DONE (<n> waiting: <ids>)` (the Waiting ids and th
 omitted when empty: `ready for <owner> to merge:` (the `Waiting:` units whose action is `merge`
 or `tag`, with their `<ref>`) and `awaiting <owner>'s approval to push:` (the `Awaiting approval:`
 entries), `<owner>` being the `stu-env` `OWNER` value; then the same hand-off a stopped run
-prints. If stopped, whatever the lanes' DONE/CONTINUE, print:
+prints. If stopped, whatever the lanes' DONE/CONTINUE (a run whose every lane is DONE but whose
+handoffs carry `[skim]` decisions is `stopped`, and its `STU-RUN: DONE` return says `NEXT: settle`),
+print:
 
 ```
 Next up, settle in a new session with:

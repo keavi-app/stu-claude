@@ -82,7 +82,9 @@ Supervisor return block (`--supervisor-return`; keys may carry hyphens; first li
   LAST-HANDOFF:   <absolute path>
   PARKED:         <n>
   NEXT:           none | settle | relaunch | owner
-  Consistency: DONE has STOP-CONDITION none and NEXT none (settle when PARKED > 0); WAITING has
+  Consistency: DONE has STOP-CONDITION none and NEXT none (settle when PARKED > 0 or RUN-STATE
+  starts with `stopped`: a finished run whose handoff carries [skim] decisions is `stopped`, and
+  settle is where the owner sees them); WAITING has
   none and owner; SELF-STOP has none, 6 or 10 and NEXT relaunch; STOPPED has a number and the
   NEXT the table in handoff-format.md gives for it.
 
@@ -1000,8 +1002,9 @@ def check_supervisor_return(text):
     if run and nxt and sc and (sc == "none" or cond is not None):
         want = None
         if run == "DONE":
-            ok = cond is None and (nxt == "settle" if parked else nxt == "none")
-            want = "settle" if parked else "none"
+            stopped = (f.get("RUN-STATE") or "").split()[:1] == ["stopped"]
+            want = "settle" if (parked or stopped) else "none"
+            ok = cond is None and nxt == want
         elif run == "WAITING":
             ok, want = cond is None and nxt == "owner", "owner"
         elif run == "SELF-STOP":

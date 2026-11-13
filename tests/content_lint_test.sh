@@ -178,4 +178,10 @@ check_set "no Claude tool name in the fleet skill outside its Runtime binding se
 grep -qxF '## Runtime binding' skills/fleet/SKILL.md \
   && echo "ok   the fleet skill has a Runtime binding section" \
   || { echo "FAIL the fleet skill has a Runtime binding section"; fails=$((fails + 1)); }
+# Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a
+# `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
+# file defines, so the two cannot drift. The groomer's and designer's lines match in full; the
+# settler's only by key (its agent file gives the values in prose).
+drift=$(python3 tests/dispatch_lines_lint.py)
+check_set "the fleet skill's dispatch lines match each seat's agent file" "$drift"
 exit $((fails > 0))
