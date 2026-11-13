@@ -319,9 +319,10 @@ from `stu-env --repo <the unit's row>`). A unit already merged, or armed on a `d
 `direct-push` row, cannot be undone: name it to the owner with the question.
 
 **On `owner-question-unreadable`** a `## ` heading in the questions file names no known unit (a
-stray `## Lane B` or `## Parked — <date>`). You repair it: demote a heading that is not a question to
-`###`, or rewrite a real question's heading to `## <unit id> — <question>`, record the edit in the
-handoff you append, and re-run the check.
+stray `## Lane B` or `## Parked — <date>`). You repair it, mechanically: if a `Why it is the
+owner's:` line follows the heading it is a question, so rewrite the heading to
+`## <unit id> — <question>`; otherwise demote it to `###`. Record the edit in the handoff you append,
+and re-run the check. This is the one terminal `BLOCKED` you repair (see below).
 
 Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
 approvals record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A `MERGED_IDS` or
@@ -540,7 +541,7 @@ It prints one status line per affected ID and a terminal `OK` or `BLOCKED` line.
 
 - A terminal `BLOCKED` is a fail-closed stop, handled as a failed integrated-ancestor test is in
   check 3: no repair, the lane stops `BLOCKED`, and the per-ID reason lines are quoted in your own
-  handoff.
+  handoff. The one exception is `owner-question-unreadable`, repaired as stated above.
 - Exit 3, or output with no terminal `OK`/`BLOCKED` line, is an evidence-producing command
   failing: run it once more. A second such failure stops the run `BLOCKED: condition 8`, quoting
   the stderr line.
