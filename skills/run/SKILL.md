@@ -298,13 +298,25 @@ closed this return is not outstanding. An `AFTER_PASS_FAILED` entry for the ID e
 field (that entry keeps the unit outstanding) but never a `CLOSED_IDS` entry.
 
 Owner-question hold: the questions file is the `--objective` path with `-questions.md` for
-`-objective.md` (absent: nothing is held). An entry `## <id> — <question>` holds an issued unit
-while no line under a `## Answers — <date>` heading names that id (and quotes the question, when
-the unit has more than one entry), as the family's `OWNER_HOLD` says: `owner-only` (default) holds
-an entry whose `Why it is the owner's:` row is 2-6, `any-question` holds every entry, `none` holds
-nothing. A held unit in `CLOSED_IDS`, `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`,
-`APPROVAL_IDS` or `INTEGRATED_IDS`, or missing from `PARKED_IDS`, is `BLOCKED
-owner-question-not-held` (a unit the scoreboard's `Closed:` already lists is exempt).
+`-objective.md` (absent: nothing is held). Every `## ` heading but `## Answers ...` is an entry; it
+names each issued unit id that appears in it as a whole token (`## 9271 — ...`, `## #9271 — ...`,
+`## a-ios, a-android — ...`, `## 6975 (and 6976) — ...`); a heading that names no unit the
+objective knows (issued, unit table, `Ever issued:`) is `QUESTIONS BLOCKED
+owner-question-unreadable`, and a known unit no longer issued is exempt. An entry holds its units while no answer line under
+`## Answers — <date>` names them (`handoff-format.md`, section 3, gives the shape), as the family's
+`OWNER_HOLD` says: `owner-only` (default) skips an entry only when its `Why it is the owner's:` line
+names rows and none is 2-6 (a missing or unreadable row holds), `any-question` holds every entry,
+`none` holds nothing. The children a `UNITS_CHANGED` line gives a held parent are held too. A held
+unit in `CLOSED_IDS`, `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `APPROVAL_IDS`, `INTEGRATED_IDS` or
+`AFTER_PASS_FAILED`, or missing from `PARKED_IDS`, is `BLOCKED owner-question-not-held` (a unit the
+scoreboard's `Closed:` already lists is exempt). The check detects; it cannot undo an arming.
+
+**On `owner-question-not-held`** the check has only detected an arming; the orchestrator already
+dispatched the gate inside its cycle. Before stopping, disarm each held unit with an armed PR:
+`stu-forge disarm --slug <REPO_SLUG> --pr <pr> --label <CI_MERGE_LABEL>` (values from
+`stu-env --repo <the unit's row>`; leave out `--label` when `CI_MERGE_LABEL` is empty; the arguments
+are `agents/merge-gate.md`, "Disarm in one call"). A unit already merged, or armed on a `direct` or
+`direct-push` row, cannot be undone: name it to the owner with the question.
 
 Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
 approvals record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A `MERGED_IDS` or
@@ -319,7 +331,7 @@ passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, rea
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
 predecessor-unverified, predecessor-moved-head, closed-but-remaining,
-tracking-field-does-not-close, tracked-not-remaining, owner-question-not-held.
+tracking-field-does-not-close, tracked-not-remaining, owner-question-not-held, owner-question-unreadable.
 
 `READY_IDS` can be non-empty only when the merge gate runs in **label-handoff** mode
 (`agents/merge-gate.md`, "Merge mode"): on PASS the gate applies the merge label at the exact

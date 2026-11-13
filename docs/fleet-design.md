@@ -569,6 +569,13 @@ a verified SHA, and nothing afterwards confirms the PR landed. Candidate fixes, 
 - A run under `completion: ready` stays `waiting` on the board until its readied PRs land, so a
   conflict surfaces as a run that never finishes.
 
+### The owner-question hold is detected, not prevented
+
+`stu-run-check` sees a held unit armed only after the orchestrator's cycle; the supervisor disarms
+it, but a direct merge cannot be undone. The merge gate itself could refuse a held unit if it were
+given the objective path and read the questions file. Not built: today the gate takes no objective
+for a non-epic PR, on purpose (its evidence is its own).
+
 ## Not verified
 
 - The spike's own gaps: a wait longer than one timer, an overnight supervisor, overage.

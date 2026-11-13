@@ -599,8 +599,8 @@ format `PROJECT_GUIDE` (or the issues guide it routes to) gives, and do not buil
 A parked question moves that unit's ID into `PARKED_IDS`, and you **continue with everything
 else**. The run stops only when every remaining unit is parked. A parked unit is held until settle
 answers (`handoff-format.md`, section 3, owns the rule): you may build it ahead, implemented,
-reviewed and its PR pushed, but **never dispatch the merge gate for a held unit**, and its ID goes
-in no closing or arming field. There is no non-blocking owner question. When a later cycle finds
+reviewed and its PR pushed, but **never dispatch the merge gate for a unit an unanswered owner question names**, and its ID goes
+in no closing or arming field. `stu-run-check` only detects a gated held unit after your cycle; a merge it allowed cannot be undone. There is no non-blocking owner question. When a later cycle finds
 the unit unparked (back in `Outstanding:`) with a PR you built ahead, resume from that PR: apply
 the ruling in `## Rulings already given`, rework it if the ruling reversed your recommendation,
 then gate it as usual.

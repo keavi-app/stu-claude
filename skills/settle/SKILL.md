@@ -129,6 +129,8 @@ hand is how a checker gets walked past.
 
 ### 5a. Ruling writes (settler-safe)
 
+Write each answer in the line shape `handoff-format.md`, section 3, gives ("The answer line shape"): `stu-run-check` releases a held unit only on that shape.
+
 **Questions file.** Append `## Answers — <YYYY-MM-DD>`, one line per unit: the answer, and
 the owner's own words whenever they went beyond "yes" (an amendment, a third option, a reason).
 

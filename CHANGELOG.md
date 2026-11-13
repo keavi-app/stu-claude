@@ -6,12 +6,17 @@
   `PARKED_IDS`, no merge gate is dispatched for it, and it is in no closing or arming field until
   `/stu:settle` answers and unparks it. The orchestrator may build the PR ahead and resumes from it
   after the unpark. `stu-run-check` reads the run's questions file and blocks a held unit that is
-  armed or not parked (`owner-question-not-held`). There is no "non-blocking" owner question.
+  armed (a gate field or `AFTER_PASS_FAILED`) or not parked (`owner-question-not-held`), and a
+  question heading that names no unit (`owner-question-unreadable`). A missing row holds; a split
+  unit's children inherit the hold. The check detects after the cycle, it does not prevent: on a
+  block the supervisor disarms the PR with `stu-forge disarm`, and a merge already made goes to the
+  owner. There is no "non-blocking" owner question.
 - New family-only config key `owner_hold` (`owner-only`, default; `any-question`; `none`, the old
   behaviour), exported by `stu-env` as `OWNER_HOLD`.
 - Fix: a settle reset a run's cycle count, so a fleet run with `Cycle cap: 2` ran three cycles
   across one settle. Resume now continues from `Cycles used:` in every run state except
-  `fleet-relaunch`; the owner raises `Cycle cap:` to grant more. `stu-fleet`'s `resume_count`
+  `fleet-relaunch`. Outside a fleet the owner raises `Cycle cap:` to grant more; inside one a cap-hit
+  run can still be relaunched, and `fleet-relaunch` gets a fresh cap bounded by the cycle budget. `stu-fleet`'s `resume_count`
   follows the same rule.
 - `stu-fleet brief` heads each run with the program's run slug (the one `answer` takes), not the
   settler's run-directory slug, says `1 ruling` for one, and builds the single-run `Answer:`

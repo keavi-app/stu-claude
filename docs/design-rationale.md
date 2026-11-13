@@ -600,7 +600,9 @@ unpark, not a new approval leg, for three reasons. It reuses the path settle alr
 writes the scoreboard. "Unarmed" means the same thing in every merge mode (direct, label-handoff,
 direct-push): no gate is dispatched, so nothing merges, labels or pushes, and no mode needs its own
 approval rule. And the work is not lost: a PR built ahead stays open, and the cycle after the
-unpark gates it, reworked first if the owner reversed it.
+unpark gates it, reworked first if the owner reversed it. The check detects; it does not prevent.
+The orchestrator dispatches the gate inside its cycle, so `stu-run-check` sees an arming only
+after it happened; the supervisor then disarms the PR, and a merge already made goes to the owner.
 
 ### Verified labels
 

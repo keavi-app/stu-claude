@@ -1185,13 +1185,72 @@ def test_owner_question_hold():
                 check(name, (rc, term(out), err), (0, "OK", ""))
 
 
+def test_owner_question_hold_shapes():
+    """Heading shapes, missing rows, two questions, comma answers, exemptions, children."""
+    def q(head, row="**Why it is the owner's:** row 6 — scope"):
+        return "## %s\n\n%s\n**Recommendation:** x — strong — y\n" % (head, row)
+    two = q("lib#2 — First?") + q("lib#2 — Second?")
+    cases = [
+        ("missing file", None, dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("missing row holds", q("lib#2 — X?", row="no row line"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("colon outside bold", q("lib#2 — X?", row="**Why it is the owner's**: row 5 — v"),
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("rows 4 and 5", q("lib#2 — X?", row="**Why it is the owner's:** rows 4 and 5"),
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("row 1 skipped", q("lib#2 — X?", row="**Why it is the owner's:** row 1"),
+         dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("hash heading", q("#lib#2 — X?"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("ascii dash heading", q("lib#2 - X?"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("comma heading", q("lib#2, lib#3 — X?"), dict(CLOSED_IDS="lib#3", PARKED_IDS="lib#2"),
+         {}, "held3"),
+        ("paren heading", q("lib#3 (and lib#2) — X?"), dict(CLOSED_IDS="lib#2", PARKED_IDS="lib#3"),
+         {}, "held"),
+        ("no prefix collision", q("lib#2-ios — X?"), dict(CLOSED_IDS="lib#2"), {}, "unread"),
+        ("unreadable heading", q("something else — X?"), dict(PARKED_IDS="lib#2"), {}, "unread"),
+        ("two questions, one answered", two + "\n## Answers — d\n\n- lib#2 — First?: A\n",
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("two questions, both answered", two + "\n## Answers — d\n\n- lib#2 — First?: A\n"
+         "- lib#2 — Second?: B\n", dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("comma answer releases both", q("lib#2, lib#3 — X?") + "\n## Answers — d\n\n- lib#2, lib#3: B\n",
+         dict(CLOSED_IDS="lib#2, lib#3"), {}, "ok"),
+        ("not issued is exempt", q("lib#9 — X?") + q("lib#2 — Y?", row="**Why it is the owner's:** row 7"),
+         dict(CLOSED_IDS="lib#2"), {"Ever issued": "lib#2, lib#3, lib#9"}, "ok"),
+        ("already closed is exempt", q("lib#2 — X?"), dict(REMAINING_IDS="lib#3"),
+         {"Closed": "lib#2"}, "ok"),
+        ("after-pass-failed arms", q("lib#2 — X?"), dict(PARKED_IDS="lib#2", AFTER_PASS_FAILED="lib#2 tag"),
+         {}, "held"),
+        ("split child inherits", q("lib#2 — X?"),
+         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", PARKED_IDS="lib#2", CLOSED_IDS="lib#4"), {}, "held4"),
+    ]
+    for name, qtext, fields, board, want in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            w = World(tmp, {"app": {}, "lib": {}})
+            sb = [("Units issued", "lib#2, lib#3")] + list(board.items())
+            o = os.path.join(w.tmp, "h", "2026-11-13-run-objective.md")
+            write(o, objective([("lib#2", "lib", "-"), ("lib#3", "lib", "-")], scoreboard=sb))
+            if qtext is not None:
+                write(os.path.join(w.tmp, "h", "2026-11-13-run-questions.md"), "# Questions\n\n" + qtext)
+            r = os.path.join(w.tmp, "return.txt")
+            write(r, ret(**fields))
+            rc, out, err = w.run(["--objective", o, "--return", r])
+            if want == "ok":
+                check("hold shape: " + name, (rc, term(out), err), (0, "OK", ""))
+            elif want == "unread":
+                check("hold shape: " + name, (rc, any("owner-question-unreadable" in l for l in out)),
+                      (1, True))
+            else:
+                ident = {"held": "lib#2", "held3": "lib#3", "held4": "lib#4"}[want]
+                check("hold shape: " + name, (rc, blocked_with(out, ident, "owner-question-not-held")),
+                      (1, True))
+
+
 for t in (test_supervisor_return, test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,
           test_waiting_and_after,
           test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved,
-          test_owner_question_hold):
+          test_owner_question_hold, test_owner_question_hold_shapes):
     t()
 
 if FAILURES:
