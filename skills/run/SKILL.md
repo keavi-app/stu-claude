@@ -295,7 +295,18 @@ affected fields, `REMAINING_IDS`, `PARKED_IDS`, `INTEGRATING_IDS`, the children 
 entries print no line. An ID in `REMAINING_IDS`, `PARKED_IDS` or `INTEGRATING_IDS` that
 is also in `CLOSED_IDS` or in its row's closing field is `BLOCKED closed-but-remaining`: a unit
 closed this return is not outstanding. An `AFTER_PASS_FAILED` entry for the ID exempts its closing
-field (that entry keeps the unit outstanding) but never a `CLOSED_IDS` entry. Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
+field (that entry keeps the unit outstanding) but never a `CLOSED_IDS` entry.
+
+Owner-question hold: the questions file is the `--objective` path with `-questions.md` for
+`-objective.md` (absent: nothing is held). An entry `## <id> — <question>` holds an issued unit
+while no line under a `## Answers — <date>` heading names that id (and quotes the question, when
+the unit has more than one entry), as the family's `OWNER_HOLD` says: `owner-only` (default) holds
+an entry whose `Why it is the owner's:` row is 2-6, `any-question` holds every entry, `none` holds
+nothing. A held unit in `CLOSED_IDS`, `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`,
+`APPROVAL_IDS` or `INTEGRATED_IDS`, or missing from `PARKED_IDS`, is `BLOCKED
+owner-question-not-held` (a unit the scoreboard's `Closed:` already lists is exempt).
+
+Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
 approvals record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A `MERGED_IDS` or
 `READY_IDS` entry for a before-push row is `BLOCKED wrong-field-for-mode`.
 
@@ -308,7 +319,7 @@ passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, rea
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
 predecessor-unverified, predecessor-moved-head, closed-but-remaining,
-tracking-field-does-not-close, tracked-not-remaining.
+tracking-field-does-not-close, tracked-not-remaining, owner-question-not-held.
 
 `READY_IDS` can be non-empty only when the merge gate runs in **label-handoff** mode
 (`agents/merge-gate.md`, "Merge mode"): on PASS the gate applies the merge label at the exact
@@ -1091,7 +1102,11 @@ A question reaches the owner only if the park-or-decide test parks it
 (`${CLAUDE_PLUGIN_ROOT}/agents/orchestrator.md`, "Park or decide"). Everything the test decides is
 decided, recorded in `## Decisions taken` with a reversal line, and never waits on anyone. A
 parked question parks **one unit**: append it to the questions file with something the owner can open
-(screenshot, diff, prototype path), move that ID to `PARKED_IDS`, continue with the rest. You push
+(screenshot, diff, prototype path), move that ID to `PARKED_IDS`, continue with the rest. The unit
+stays held, unarmed, until settle answers (`handoff-format.md`, section 3, owns the hold;
+`stu-run-check` blocks a held unit that is armed or not parked as `owner-question-not-held`). When
+settle's `unpark <id>` puts it back in `Outstanding:`, the next cycle's orchestrator resumes it from
+its existing PR, if it built one ahead. You push
 the questions path to the owner and keep relaying. **The run stops only when every remaining unit is
 parked.** Questions arrive decision-ready: measurement settled, only the remedy open, one question
 in prose, with a path to something openable, and a recommendation. The owner answers them in

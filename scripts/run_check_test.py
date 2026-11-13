@@ -1146,12 +1146,52 @@ def test_supervisor_return():
         check("sup_usage", (r.returncode, r.stdout), (3, ""))
 
 
+def test_owner_question_hold():
+    """An unanswered row 2-6 question holds its unit: parked, never armed (owner_hold)."""
+    q6 = ("# Questions\n\n## lib#2 — Option S or C?\n\n**Why it is the owner's:** row 6 — scope\n"
+          "**Recommendation:** S — strong — x\n")
+    q7 = q6.replace("row 6 — scope", "row 7 — wording")
+    answered = q6 + "\n## Answers — 2026-11-13\n\n- lib#2 — Option S or C?: **S**\n"
+    for hold, qtext, fields, want in (
+            ("", q6, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "held"),
+            ("", q6, dict(PARKED_IDS="lib#2"), "ok"),
+            ("", q6, dict(REMAINING_IDS="lib#2"), "held"),
+            ("", answered, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("", q7, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("owner_hold: any-question\n", q7, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "held"),
+            ("owner_hold: none\n", q6, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("owner_hold: none\n", q6, dict(REMAINING_IDS="lib#2"), "ok")):
+        with tempfile.TemporaryDirectory() as tmp:
+            w = World(tmp, {"app": {}, "lib": {"merge_mode": "label-handoff",
+                                               "ci_merge_label": "go"}})
+            if hold:
+                write(w.cfg, open(w.cfg).read().replace("owner: o\n", "owner: o\n" + hold, 1))
+            sha = "d" * 40
+            w.set_gh(pr_at(w, 5, sha=sha, labels=("go",)))
+            o = os.path.join(w.tmp, "h", "2026-11-13-run-objective.md")
+            r = os.path.join(w.tmp, "return.txt")
+            write(o, objective([("lib#2", "lib", "-")], extra="completion: ready"))
+            write(os.path.join(w.tmp, "h", "2026-11-13-run-questions.md"), qtext)
+            f = dict((k, v.replace("R", "lib#2@acme/lib#5@" + sha) if v == "R" else v)
+                     for k, v in fields.items())
+            write(r, ret(**f))
+            rc, out, err = w.run(["--objective", o, "--return", r])
+            name = "hold %s %s %s" % (hold.strip() or "default", qtext.count("Answers"),
+                                      sorted(fields))
+            if want == "held":
+                check(name, (rc, blocked_with(out, "lib#2", "owner-question-not-held"),
+                             term(out)), (1, True, "BLOCKED"))
+            else:
+                check(name, (rc, term(out), err), (0, "OK", ""))
+
+
 for t in (test_supervisor_return, test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,
           test_waiting_and_after,
-          test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved):
+          test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved,
+          test_owner_question_hold):
     t()
 
 if FAILURES:

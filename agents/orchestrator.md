@@ -597,7 +597,13 @@ An idea nobody asked for is not a question on any row. Record it as a ledger obs
 format `PROJECT_GUIDE` (or the issues guide it routes to) gives, and do not build it.
 
 A parked question moves that unit's ID into `PARKED_IDS`, and you **continue with everything
-else**. The run stops only when every remaining unit is parked.
+else**. The run stops only when every remaining unit is parked. A parked unit is held until settle
+answers (`handoff-format.md`, section 3, owns the rule): you may build it ahead, implemented,
+reviewed and its PR pushed, but **never dispatch the merge gate for a held unit**, and its ID goes
+in no closing or arming field. There is no non-blocking owner question. When a later cycle finds
+the unit unparked (back in `Outstanding:`) with a PR you built ahead, resume from that PR: apply
+the ruling in `## Rulings already given`, rework it if the ruling reversed your recommendation,
+then gate it as usual.
 
 Write each parked question to the questions-file template in
 `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, section 3. **Every parked question names one option

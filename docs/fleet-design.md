@@ -369,6 +369,16 @@ rough edges. Decisions, each with what would reverse it:
    compares them to the agent files. **Coordinator-saved returns** go under
    `RUN_HOME/runs/<program name>/<slug>/`, so two programs reusing a slug cannot collide.
 
+## Decisions taken after the third fleet trial (S16)
+
+1. **An unanswered owner question holds its unit.** A questions-file entry on park-or-decide row
+   2-6 keeps its unit in `PARKED_IDS` and out of every arming field until settle answers; the run
+   may build the PR ahead but never gates it, and `stu-run-check` blocks a violation
+   (`owner-question-not-held`). There is no non-blocking owner question. The Stu config's
+   `owner_hold` (`owner-only` default, `any-question`, `none`) sets which entries hold. Owner:
+   `skills/run/handoff-format.md`, section 3. Reverses if held units cost more than a ruled-after-merge
+   change does, which `none` already allows per family.
+
 ## Merge hold and lock
 
 Stu serialises merges inside one supervisor. A fleet has several, merging into a base branch
@@ -521,6 +531,7 @@ Codex note in the same PR.
 | S12b | `stu:groomer`, the agent; plugs into S12a | S12a |
 | S13 | `stu:designer`, the agent; plugs into S12a (its round loop is `board verdict`) | S12a |
 | S15 | Fixes from the first fleet trial: skim-only runs reach settle and end `done`, `board show` wait line, dispatch lines in the fleet skill, program-scoped return paths | S12b, S13 |
+| S16 | Fixes from the third fleet trial: owner-question hold and `owner_hold`, cycle cap held across a settle, brief header and answer line, groomer hygiene | S15 |
 | S14 | Auto-narrow settle mode | S11, after a few weeks of draft-mode briefs |
 
 S1, S2 and S4 help today's hand-run coordinators at once. S7 alone removes most settle sessions:

@@ -67,6 +67,10 @@ parallel batches, each briefed with the claim and the repo row.
    You never edit an existing objective or scoreboard.
    With `FEEDS` naming a run, DONE requires the objective written at exactly that path and listed in
    `OBJECTIVES` verbatim as given (the board compares realpaths and rejects a fed DONE without it).
+   A grooming decision the park-or-decide test would park (`agents/orchestrator.md`, rows 2-6) is
+   the owner's: record it in the objective as a question for the run to put in its questions
+   file, which holds that unit until settle (`handoff-format.md`, section 3). **Never tell a run
+   to raise a "non-blocking" owner question** and build on regardless; there is no such thing.
    If nothing survives the filing test there is nothing to feed: return
    `GROOMER: BLOCKED — nothing to feed`, and do not write an empty objective.
 

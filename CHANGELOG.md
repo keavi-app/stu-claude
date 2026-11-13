@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.23
+
+- An unanswered questions-file entry on park-or-decide row 2-6 now holds its unit: it stays in
+  `PARKED_IDS`, no merge gate is dispatched for it, and it is in no closing or arming field until
+  `/stu:settle` answers and unparks it. The orchestrator may build the PR ahead and resumes from it
+  after the unpark. `stu-run-check` reads the run's questions file and blocks a held unit that is
+  armed or not parked (`owner-question-not-held`). There is no "non-blocking" owner question.
+- New family-only config key `owner_hold` (`owner-only`, default; `any-question`; `none`, the old
+  behaviour), exported by `stu-env` as `OWNER_HOLD`.
+
 ## 0.2.22
 
 - Fix: a run that finished every unit but whose handoffs carried `[skim]` decisions was marked done

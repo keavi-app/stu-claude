@@ -987,6 +987,30 @@ def test_merge_lock_key():
         check("merge_lock per repo", run(app, env_for(home, gh, **extra))[0], 3)
 
 
+def test_owner_hold_key():
+    """`owner_hold` is a family key: owner-only|any-question|none, default owner-only."""
+    with tempfile.TemporaryDirectory() as tmp:
+        home, repo, gh = setup(tmp)
+        cfgp = os.path.join(repo, ".claude", "stu.md")
+        env = env_for(home, gh)
+        write(cfgp, "---\nowner: o\n---\n")
+        check("OWNER_HOLD default", parse(run(repo, env)[1]).get("OWNER_HOLD"), "owner-only")
+        write(cfgp, "---\nowner: o\nowner_hold: Any-Question\n---\n")
+        check("OWNER_HOLD case-folded", parse(run(repo, env)[1]).get("OWNER_HOLD"), "any-question")
+        write(cfgp, "---\nowner: o\nowner_hold: none\n---\n")
+        check("OWNER_HOLD none", parse(run(repo, env)[1]).get("OWNER_HOLD"), "none")
+        write(cfgp, "---\nowner: o\nowner_hold: sometimes\n---\n")
+        rc, out, err = run(repo, env)
+        check("OWNER_HOLD invalid", (rc, "owner_hold" in err), (3, True))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, fm="owner_hold: none\n")
+        rc, out, err = run(app, env_for(home, gh, **extra), "--repo", "lib")
+        check("OWNER_HOLD family-wide", (rc, parse(out).get("OWNER_HOLD")), (0, "none"))
+    with tempfile.TemporaryDirectory() as tmp:
+        home, app, lib, gh, extra, cfg = fam_setup(tmp, lib_over={"owner_hold": "none"})
+        check("owner_hold per repo", run(app, env_for(home, gh, **extra))[0], 3)
+
+
 for t in (test_review_round_one, test_flat_config_equivalence, test_flat_merge_mode, test_flat_frontmatter_row_keys,
           test_family_resolution, test_prefix_collision, test_two_claims,
           test_mandatory_and_structure, test_sibling_isolation, test_family_only_section_from_sibling, test_judgment_model_family_only, test_exit_codes,
@@ -998,7 +1022,7 @@ for t in (test_review_round_one, test_flat_config_equivalence, test_flat_merge_m
           test_lookup_order, test_frontmatter_overrides, test_section_body,
           test_shell_safety, test_offline_origin_and_home_lookup,
           test_home_lookup_hash_slug_fallback, test_stu_config_missing,
-          test_bom_unclosed_and_exact_section, test_section_comments_and_triage_extra, test_merge_lock_key, test_fleet_max_lanes_key):
+          test_bom_unclosed_and_exact_section, test_section_comments_and_triage_extra, test_merge_lock_key, test_fleet_max_lanes_key, test_owner_hold_key):
     t()
 
 if FAILURES:

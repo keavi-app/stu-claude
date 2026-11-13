@@ -288,7 +288,7 @@ exactly those files, one per lane, and never opens them.
 
 ---
 
-## 3. The questions file — one per run, appended, never blocking
+## 3. The questions file — one per run, appended; each entry holds its unit
 
 `RUN_HOME/handoffs/YYYY-MM-DD-<slug>-questions.md`
 
@@ -307,6 +307,19 @@ prototype, a diff file. A reference the owner cannot open is not a reference.>
 **Options:** <at most three, each one line>
 **Recommendation:** <one option> — strong | lean — <one line of why>
 ```
+
+**An unanswered entry holds its unit.** There is no non-blocking owner question: a decision that
+need not wait is row 7 and goes to `## Decisions taken` with its `[skim]` tag; an entry here is a
+park. While no line under a `## Answers` heading names the unit, the unit is held: it is in
+`PARKED_IDS` in every return, and nothing arms it, so it is in none of `CLOSED_IDS`, `MERGED_IDS`,
+`READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `APPROVAL_IDS` or `INTEGRATED_IDS`, and no merge gate is
+dispatched for it (no merge, no label, no direct push). **Building ahead is allowed:** the
+orchestrator may implement the unit and open or push its PR without dispatching the gate, then park
+it; the PR stays open and unarmed. After settle answers and unparks it, the next cycle resumes the
+unit from that PR, applies the ruling (reworking it if the owner reversed the recommendation) and
+gates it as usual. The Stu config's `owner_hold` sets which entries hold: `owner-only` (default)
+rows 2-6, `any-question` every entry, `none` no entry (the entry still reaches settle).
+`stu-run-check` enforces it (`owner-question-not-held`).
 
 `/stu:settle` reads the `Why it is the owner's:` row to order the walk-through and the
 `Recommendation:` line to offer the one-word answer, so both are required.
