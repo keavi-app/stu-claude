@@ -45,6 +45,13 @@ The seven operations:
    `budget:` and `judgment-jobs:` lines go in it. `spend` and `actuals` only report; the limits
    are enforced by `next` and the `board` commands (see "Limits" below).
 
+**Where you save returns.** Every return you save (a judgment return, a supervisor return, a
+settler return) goes under the **return directory**
+`RUN_HOME/runs/<program name>/<slug>/`, where `<program name>` is the `# Fleet program: <name>`
+line (`stu-fleet program check` prints it as `program: <name>`) and `<slug>` is the run or job
+slug. Two programs that reuse a slug then cannot collide. Settler returns go in its `settle/`
+subdirectory. (The settler's own draft file is written by the settler, not by you.)
+
 ## 2. The loop
 
 Run `stu-fleet next <program path>` and read its **stdout**. It exits 12 with its full output
@@ -67,14 +74,38 @@ answer. Act on the lines, then run `next` again after every state change.
   unit list: `board idle` comes only after the stop. A refusal (13) goes to the owner as printed.
   The run skill's repair message, single restart and 6-hour re-arm bound are for orchestrators
   and do not apply to supervisors.
-- `wait <slug> — <reason>`: nothing to do. `wait <run> — fed by <job> (<state>)` is the same: a
+- `wait <slug> — <reason>`: nothing to do. `wait <run> — fed by <job> (<state>)` is the same
+  (`board show` says it too, as an indented `wait:` line under that run): a
   groom or audit job is still to write that run's objective, and the run starts only after it.
 - `judge <slug>`: a queued judgment job. Run `stu-fleet board judgment <program path> --job <slug>`;
   a refusal (13) goes to the owner as printed and nothing is dispatched. On success dispatch the
   seat (operation 2) for the job's kind (groom or audit: the groomer; design: the designer) with
   the program line's scope, output and feeds, the objective path it must write when the job feeds
-  a run, and the repo row. Wait (operation 3) with one deadline per job. When the return arrives
-  save it under `RUN_HOME/runs/<slug>/` (so a fresh coordinator can read a designer's DECISION),
+  a run, and the repo row, as these dispatch lines (the agent files define them; these are copied):
+
+  <!-- dispatch-lines: groomer -->
+  ```
+  JOB: <slug>
+  KIND: groom | audit
+  SCOPE: <one line>
+  OUTPUT: <absolute path of the report>
+  FEEDS: none | <run slug> <absolute objective path>
+  REPO: <row>
+  ```
+
+  `FEEDS` is `none` unless the job feeds a run, then that run's slug and the absolute path of its
+  objective. An audit job always carries `FEEDS: none`.
+
+  <!-- dispatch-lines: designer -->
+  ```
+  JOB: <slug>
+  SCOPE: <one line>
+  OUTPUT: <absolute directory>
+  REPO: <row>
+  ```
+
+  Wait (operation 3) with one deadline per job. When the return arrives
+  save it under the return directory (so a fresh coordinator can read a designer's DECISION),
   then run `stu-fleet board judged <program path> --job <slug> --return <file>`. Exit 1: show the
   `BLOCKED` lines to the owner and leave the job. When the deadline fires, check the tree
   (operation 4); alive: re-arm; idle: stop it (operation 5), then
@@ -110,8 +141,16 @@ answer. Act on the lines, then run `next` again after every state change.
   stopped for a limit; only starts and relaunches are held.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
-  opus). Several in one message when several runs are in `settle`. A settler dispatch is never
-  counted as a judgment job. Save its return under `RUN_HOME/runs/<slug>/settle/`, then run
+  opus). The settler's dispatch line (`agents/settler.md`) is the `MODE:` line, then the input it
+  names: the objective path for draft, the draft path and the owner's line verbatim for write:
+
+  <!-- dispatch-lines: settler -->
+  ```
+  MODE: draft | write
+  ```
+
+  Several in one message when several runs are in `settle`. A settler dispatch is never
+  counted as a judgment job. Save its return under the return directory's `settle/`, then run
   `stu-fleet board draft <program path> --run <slug> --return <file>`. A `BLOCKED` settler
   return, a refusal, or a `board draft` refusal goes to the owner with the line
   `/stu:settle <objective path>`, and the run is left alone. `owner-only` changes nothing in
@@ -126,12 +165,14 @@ answer. Act on the lines, then run `next` again after every state change.
 - **The owner's answer.** Run `stu-fleet answer <program path> --line "<reply verbatim>"`. Exit 1:
   show its `BLOCKED` lines and ask again. For each line
   `answer <slug> | draft: <path> | line: <text>`, dispatch a `stu:settler` with `MODE: write`,
-  the draft path and the text verbatim; save its return under `RUN_HOME/runs/<slug>/settle/`; run
+  the draft path and the text verbatim; save its return under the return directory's `settle/`; run
   `stu-fleet board settled <program path> --run <slug> --return <file>`. Exit 1 (the written
   return is malformed, or its DRAFT differs from the recorded draft): show the `BLOCKED` lines to
   the owner and leave the run; do not re-dispatch the settler more than once for it. Otherwise its
   last line is
-  `requeued <slug>` (the run is queued, and `next` starts it) or
+  `requeued <slug>` (the run is queued, and `next` starts it),
+  `done <slug>` (every unit is finished and only decisions needed the owner's look, so the run is
+  done and is not relaunched) or
   `pending <slug>: <ids>` (the run stays in the brief). An `unanswered <slug>` line from
   `answer` also stays in the brief.
 - `talk about <n>`: discuss that item with the owner in this session, one question per message,
@@ -170,8 +211,7 @@ answer. Act on the lines, then run `next` again after every state change.
 
 **A notification that carries no supervisor return block is interim:** one line, no action. A
 supervisor return is the block that ends with `STU-RUN:` through `NEXT:` (`skills/run/handoff-format.md`,
-section 4). When one arrives, write the block to a file under `RUN_HOME` (the run's own folder,
-`RUN_HOME/runs/<slug>/`), then run
+section 4). When one arrives, write the block to a file in the return directory, then run
 `stu-fleet board record <program path> --run <slug> --return <file>`. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,

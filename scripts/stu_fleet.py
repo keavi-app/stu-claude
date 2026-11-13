@@ -11,7 +11,9 @@
   stu-fleet lock status                 the holder, if any
 
   stu-fleet program check PROGRAM       parse and validate a fleet program file
-  stu-fleet board show PROGRAM          print the board (a queued row for every run with none)
+  stu-fleet board show PROGRAM          print the board (a queued row for every run with none); under a
+                                        queued run that `next` holds as fed, an indented
+                                        `  wait: fed by <job> (<job state>)` line (display only)
   stu-fleet board launch PROGRAM --run SLUG
                                         mark a queued run live (any other state is refused 13); records the cycle count it resumes from
   stu-fleet board record PROGRAM --run SLUG --return FILE
@@ -173,8 +175,10 @@ by the owner <date>)` unless `Closed:` already has one); repeats are no-ops. `wr
 ids. With `UNANSWERED: none` the first `Run state:` in the scoreboard becomes `waiting-on-human`
 when any lane's `Waiting:` or `Awaiting approval:` is not NONE, else `settled <date> — <w>
 answered, <u> unparked, 0 added, <d> dropped`, and the run goes to `queued` with draft and
-written reset; otherwise the run stays `settle`. The last stdout line is `requeued <slug>` or
-`pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
+written reset, unless no unit is left Outstanding, Parked, Waiting or Awaiting approval in any
+lane (a finished run whose only open items were `[skim]` decisions): then it goes to `done`, never
+`requeued`, since a relaunch would spend a cycle on nothing. Otherwise the run stays `settle`. The
+last stdout line is `requeued <slug>`, `done <slug>` or `pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
 Runs order, the drafted BRIEF block without its `BRIEF:` label, its own `Answer:` line and the
 numbered item lines already written, then a blank line, then one `Answer:` line for the whole
 brief (`Answer: <slug>: fine | accept 2 | reverse 2, 5 | talk about 3` for one run, `Answer per
@@ -1049,37 +1053,6 @@ class ProgramLocked:
 # ---- program, board, spend, next --------------------------------------------------------
 
 
-def cmd_program(sub, a):
-    prog = load_program(a["program"])
-    rc = need_valid(prog)
-    if rc:
-        return rc
-    h = {k: v[0] for k, v in prog["header"].items()}
-    print("program: %s" % (prog["name"] or "-"))
-    print("owner: %s" % h["Owner"])
-    print("settle-mode: %s" % h["Settle mode"])
-    print("max-live-lanes: %s" % h.get("Max live lanes", "config"))
-    print("cycle-budget: %s" % h.get("Cycle budget", "sum-of-caps"))
-    print("judgment-jobs: %s" % h.get("Judgment jobs", "none"))
-    print("stop-at: %s" % h.get("Stop at", "none"))
-    print("merge-lock: %s" % h.get("Merge lock", "on"))
-    for r in prog["runs"]:
-        print("run %s: objective %s | cap %d | lanes %d | after %s | resources %s" % (
-            r["slug"], r["objective"], r["cap"], r["lanes"], ",".join(r["after"]) or "none",
-            ",".join(r["resources"]) or "none"))
-    for j in prog["judgment"]:
-        print("judgment %s: %s | feeds %s" % (j["slug"], j["kind"], j["feeds"]))
-    print("OK")
-    return 0
-
-
-def find_run(prog, slug):
-    for r in prog["runs"]:
-        if r["slug"] == slug:
-            return r
-    raise Fail(EXIT_USAGE, "--run %s is not a run in this program" % slug)
-
-
 def scoreboard(text):
     """The objective text from `## Scoreboard` on (all of it when there is no such heading)."""
     return text[text.index("## Scoreboard"):] if "## Scoreboard" in text else text
@@ -1395,8 +1368,13 @@ def cmd_board(sub, a):
         rc = need_valid(prog)
         if rc:
             return rc
+        runs = {r["slug"]: r for r in prog["runs"]}
+        jobmap = {j["slug"]: j for j in effective_jobs(prog)}
         for b in effective_board(prog):
             print(board_line(b))
+            hold = fed_hold(runs[b["slug"]], jobmap) if b["state"] == "queued" else None
+            if hold and hold[0] == "wait":
+                print("  wait: %s" % hold[1])
         for j in effective_jobs(prog):
             print(job_line(j))
         print(fleet_line(prog["fleet"], effective_board(prog)))
@@ -1990,6 +1968,16 @@ def edit_scoreboard(path, todos, written_n, prior, finish, date):
     return (bad, set(), set()) if bad else (None,) + res
 
 
+def units_left(path):
+    """True when the objective's scoreboard still has a unit Outstanding, Parked, Waiting or
+    Awaiting approval in any lane (the same fields `edit_scoreboard` reads)."""
+    lines = read_text(path, "objective").splitlines()
+    blocks = _sb_blocks(lines) or []
+    return any(f and f[1] for blk in blocks
+               for lab in ("Outstanding", "Parked", "Waiting", "Awaiting approval")
+               for f in [_field_at(lines, blk, lab)])
+
+
 def record_settled(program, run, b, ret_path):
     """`board settled`: fold a WRITTEN settler return into the board and the objective's
     scoreboard lines. -> (rc, last line to print or None); the caller writes the board."""
@@ -2024,8 +2012,11 @@ def record_settled(program, run, b, ret_path):
     b["written"] = union
     if finish:
         write_settle_counts(program, run["slug"], None, (), ())
-        b["state"] = "queued"
         b["draft"], b["written"] = "none", []
+        if not units_left(run["objective"]):
+            b["state"], b["stop"] = "done", "none"
+            return 0, "done %s" % run["slug"]
+        b["state"] = "queued"
         return 0, "requeued %s" % run["slug"]
     write_settle_counts(program, run["slug"], b["draft"], prior[0] | u, prior[1] | d)
     return 0, "pending %s: %s" % (run["slug"], ", ".join(block["unanswered"]))

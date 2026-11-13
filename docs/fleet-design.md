@@ -255,7 +255,8 @@ records the settler's drafted return against a `settle` run (`next` then says `b
 the owner's reply into per-run segments and checks the item numbers; the settler's write mode
 returns a `WRITTEN` block and `board settled` applies it: it moves `unpark` and `drop` units on
 the scoreboard, refuses an `add` (new units need the interactive `/stu:settle`), writes `Run
-state:`, and requeues the run once no question is unanswered. A partial answer leaves the run in
+state:`, and requeues the run once no question is unanswered (`done` instead when no unit is left
+outstanding, parked or waiting, as for a finished run that only had `[skim]` decisions to show). A partial answer leaves the run in
 `settle` with its draft, and `next` asks for the brief again. Between those calls the ids already
 named by `unpark` and `drop` live in the sidecar `<program>.settle.json`, cleared when the draft is
 replaced or the settle finishes.
@@ -341,6 +342,32 @@ Decisions taken in S12a, each with what would reverse it:
    stopped`. Seats are never relaunched automatically. Reverses if a seat is cheap enough to retry.
 9. **`next` prints `verdict job <slug> — <output>`** for a job in verdict, so the coordinator can
    find the round to put before the owner. Reverses if the wave brief should carry it instead.
+
+## Decisions taken after the first fleet trial (S15)
+
+One groom job fed one run of three units; it ran end to end and showed one silent loss and three
+rough edges. Decisions, each with what would reverse it:
+
+1. **A finished run whose handoffs carry `[skim]` decisions reaches the owner.** The run skill
+   writes `Run state: stopped` for such a run (the settled rule needs zero `[skim]` lines), so
+   `STU-RUN: DONE` now takes `NEXT: settle` when `PARKED > 0` or `RUN-STATE` starts with
+   `stopped`; `NEXT: none` stays for `settled` and `waiting-on-human`. The run goes
+   `record` -> `settle` -> draft -> brief -> answer -> `board settled`, with zero parked questions.
+   Before this, `DONE` required `NEXT: none` unless something was parked, so the board marked the
+   run `done` and the owner never saw the decisions. **Reverses** the earlier rule (S12a and
+   before) that a DONE return with nothing parked says `NEXT: none` whatever `Run state:` says;
+   it reverses if skim decisions are surfaced some other way, such as a coordinator reading the
+   last handoff (which the coordinator never does).
+2. **`board settled` ends a run with nothing left to do in `done`, not `requeued`.** When no unit is
+   Outstanding, Parked, Waiting or Awaiting approval in any lane after the write, relaunching would
+   spend a cycle on nothing. Its last line is `done <slug>`. Reverses if a settled run should
+   always get one more cycle to pick up the owner's rulings.
+3. **`board show` prints `  wait: fed by <job> (<job state>)` under a queued run held for a
+   feeding job.** Display only: the stored board line and its format version do not change, and
+   `next` is unchanged. Reverses if the hold should be a board state of its own.
+4. **The fleet skill states each seat's dispatch lines verbatim**, and a content-lint check
+   compares them to the agent files. **Coordinator-saved returns** go under
+   `RUN_HOME/runs/<program name>/<slug>/`, so two programs reusing a slug cannot collide.
 
 ## Merge hold and lock
 
@@ -493,6 +520,7 @@ Codex note in the same PR.
 | S12a | Judgment jobs on the board (v5 job lines), `next` schedules them, `board judged`/`verdict`, groomer and designer return schemas and their `stu-run-check` modes, the fleet skill's handling | S5, S11 |
 | S12b | `stu:groomer`, the agent; plugs into S12a | S12a |
 | S13 | `stu:designer`, the agent; plugs into S12a (its round loop is `board verdict`) | S12a |
+| S15 | Fixes from the first fleet trial: skim-only runs reach settle and end `done`, `board show` wait line, dispatch lines in the fleet skill, program-scoped return paths | S12b, S13 |
 | S14 | Auto-narrow settle mode | S11, after a few weeks of draft-mode briefs |
 
 S1, S2 and S4 help today's hand-run coordinators at once. S7 alone removes most settle sessions:

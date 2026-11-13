@@ -1381,6 +1381,47 @@ def test_board_settled():
     check("a v3 board takes a draft", (rc, field(out[0], "draft")), (0, d))
 
 
+SB_SKIM = ("Run state: stopped \u2014 DONE\nCycles used: 2/4\nUnits issued: S1, S2\n"
+           "Closed: S1, S2\nAwaiting approval: NONE\nWaiting: NONE\nParked: NONE\nOutstanding: NONE\n"
+           "Last handoff: /x/h.md\n")
+
+
+def test_skim_only_run_settles_to_done():
+    """A finished run (every unit closed, nothing parked) whose handoff carries only [skim]
+    decisions: record -> settle -> draft -> brief -> answer -> settled -> done, no relaunch."""
+    o = objective("skim", scoreboard=SB_SKIM)
+    program([("alpha", o, "none", "none")])
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    r = run_ret(os.path.join(PDIR, "skim-ret.txt"), o, run="DONE", cond="none", nxt="settle",
+                state="stopped \u2014 DONE", cycles="2/4")
+    rc, out, err = pfleet("board", "record", PROG, "--run", "alpha", "--return", r)
+    check("skim: DONE + stopped records as settle", (rc, out[0].split(" | ")[1]), (0, "state: settle"))
+    check("skim: next says settle", pfleet("next", PROG)[1][0], "settle alpha")
+    d = write(os.path.join(PDIR, "skim-draft.txt"), drafted_text(o))
+    rc, out, err = pfleet("board", "draft", PROG, "--run", "alpha", "--return", d)
+    check("skim: draft accepted with nothing parked", rc, 0)
+    check("skim: next says brief", pfleet("next", PROG)[1][0], "brief alpha")
+    rc, out, err = pfleet("brief", PROG)
+    check("skim: brief prints", (rc, out[0]), (0, "Run demo: 3 rulings drafted"))
+    rc, out, err = pfleet("answer", PROG, "--line", "alpha: fine")
+    check("skim: answer routes", (rc, out[0].startswith("answer alpha | draft: ")), (0, True))
+    before = open(o).read()
+    rc, out, err = settled(o, "skim-w", "R1, R2, R3", "none")
+    check("skim: settled ends done, never requeued", (rc, out[-1]), (0, "done alpha"))
+    check("skim: board line is done with no draft", (field(out[0], "state"), field(out[0], "draft")),
+          ("done", "none"))
+    check("skim: scoreboard Run state settled", "Run state: settled 2023-11-14" in open(o).read()
+          and "Run state: stopped" in before, True)
+    check("skim: next says done and starts nothing", pfleet("next", PROG)[1][0], "done alpha")
+    # the same shape with a unit still Outstanding stays requeued
+    o2 = objective("skim2", scoreboard=SB_SKIM.replace("Outstanding: NONE", "Outstanding: S3"))
+    program([("alpha", o2, "none", "none")], tail=settle_board())
+    d2 = write(os.path.join(PDIR, "skim2-draft.txt"), drafted_text(o2))
+    pfleet("board", "draft", PROG, "--run", "alpha", "--return", d2)
+    check("skim: an Outstanding unit still requeues", settled(o2, "skim2-w", "R1, R2, R3", "none")[1][-1],
+          "requeued alpha")
+
+
 def test_settled_crash_and_guards():
     side = PROG + ".settle.json"
     # crash after the objective write, before the board/sidecar write: the retry counts the same
@@ -1525,6 +1566,12 @@ def test_judgment_jobs():
     check("v4 board reads every job queued; fed run waits", out[:5], [
         "start alpha", "wait beta \u2014 fed by g2 (queued)", "judge g1", "judge g2", "judge d1"])
     check("a read writes no job lines", jobs_of(), [])
+    shown = pfleet("board", "show", PROG)[1]
+    at = [i for i, x in enumerate(shown) if x.startswith("- beta | ")]
+    check("board show says a fed run waits, under its line", (len(at), shown[at[0] + 1]),
+          (1, "  wait: fed by g2 (queued)"))
+    check("only the fed run gets a wait line", [x for x in shown if x.startswith("  wait:")],
+          ["  wait: fed by g2 (queued)"])
     # v4 -> v5 on first write
     check("judgment counts", pfleet("board", "judgment", PROG, "--job", "g1")[1], ["judgment-jobs: 1/none"])
     check("v5 job lines written for every job", jobs_of(), [
@@ -1697,7 +1744,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
           test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
-          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates,
+          test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_skim_only_run_settles_to_done, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates,
           test_judgment_jobs, test_design_verdict_loop, test_job_grammar):
     t()
 

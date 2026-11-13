@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.22
+
+- Fix: a run that finished every unit but whose handoffs carried `[skim]` decisions was marked done
+  on the fleet board and its decisions were never shown to the owner. Its return now says
+  `NEXT: settle` (the check requires it whenever `RUN-STATE` starts with `stopped`), the run skill
+  prints the `/stu:settle` line for it, and the fleet settle loop accepts a run with no parked
+  questions. When the owner's answer leaves no unit outstanding, parked or waiting, `board settled`
+  ends the run as `done` (last line `done <slug>`) instead of requeuing it for a cycle that would do
+  nothing.
+- `board show` prints an indented `wait: fed by <job> (<state>)` line under a queued run that is
+  waiting for a groom or audit job. The stored board line is unchanged.
+- The fleet skill gives the exact dispatch lines for the groomer, designer and settler, copied from
+  the agent files, and a content-lint check keeps the two in step.
+- Returns the coordinator saves now live under `RUN_HOME/runs/<program name>/<slug>/`, so two
+  programs that reuse a slug cannot collide.
+- Removed an older duplicate `cmd_program` and `find_run` from `stu_fleet.py` (the later ones
+  already won).
+
 ## 0.2.21
 
 - New `stu:designer` agent: one decision-ready design round. It writes one question, two to four

@@ -352,8 +352,8 @@ never auto-narrowed (`docs/fleet-design.md`, "Always the owner's").
 
 | Why the run ended | `STOP-CONDITION` | `NEXT` |
 | --- | --- | --- |
-| Every unit done, nothing parked | `none` | `none` |
-| Every unit done, questions parked | `none` | `settle` |
+| Every unit done, nothing parked, `Run state: settled` (or `waiting-on-human`) | `none` | `none` |
+| Every unit done, questions parked or `Run state: stopped` (the handoffs carry `[skim]` decisions) | `none` | `settle` |
 | Waiting on a merge, tag or approval | `none` | `owner` |
 | 1, 2, 3 or 5: a question for the owner (parked in the questions file) | the number | `settle` |
 | 4 non-convergence | `4` | `owner` |
