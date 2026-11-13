@@ -306,17 +306,22 @@ owner-question-unreadable`, and a known unit no longer issued is exempt. An entr
 `## Answers — <date>` names them (`handoff-format.md`, section 3, gives the shape), as the family's
 `OWNER_HOLD` says: `owner-only` (default) skips an entry only when its `Why it is the owner's:` line
 names rows and none is 2-6 (a missing or unreadable row holds), `any-question` holds every entry,
-`none` holds nothing. The children a `UNITS_CHANGED` line gives a held parent are held too. A held
+`none` holds nothing. A `UNITS_CHANGED` that splits a held unit is blocked too. A held
 unit in `CLOSED_IDS`, `MERGED_IDS`, `READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `APPROVAL_IDS`, `INTEGRATED_IDS` or
 `AFTER_PASS_FAILED`, or missing from `PARKED_IDS`, is `BLOCKED owner-question-not-held` (a unit the
 scoreboard's `Closed:` already lists is exempt). The check detects; it cannot undo an arming.
 
 **On `owner-question-not-held`** the check has only detected an arming; the orchestrator already
-dispatched the gate inside its cycle. Before stopping, disarm each held unit with an armed PR:
-`stu-forge disarm --slug <REPO_SLUG> --pr <pr> --label <CI_MERGE_LABEL>` (values from
-`stu-env --repo <the unit's row>`; leave out `--label` when `CI_MERGE_LABEL` is empty; the arguments
-are `agents/merge-gate.md`, "Disarm in one call"). A unit already merged, or armed on a `direct` or
+dispatched the gate inside its cycle. Before stopping, disarm each held unit with an armed PR
+with `stu-forge disarm`, its arguments exactly as `agents/merge-gate.md`, "Disarm in one call",
+gives them (including when to pass `--workflow` and `--label`; `REPO_SLUG` and `CI_MERGE_LABEL`
+from `stu-env --repo <the unit's row>`). A unit already merged, or armed on a `direct` or
 `direct-push` row, cannot be undone: name it to the owner with the question.
+
+**On `owner-question-unreadable`** a `## ` heading in the questions file names no known unit (a
+stray `## Lane B` or `## Parked — <date>`). You repair it: demote a heading that is not a question to
+`###`, or rewrite a real question's heading to `## <unit id> — <question>`, record the edit in the
+handoff you append, and re-run the check.
 
 Leg 2 of a before-push unit: a `PASSED_IDS` entry on a before-push row needs an
 approvals record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A `MERGED_IDS` or

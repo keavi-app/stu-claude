@@ -321,8 +321,8 @@ it; the PR stays open and unarmed. After settle answers and unparks it, the next
 unit from that PR, applies the ruling (reworking it if the owner reversed the recommendation) and
 gates it as usual. The Stu config's `owner_hold` sets which entries hold: `owner-only` (default)
 rows 2-6, `any-question` every entry, `none` no entry (the entry still reaches settle).
-A held unit that is split (`UNITS_CHANGED`) passes the hold to its children: they stay parked
-until the parent's question is answered. `stu-run-check` checks it (`owner-question-not-held`),
+A held unit is not split (`UNITS_CHANGED`) until settle answers its question: descoping is the
+owner's call, and a split would free the children while the question is open. `stu-run-check` checks it (`owner-question-not-held`),
 after the fact: it cannot undo an arming, so the rule is the orchestrator's to keep.
 
 **The answer line shape the checker reads:** `- <id>[, <id> ...] — <question>: <answer>`, or

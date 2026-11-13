@@ -151,7 +151,7 @@ Closing, by the unit's row (field = the gate field that closes it):
   `## Answers — <date>` names them (handoff-format.md, section 3, gives the shape), as the family's
   OWNER_HOLD says: owner-only (default) skips an entry only when its `Why it is the owner's:` line
   names rows and none is 2-6 (a missing or unreadable row holds), any-question holds every entry,
-  none holds nothing. The children a UNITS_CHANGED line gives a held parent are held too. A held
+  none holds nothing. A UNITS_CHANGED that splits a held unit is blocked too. A held
   unit in CLOSED_IDS, MERGED_IDS, READY_IDS, PASSED_IDS, TAGGED_IDS, APPROVAL_IDS, INTEGRATED_IDS or
   AFTER_PASS_FAILED, or missing from PARKED_IDS, is `BLOCKED owner-question-not-held` (a unit the
   scoreboard's `Closed:` already lists is exempt). The check detects; it cannot undo an arming.
@@ -1023,11 +1023,11 @@ def answered(ident, question, n_for_unit, answers):
     return False
 
 
-def held_units(chk, issued, kids_of=None):
+def held_units(chk, issued):
     """-> ({unit id: question}, [problem]) for every issued unit an unanswered questions-file
     entry holds, under the family's owner_hold. owner-only skips an entry only when its row line
     names numbers and none is 2-6; a missing or unreadable row holds. A heading that names no
-    issued id is a problem. Children of a held parent (UNITS_CHANGED) inherit its hold."""
+    known unit is a problem."""
     path = questions_path(chk.opath)
     if not path or not os.path.exists(path):
         return {}, []
@@ -1054,10 +1054,6 @@ def held_units(chk, issued, kids_of=None):
         for ident in ids:
             if ident not in out and not answered(ident, question, per_unit[ident], answers):
                 out[ident] = question
-    for parent, kids in (kids_of or {}).items():
-        if parent in out:
-            for k in kids:
-                out.setdefault(k, out[parent])
     return out, problems
 
 
@@ -1241,7 +1237,7 @@ def run_returns(chk, fields):
         left, right = changed.split("->", 1)
         for parent in items(left):
             kids_of[parent.partition("@")[0]] = [k.partition("@")[0] for k in items(right)]
-    holds, unread = held_units(chk, issued | set(kids_of), kids_of)
+    holds, unread = held_units(chk, issued)
     parked = set(i.partition("@")[0] for i in items(fields.get("PARKED_IDS", "")))
     closed_before = set(board_items(chk.board, "closed"))
     lines, any_blocked = [], False
@@ -1268,12 +1264,18 @@ def run_returns(chk, fields):
                 ident, ident))
             any_blocked = True
     for ident in sorted(holds):
-        why = None if ident in order else hold_problem(ident, holds, got, parked, closed_before)
+        if ident in kids_of:
+            # A held unit is not split until settle answers; descoping is the owner's call.
+            why = ("%s is split by UNITS_CHANGED, but the unanswered owner question %r holds it; "
+                   "a held unit is not split until settle answers" % (ident, holds[ident]))
+        else:
+            why = None if ident in order else hold_problem(ident, holds, got, parked,
+                                                           closed_before)
         if why:
             lines.append("%s BLOCKED owner-question-not-held: %s" % (ident, why))
             any_blocked = True
     for head in unread:
-        lines.append("QUESTIONS BLOCKED owner-question-unreadable: the heading %r names no issued "
+        lines.append("QUESTIONS BLOCKED owner-question-unreadable: the heading %r names no known "
                      "unit; write it as '## <unit id> — <question>'" % head)
         any_blocked = True
     return lines, any_blocked

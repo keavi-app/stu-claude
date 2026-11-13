@@ -1219,8 +1219,10 @@ def test_owner_question_hold_shapes():
          {"Closed": "lib#2"}, "ok"),
         ("after-pass-failed arms", q("lib#2 — X?"), dict(PARKED_IDS="lib#2", AFTER_PASS_FAILED="lib#2 tag"),
          {}, "held"),
-        ("split child inherits", q("lib#2 — X?"),
-         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", PARKED_IDS="lib#2", CLOSED_IDS="lib#4"), {}, "held4"),
+        ("split of a held parent blocks", q("lib#2 — X?"),
+         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", PARKED_IDS="lib#4"), {}, "held"),
+        ("split of an answered parent passes", q("lib#2 — X?") + "\n## Answers — d\n\n- lib#2: A\n",
+         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", REMAINING_IDS="lib#4"), {}, "ok"),
     ]
     for name, qtext, fields, board, want in cases:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1239,7 +1241,7 @@ def test_owner_question_hold_shapes():
                 check("hold shape: " + name, (rc, any("owner-question-unreadable" in l for l in out)),
                       (1, True))
             else:
-                ident = {"held": "lib#2", "held3": "lib#3", "held4": "lib#4"}[want]
+                ident = {"held": "lib#2", "held3": "lib#3"}[want]
                 check("hold shape: " + name, (rc, blocked_with(out, ident, "owner-question-not-held")),
                       (1, True))
 

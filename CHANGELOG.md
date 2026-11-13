@@ -7,8 +7,8 @@
   `/stu:settle` answers and unparks it. The orchestrator may build the PR ahead and resumes from it
   after the unpark. `stu-run-check` reads the run's questions file and blocks a held unit that is
   armed (a gate field or `AFTER_PASS_FAILED`) or not parked (`owner-question-not-held`), and a
-  question heading that names no unit (`owner-question-unreadable`). A missing row holds; a split
-  unit's children inherit the hold. The check detects after the cycle, it does not prevent: on a
+  question heading that names no unit (`owner-question-unreadable`). A missing row holds, and
+  splitting a held unit is blocked. The check detects after the cycle, it does not prevent: on a
   block the supervisor disarms the PR with `stu-forge disarm`, and a merge already made goes to the
   owner. There is no "non-blocking" owner question.
 - New family-only config key `owner_hold` (`owner-only`, default; `any-question`; `none`, the old
