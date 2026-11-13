@@ -553,6 +553,22 @@ a coordinator can dispatch it by hand before any fleet code exists.
 - Judgment seats run on a configurable `judgment_model`.
 - No Codex support in the first build; designed so adding it is a binding, not a refactor.
 
+## Open problems
+
+### Runs that share a file
+
+Fleet trial 2: two runs edited adjacent lines of one file. Each finished `completion: ready`; after
+the first PR merged the second went CONFLICTING, and nothing in the fleet noticed (it was resolved
+by hand). `completion: ready` cannot see this: a run is done when its PR carries the merge label at
+a verified SHA, and nothing afterwards confirms the PR landed. Candidate fixes, not chosen:
+
+- A landing sweep by the coordinator after the fleet ends (or after each `done`): `stu-forge`
+  reads every readied PR's state and reports one that is open and conflicting, or closed unmerged.
+- Program resources that name shared files, so two runs touching one file serialize the way runs
+  sharing a database or simulator already do (`after:` or a common resource).
+- A run under `completion: ready` stays `waiting` on the board until its readied PRs land, so a
+  conflict surfaces as a run that never finishes.
+
 ## Not verified
 
 - The spike's own gaps: a wait longer than one timer, an overnight supervisor, overage.

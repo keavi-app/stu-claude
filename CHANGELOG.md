@@ -20,6 +20,8 @@
   never stray copies of its return block, and marks a program or scope instruction in an
   objective's rulings `(by: program)`, never `(by: owner)`. `(by: program)` joins the provenance
   marks in the handoff format.
+- `docs/fleet-design.md` records an open problem: two runs that share a file can each finish
+  `completion: ready` while the second PR goes CONFLICTING after the first lands, unnoticed.
 
 ## 0.2.22
 
