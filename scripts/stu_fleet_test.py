@@ -1404,7 +1404,7 @@ def test_skim_only_run_settles_to_done():
     check("skim: draft accepted with nothing parked", rc, 0)
     check("skim: next says brief", pfleet("next", PROG)[1][0], "brief alpha")
     rc, out, err = pfleet("brief", PROG)
-    check("skim: brief prints", (rc, out[0]), (0, "Run demo: 3 rulings drafted"))
+    check("skim: brief prints", (rc, out[0]), (0, "Run alpha: 3 rulings drafted"))
     rc, out, err = pfleet("answer", PROG, "--line", "alpha: fine")
     check("skim: answer routes", (rc, out[0].startswith("answer alpha | draft: ")), (0, True))
     before = open(o).read()
@@ -1487,17 +1487,21 @@ def test_brief_and_answer():
     before = open(PROG).read()
     rc, out, err = pfleet("brief", PROG)
     check("brief for one run: the block, a blank line, one Answer line", (rc, out), (0, [
-        "Run demo: 3 rulings drafted",
+        "Run alpha: 3 rulings drafted",
         "1. Keep the label? -> recommend yes. Reverses if support sees confusion.",
         "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]",
         "3. Ship the export? -> recommend yes.", "",
-        "Answer: alpha: fine | accept 2 | reverse 2, 5 | talk about 3"]))
+        "Answer: alpha: fine | accept 1 | reverse 1, 2 | talk about 3"]))
     check("brief never writes", open(PROG).read(), before)
     # written items vanish, numbering stays
     rc, out, err = settled(o, "bw", "R1, R3", "R2")
     rc, out, err = pfleet("brief", PROG)
     check("brief hides written items and keeps numbering", out[1:3], [
         "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]", ""])
+    check("one item left: header singular, answer line uses its number", (out[0], out[-1]), (
+        "Run alpha: 3 rulings drafted", "Answer: alpha: fine | accept 2 | reverse 2 | talk about 2"))
+    one = stu_fleet.answer_example
+    check("answer example, none left", one([]), "fine")
     check("two lines of the block gone", ("1. Keep" in "\n".join(out), "3. Ship" in "\n".join(out)), (False, False))
     # answers, single run
     rc, out, err = pfleet("answer", PROG, "--line", "accept 2")
@@ -1518,8 +1522,8 @@ def test_brief_and_answer():
     # several runs
     oa, ob, da, db = two_drafts()
     rc, out, err = pfleet("brief", PROG)
-    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if x.startswith("Run demo:")])),
-          (0, "Run demo: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
+    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if re.match(r"Run \S+: 3 rulings drafted$", x)])),
+          (0, "Run alpha: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
     rc, out, err = pfleet("answer", PROG, "--line", "beta: reverse 1\nalpha: fine; ")
     check("several runs answered in Runs order", (rc, out), (0, [
         "answer alpha | draft: /runs/a/draft.md | line: fine", "answer beta | draft: /runs/b/draft.md | line: reverse 1"]))

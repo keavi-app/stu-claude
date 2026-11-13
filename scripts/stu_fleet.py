@@ -179,9 +179,11 @@ written reset, unless no unit is left Outstanding, Parked, Waiting or Awaiting a
 lane (a finished run whose only open items were `[skim]` decisions): then it goes to `done`, never
 `requeued`, since a relaunch would spend a cycle on nothing. Otherwise the run stays `settle`. The
 last stdout line is `requeued <slug>`, `done <slug>` or `pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
-Runs order, the drafted BRIEF block without its `BRIEF:` label, its own `Answer:` line and the
+Runs order, the drafted BRIEF block without its `BRIEF:` label (its `Run <x>: <n> rulings drafted`
+header renamed to the program's run slug, singular for one ruling), its own `Answer:` line and the
 numbered item lines already written, then a blank line, then one `Answer:` line for the whole
-brief (`Answer: <slug>: fine | accept 2 | reverse 2, 5 | talk about 3` for one run, `Answer per
+brief (`Answer: <slug>: fine | accept <a> | reverse <a>, <b> | talk about <z>` for one run, built
+from the items still shown, `Answer per
 run, one per line or separated by ';': <slug>: <answer>` for several); `brief: none` with no
 drafts. `answer` (read-only) splits `--line` on newlines and `;` into `<slug>: <answer>`
 segments (a segment with no slug belongs to the only run with a draft); it prints `answer <slug>
@@ -2159,6 +2161,15 @@ def drafted_runs(prog):
     return out
 
 
+def answer_example(nums):
+    """The example answer line, built from the brief's own item numbers."""
+    if not nums:
+        return "fine"
+    a, b, z = nums[0], nums[1] if len(nums) > 1 else None, nums[-1]
+    return "fine | accept %d | reverse %s | talk about %d" % (
+        a, "%d, %d" % (a, b) if b else str(a), z)
+
+
 def cmd_brief(sub, a):
     prog = load_program(a["program"])
     rc = need_valid(prog)
@@ -2168,19 +2179,28 @@ def cmd_brief(sub, a):
     if not drafts:
         print("brief: none")
         return 0
+    nums = []
     for run, b, d in drafts:
         keep = []
         for ln in (d["brief"] or "").splitlines():
+            h = re.match(r"^Run\s+\S+:\s*(\d+)\s+rulings?\s+drafted\s*$", ln)
+            if h and not keep:
+                # The settler heads its brief with the run-directory slug; `answer` takes the
+                # program's slug, so the header names that one.
+                n = int(h.group(1))
+                ln = "Run %s: %d ruling%s drafted" % (run["slug"], n, "" if n == 1 else "s")
             m = re.match(r"^\s*(\d+)\.\s", ln)
             if m and int(m.group(1)) in b["written"]:
                 continue
+            if m:
+                nums.append(int(m.group(1)))
             keep.append(ln)
         while keep and (not keep[-1].strip() or keep[-1].startswith("Answer:")):
             keep.pop()  # the run's own Answer: line; one line for the whole brief follows
         print("\n".join(keep))
         print()
     if len(drafts) == 1:
-        print("Answer: %s: fine | accept 2 | reverse 2, 5 | talk about 3" % drafts[0][0]["slug"])
+        print("Answer: %s: %s" % (drafts[0][0]["slug"], answer_example(nums)))
     else:
         print("Answer per run, one per line or separated by ';': <slug>: <answer>")
     return 0

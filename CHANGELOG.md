@@ -13,6 +13,9 @@
   across one settle. Resume now continues from `Cycles used:` in every run state except
   `fleet-relaunch`; the owner raises `Cycle cap:` to grant more. `stu-fleet`'s `resume_count`
   follows the same rule.
+- `stu-fleet brief` heads each run with the program's run slug (the one `answer` takes), not the
+  settler's run-directory slug, says `1 ruling` for one, and builds the single-run `Answer:`
+  example from the brief's own item numbers.
 
 ## 0.2.22
 
