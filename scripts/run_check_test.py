@@ -1146,12 +1146,113 @@ def test_supervisor_return():
         check("sup_usage", (r.returncode, r.stdout), (3, ""))
 
 
+def test_owner_question_hold():
+    """An unanswered row 2-6 question holds its unit: parked, never armed (owner_hold)."""
+    q6 = ("# Questions\n\n## lib#2 — Option S or C?\n\n**Why it is the owner's:** row 6 — scope\n"
+          "**Recommendation:** S — strong — x\n")
+    q7 = q6.replace("row 6 — scope", "row 7 — wording")
+    answered = q6 + "\n## Answers — 2026-11-13\n\n- lib#2 — Option S or C?: **S**\n"
+    for hold, qtext, fields, want in (
+            ("", q6, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "held"),
+            ("", q6, dict(PARKED_IDS="lib#2"), "ok"),
+            ("", q6, dict(REMAINING_IDS="lib#2"), "held"),
+            ("", answered, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("", q7, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("owner_hold: any-question\n", q7, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "held"),
+            ("owner_hold: none\n", q6, dict(CLOSED_IDS="lib#2", READY_IDS="R"), "ok"),
+            ("owner_hold: none\n", q6, dict(REMAINING_IDS="lib#2"), "ok")):
+        with tempfile.TemporaryDirectory() as tmp:
+            w = World(tmp, {"app": {}, "lib": {"merge_mode": "label-handoff",
+                                               "ci_merge_label": "go"}})
+            if hold:
+                write(w.cfg, open(w.cfg).read().replace("owner: o\n", "owner: o\n" + hold, 1))
+            sha = "d" * 40
+            w.set_gh(pr_at(w, 5, sha=sha, labels=("go",)))
+            o = os.path.join(w.tmp, "h", "2026-11-13-run-objective.md")
+            r = os.path.join(w.tmp, "return.txt")
+            write(o, objective([("lib#2", "lib", "-")], extra="completion: ready"))
+            write(os.path.join(w.tmp, "h", "2026-11-13-run-questions.md"), qtext)
+            f = dict((k, v.replace("R", "lib#2@acme/lib#5@" + sha) if v == "R" else v)
+                     for k, v in fields.items())
+            write(r, ret(**f))
+            rc, out, err = w.run(["--objective", o, "--return", r])
+            name = "hold %s %s %s" % (hold.strip() or "default", qtext.count("Answers"),
+                                      sorted(fields))
+            if want == "held":
+                check(name, (rc, blocked_with(out, "lib#2", "owner-question-not-held"),
+                             term(out)), (1, True, "BLOCKED"))
+            else:
+                check(name, (rc, term(out), err), (0, "OK", ""))
+
+
+def test_owner_question_hold_shapes():
+    """Heading shapes, missing rows, two questions, comma answers, exemptions, children."""
+    def q(head, row="**Why it is the owner's:** row 6 — scope"):
+        return "## %s\n\n%s\n**Recommendation:** x — strong — y\n" % (head, row)
+    two = q("lib#2 — First?") + q("lib#2 — Second?")
+    cases = [
+        ("missing file", None, dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("missing row holds", q("lib#2 — X?", row="no row line"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("colon outside bold", q("lib#2 — X?", row="**Why it is the owner's**: row 5 — v"),
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("rows 4 and 5", q("lib#2 — X?", row="**Why it is the owner's:** rows 4 and 5"),
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("row 1 skipped", q("lib#2 — X?", row="**Why it is the owner's:** row 1"),
+         dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("hash heading", q("#lib#2 — X?"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("ascii dash heading", q("lib#2 - X?"), dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("comma heading", q("lib#2, lib#3 — X?"), dict(CLOSED_IDS="lib#3", PARKED_IDS="lib#2"),
+         {}, "held3"),
+        ("paren heading", q("lib#3 (and lib#2) — X?"), dict(CLOSED_IDS="lib#2", PARKED_IDS="lib#3"),
+         {}, "held"),
+        ("no prefix collision", q("lib#2-ios — X?"), dict(CLOSED_IDS="lib#2"), {}, "unread"),
+        ("unreadable heading", q("something else — X?"), dict(PARKED_IDS="lib#2"), {}, "unread"),
+        ("two questions, one answered", two + "\n## Answers — d\n\n- lib#2 — First?: A\n",
+         dict(CLOSED_IDS="lib#2"), {}, "held"),
+        ("two questions, both answered", two + "\n## Answers — d\n\n- lib#2 — First?: A\n"
+         "- lib#2 — Second?: B\n", dict(CLOSED_IDS="lib#2"), {}, "ok"),
+        ("comma answer releases both", q("lib#2, lib#3 — X?") + "\n## Answers — d\n\n- lib#2, lib#3: B\n",
+         dict(CLOSED_IDS="lib#2, lib#3"), {}, "ok"),
+        ("not issued is exempt", q("lib#9 — X?") + q("lib#2 — Y?", row="**Why it is the owner's:** row 7"),
+         dict(CLOSED_IDS="lib#2"), {"Ever issued": "lib#2, lib#3, lib#9"}, "ok"),
+        ("already closed is exempt", q("lib#2 — X?"), dict(REMAINING_IDS="lib#3"),
+         {"Closed": "lib#2"}, "ok"),
+        ("after-pass-failed arms", q("lib#2 — X?"), dict(PARKED_IDS="lib#2", AFTER_PASS_FAILED="lib#2 tag"),
+         {}, "held"),
+        ("split of a held parent blocks", q("lib#2 — X?"),
+         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", PARKED_IDS="lib#4"), {}, "held"),
+        ("split of an answered parent passes", q("lib#2 — X?") + "\n## Answers — d\n\n- lib#2: A\n",
+         dict(UNITS_CHANGED="lib#2 -> lib#4 — split", REMAINING_IDS="lib#4"), {}, "ok"),
+    ]
+    for name, qtext, fields, board, want in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            w = World(tmp, {"app": {}, "lib": {}})
+            sb = [("Units issued", "lib#2, lib#3")] + list(board.items())
+            o = os.path.join(w.tmp, "h", "2026-11-13-run-objective.md")
+            write(o, objective([("lib#2", "lib", "-"), ("lib#3", "lib", "-")], scoreboard=sb))
+            if qtext is not None:
+                write(os.path.join(w.tmp, "h", "2026-11-13-run-questions.md"), "# Questions\n\n" + qtext)
+            r = os.path.join(w.tmp, "return.txt")
+            write(r, ret(**fields))
+            rc, out, err = w.run(["--objective", o, "--return", r])
+            if want == "ok":
+                check("hold shape: " + name, (rc, term(out), err), (0, "OK", ""))
+            elif want == "unread":
+                check("hold shape: " + name, (rc, any("owner-question-unreadable" in l for l in out)),
+                      (1, True))
+            else:
+                ident = {"held": "lib#2", "held3": "lib#3"}[want]
+                check("hold shape: " + name, (rc, blocked_with(out, ident, "owner-question-not-held")),
+                      (1, True))
+
+
 for t in (test_supervisor_return, test_closing_by_ancestry, test_wrong_field_for_mode, test_after_pass_failed,
           test_before_push, test_approved, test_tagged, test_park_and_closes,
           test_integrated, test_legacy_and_flat, test_units_changed_child_inherits_after, test_exit_3,
           test_passed_and_ready, test_before_push_leg2, test_before_push_wrong_fields,
           test_waiting_and_after,
-          test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved):
+          test_close_paths, test_park_anywhere, test_closed_but_remaining, test_closed_and_moved,
+          test_owner_question_hold, test_owner_question_hold_shapes):
     t()
 
 if FAILURES:

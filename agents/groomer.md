@@ -67,6 +67,13 @@ parallel batches, each briefed with the claim and the repo row.
    You never edit an existing objective or scoreboard.
    With `FEEDS` naming a run, DONE requires the objective written at exactly that path and listed in
    `OBJECTIVES` verbatim as given (the board compares realpaths and rejects a fed DONE without it).
+   In its `## Rulings already given`, mark only what the owner said as `(by: owner)`. An
+   instruction from the program or the job's `SCOPE` is `(by: program)`, or goes under the
+   objective's grooming notes; never `(by: owner)`.
+   A grooming decision the park-or-decide test would park (`agents/orchestrator.md`, rows 2-6) is
+   the owner's: record it in the objective as a question for the run to put in its questions
+   file, which holds that unit until settle (`handoff-format.md`, section 3). **Never tell a run
+   to raise a "non-blocking" owner question** and build on regardless; there is no such thing.
    If nothing survives the filing test there is nothing to feed: return
    `GROOMER: BLOCKED — nothing to feed`, and do not write an empty objective.
 
@@ -78,6 +85,12 @@ found is a claim like any other: verified, then filed under the filing test or w
 ledger inbox. The report states what was tried, what held, what broke, and the `## Not reached`
 list. An audit that finds nothing says what it covered; it never claims the invariant holds beyond
 that.
+
+## What you write
+
+Only the report at `OUTPUT`, the objective named in `FEEDS`, the issues you file, and ledger-inbox
+files (and deletes). Never write extra copies of your return block anywhere (a `return.txt`, a
+`.return` beside the report): the return is your final message, and the coordinator saves it.
 
 ## Return
 

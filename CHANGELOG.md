@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.23
+
+- An unanswered questions-file entry on park-or-decide row 2-6 now holds its unit: it stays in
+  `PARKED_IDS`, no merge gate is dispatched for it, and it is in no closing or arming field until
+  `/stu:settle` answers and unparks it. The orchestrator may build the PR ahead and resumes from it
+  after the unpark. `stu-run-check` reads the run's questions file and blocks a held unit that is
+  armed (a gate field or `AFTER_PASS_FAILED`) or not parked (`owner-question-not-held`), and a
+  question heading that names no unit (`owner-question-unreadable`). A missing row holds, and
+  splitting a held unit is blocked. The check detects after the cycle, it does not prevent: on a
+  block the supervisor disarms the PR with `stu-forge disarm`, and a merge already made goes to the
+  owner. There is no "non-blocking" owner question.
+- New family-only config key `owner_hold` (`owner-only`, default; `any-question`; `none`, the old
+  behaviour), exported by `stu-env` as `OWNER_HOLD`.
+- Fix: a settle reset a run's cycle count, so a fleet run with `Cycle cap: 2` ran three cycles
+  across one settle. Resume now continues from `Cycles used:` in every run state except
+  `fleet-relaunch`. Outside a fleet the owner raises `Cycle cap:` to grant more; inside one a cap-hit
+  run can still be relaunched, and `fleet-relaunch` gets a fresh cap bounded by the cycle budget. `stu-fleet`'s `resume_count`
+  follows the same rule.
+- `stu-fleet brief` heads each run with the program's run slug (the one `answer` takes), not the
+  settler's run-directory slug, says `1 ruling` for one, and builds the single-run `Answer:`
+  example from the brief's own item numbers.
+- The groomer writes only its report, the objective it feeds, filed issues and ledger-inbox files,
+  never stray copies of its return block, and marks a program or scope instruction in an
+  objective's rulings `(by: program)`, never `(by: owner)`. `(by: program)` joins the provenance
+  marks in the handoff format.
+- `docs/fleet-design.md` records an open problem: two runs that share a file can each finish
+  `completion: ready` while the second PR goes CONFLICTING after the first lands, unnoticed.
+
 ## 0.2.22
 
 - Fix: a run that finished every unit but whose handoffs carried `[skim]` decisions was marked done

@@ -20,7 +20,8 @@ repo. Config = flat `key: value` frontmatter + Markdown `## id` sections. A `## 
 section holds one `### name` block of `key: value` lines per repo; the first is home. Any
 `ci_<name>` frontmatter key is exported as `CI_<NAME>`; `triage_extra` as `TRIAGE_EXTRA`;
 `merge_lock` (on|off, default off; family-only) as `MERGE_LOCK`; `fleet_max_lanes` (positive
-integer, default 4, no ceiling; family-only) as `FLEET_MAX_LANES`.
+integer, default 4, no ceiling; family-only) as `FLEET_MAX_LANES`; `owner_hold` (owner-only|
+any-question|none, default owner-only; family-only) as `OWNER_HOLD`.
 HTML comments in a section (the template's /stu:init questions) are not part of its body.
 A flat config (no table) is a family of one; every row key may sit in its frontmatter.
 """
@@ -47,9 +48,10 @@ MODES = ("work", "pr-only", "park")
 CI_KINDS = ("aggregator", "list", "none")
 FAMILY_ONLY_KEYS = ("run_home", "project", "owner", "triage_extra", "completion_mode",
                     "stop_condition_2", "deep_pass_model", "judgment_model", "merge_lock",
-                    "fleet_max_lanes")
+                    "fleet_max_lanes", "owner_hold")
 FAMILY_ONLY_SECTIONS = ("completion-mode", "stop-condition-2", "deep-pass-model",
                        "judgment-model")
+OWNER_HOLDS = ("owner-only", "any-question", "none")
 MANDATORY = ("slug", "remote", "base", "visibility", "mode", "merge_mode", "ci")
 
 
@@ -701,6 +703,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
     merge_mode, base, base_source, skipped = "direct", "", "", "false"
     merge_lock = "off"
     fleet_max_lanes = "4"
+    owner_hold = "owner-only"
     if full:
         with _in(label):
             _validate(r, name, strict, home, body, mode, ci_kind)
@@ -746,6 +749,11 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
                                   "to a whole number of at least 1 or leave it blank for 4"
                                   % fm.get("fleet_max_lanes"))
             fleet_max_lanes = str(int(raw_lanes))
+            hold = (fm.get("owner_hold") or "owner-only").strip().lower()
+            if hold not in OWNER_HOLDS:
+                raise ConfigError("owner_hold must be one of %s, not %r"
+                                  % ("|".join(OWNER_HOLDS), fm.get("owner_hold")))
+            owner_hold = hold
             base, base_source = _base(r, row_path, remote, slug, host, forge_lookup)
             if not base and forge_lookup and table and require_config:
                 raise ConfigError("no base branch resolvable for row %s: set 'base:' under "
@@ -793,6 +801,7 @@ def _resolve(cwd, require_config, repo, forge_lookup, full):
     out["TRIAGE_EXTRA"] = fm.get("triage_extra", "") if home else ""
     out["MERGE_LOCK"] = merge_lock
     out["FLEET_MAX_LANES"] = fleet_max_lanes
+    out["OWNER_HOLD"] = owner_hold
     ci = {}
     if home:
         ci.update((k, v) for k, v in fm.items() if k.startswith("ci_") and len(k) > 3)

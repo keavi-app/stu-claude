@@ -129,6 +129,8 @@ hand is how a checker gets walked past.
 
 ### 5a. Ruling writes (settler-safe)
 
+Write each answer in the line shape `handoff-format.md`, section 3, gives ("The answer line shape"): `stu-run-check` releases a held unit only on that shape.
+
 **Questions file.** Append `## Answers — <YYYY-MM-DD>`, one line per unit: the answer, and
 the owner's own words whenever they went beyond "yes" (an amendment, a third option, a reason).
 
@@ -167,7 +169,7 @@ performs these.
     `waiting-on-human` (the answers above are still written) until they resolve.
 
 Do not touch `Cycles used`, `Model overrides`, or the check-5 counters. They belong to
-the supervisor, and the next `/stu:run` starts a fresh cycle count (the run skill's SKILL.md, "The cycle cap").
+the supervisor, and the next `/stu:run` continues the cycle count; a settle grants no fresh cap (the run skill's SKILL.md, "The cycle cap").
 
 ### Always the owner's
 

@@ -590,6 +590,20 @@ attempt at the blind-supervisor pattern; a second deviation stops the run becaus
 cannot guess what an off-schema value meant. Returns have stopped runs this way (`PARKED`,
 `HANDOFF`, a missing handoff path).
 
+### Owner-question hold
+
+Fleet trial 3 readied a PR whose questions file said "non-blocking", and auto-merge landed it before
+the owner ruled on the v1 exception it added; settle then ruled on a merged change. An unanswered
+row 2-6 question now holds its unit: parked and unarmed until settle answers. It is a park and an
+unpark, not a new approval leg, for three reasons. It reuses the path settle already has
+(`SCOREBOARD-TODO: unpark <id>`, applied by `board settled` or settle step 5b), so nothing new
+writes the scoreboard. "Unarmed" means the same thing in every merge mode (direct, label-handoff,
+direct-push): no gate is dispatched, so nothing merges, labels or pushes, and no mode needs its own
+approval rule. And the work is not lost: a PR built ahead stays open, and the cycle after the
+unpark gates it, reworked first if the owner reversed it. The check detects; it does not prevent.
+The orchestrator dispatches the gate inside its cycle, so `stu-run-check` sees an arming only
+after it happened; the supervisor then disarms the PR, and a merge already made goes to the owner.
+
 ### Verified labels
 
 The "verified - do not re-derive" label is worth having: re-deriving settled facts is most of what

@@ -88,6 +88,8 @@ Every line ends with a provenance mark, so a later reversal is detectable:
 
 - `(by: owner)` — the owner gave the ruling.
 - `(by: settler; owner-approved <YYYY-MM-DD>)` — a settler drafted it and the owner accepted it in a brief.
+- `(by: program)` — an instruction from the fleet program or the job's scope, which a groomer
+  copied in; it is not the owner's ruling.
 - `(by: settler; auto-narrow)` — reserved for the opt-in auto-narrow mode; nothing writes it yet.
 
 A reversal line names the ruling it reverses by date and text, and carries its own mark. A line
@@ -288,7 +290,7 @@ exactly those files, one per lane, and never opens them.
 
 ---
 
-## 3. The questions file — one per run, appended, never blocking
+## 3. The questions file — one per run, appended; each entry holds its unit
 
 `RUN_HOME/handoffs/YYYY-MM-DD-<slug>-questions.md`
 
@@ -307,6 +309,26 @@ prototype, a diff file. A reference the owner cannot open is not a reference.>
 **Options:** <at most three, each one line>
 **Recommendation:** <one option> — strong | lean — <one line of why>
 ```
+
+**An unanswered entry holds its unit.** There is no non-blocking owner question: a decision that
+need not wait is row 7 and goes to `## Decisions taken` with its `[skim]` tag; an entry here is a
+park. While no line under a `## Answers` heading names the unit, the unit is held: it is in
+`PARKED_IDS` in every return, and nothing arms it, so it is in none of `CLOSED_IDS`, `MERGED_IDS`,
+`READY_IDS`, `PASSED_IDS`, `TAGGED_IDS`, `APPROVAL_IDS` or `INTEGRATED_IDS`, and no merge gate is
+dispatched for it (no merge, no label, no direct push). **Building ahead is allowed:** the
+orchestrator may implement the unit and open or push its PR without dispatching the gate, then park
+it; the PR stays open and unarmed. After settle answers and unparks it, the next cycle resumes the
+unit from that PR, applies the ruling (reworking it if the owner reversed the recommendation) and
+gates it as usual. The Stu config's `owner_hold` sets which entries hold: `owner-only` (default)
+rows 2-6, `any-question` every entry, `none` no entry (the entry still reaches settle).
+A held unit is not split (`UNITS_CHANGED`) until settle answers its question: descoping is the
+owner's call, and a split would free the children while the question is open. `stu-run-check` checks it (`owner-question-not-held`),
+after the fact: it cannot undo an arming, so the rule is the orchestrator's to keep.
+
+**The answer line shape the checker reads:** `- <id>[, <id> ...] — <question>: <answer>`, or
+`- <id>[, <id> ...]: <answer>`. The ids before the first ` — ` or `:` are the units it answers,
+every one of them; for a unit with more than one entry the line must also quote that entry's
+question.
 
 `/stu:settle` reads the `Why it is the owner's:` row to order the walk-through and the
 `Recommendation:` line to offer the one-word answer, so both are required.

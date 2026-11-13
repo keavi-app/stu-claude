@@ -191,7 +191,8 @@ cycle each was has not been checked.
 
 Four different needs:
 
-1. **A ceiling that survives settling.** The cycle cap is per run and a settle resets it. In an
+1. **A ceiling that survives settling.** The cycle cap is per run; since S16 a settle no longer
+   resets it, but a coordinator relaunch (`fleet-relaunch`) does. In an
    ordinary week something has to say "this fleet may spend this much, total".
 2. **A loop guard.** A run that relaunches without closing anything.
 3. **A deadline.** Three of the big sessions were the opposite of a ceiling: spare quota and a
@@ -369,6 +370,21 @@ rough edges. Decisions, each with what would reverse it:
    compares them to the agent files. **Coordinator-saved returns** go under
    `RUN_HOME/runs/<program name>/<slug>/`, so two programs reusing a slug cannot collide.
 
+## Decisions taken after the third fleet trial (S16)
+
+1. **An unanswered owner question holds its unit.** A questions-file entry on park-or-decide row
+   2-6 keeps its unit in `PARKED_IDS` and out of every arming field until settle answers; the run
+   may build the PR ahead but never gates it, and `stu-run-check` blocks a violation
+   (`owner-question-not-held`). There is no non-blocking owner question. The Stu config's
+   `owner_hold` (`owner-only` default, `any-question`, `none`) sets which entries hold. Owner:
+   `skills/run/handoff-format.md`, section 3. Reverses if held units cost more than a ruled-after-merge
+   change does, which `none` already allows per family.
+2. **A settle does not reset the cycle cap.** Trial 3's undo-bar-spec (`Cycle cap: 2`) ran one cycle,
+   settled, and the relaunch counted from `0/2` (any `/stu:settle` line reset the count), so the
+   board showed 3 cycles. Resume now continues from `Cycles used:` in every state but
+   `fleet-relaunch`, and `resume_count` agrees, so the board's `from` matches. Reverses if a settle
+   should grant a fresh cap; that would then be counted against the cycle budget explicitly.
+
 ## Merge hold and lock
 
 Stu serialises merges inside one supervisor. A fleet has several, merging into a base branch
@@ -521,6 +537,7 @@ Codex note in the same PR.
 | S12b | `stu:groomer`, the agent; plugs into S12a | S12a |
 | S13 | `stu:designer`, the agent; plugs into S12a (its round loop is `board verdict`) | S12a |
 | S15 | Fixes from the first fleet trial: skim-only runs reach settle and end `done`, `board show` wait line, dispatch lines in the fleet skill, program-scoped return paths | S12b, S13 |
+| S16 | Fixes from the third fleet trial: owner-question hold and `owner_hold`, cycle cap held across a settle, brief header and answer line, groomer hygiene | S15 |
 | S14 | Auto-narrow settle mode | S11, after a few weeks of draft-mode briefs |
 
 S1, S2 and S4 help today's hand-run coordinators at once. S7 alone removes most settle sessions:
@@ -535,6 +552,29 @@ a coordinator can dispatch it by hand before any fleet code exists.
 - Settling is draft-first; auto-narrow is a per-program opt-in.
 - Judgment seats run on a configurable `judgment_model`.
 - No Codex support in the first build; designed so adding it is a binding, not a refactor.
+
+## Open problems
+
+### Runs that share a file
+
+Fleet trial 2: two runs edited adjacent lines of one file. Each finished `completion: ready`; after
+the first PR merged the second went CONFLICTING, and nothing in the fleet noticed (it was resolved
+by hand). `completion: ready` cannot see this: a run is done when its PR carries the merge label at
+a verified SHA, and nothing afterwards confirms the PR landed. Candidate fixes, not chosen:
+
+- A landing sweep by the coordinator after the fleet ends (or after each `done`): `stu-forge`
+  reads every readied PR's state and reports one that is open and conflicting, or closed unmerged.
+- Program resources that name shared files, so two runs touching one file serialize the way runs
+  sharing a database or simulator already do (`after:` or a common resource).
+- A run under `completion: ready` stays `waiting` on the board until its readied PRs land, so a
+  conflict surfaces as a run that never finishes.
+
+### The owner-question hold is detected, not prevented
+
+`stu-run-check` sees a held unit armed only after the orchestrator's cycle; the supervisor disarms
+it, but a direct merge cannot be undone. The merge gate itself could refuse a held unit if it were
+given the objective path and read the questions file. Not built: today the gate takes no objective
+for a non-epic PR, on purpose (its evidence is its own).
 
 ## Not verified
 

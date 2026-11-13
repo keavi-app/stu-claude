@@ -179,9 +179,11 @@ written reset, unless no unit is left Outstanding, Parked, Waiting or Awaiting a
 lane (a finished run whose only open items were `[skim]` decisions): then it goes to `done`, never
 `requeued`, since a relaunch would spend a cycle on nothing. Otherwise the run stays `settle`. The
 last stdout line is `requeued <slug>`, `done <slug>` or `pending <slug>: <unanswered R ids>`. `brief` (read-only) prints, for each run with a draft in
-Runs order, the drafted BRIEF block without its `BRIEF:` label, its own `Answer:` line and the
+Runs order, the drafted BRIEF block without its `BRIEF:` label (its `Run <x>: <n> rulings drafted`
+header renamed to the program's run slug, singular for one ruling), its own `Answer:` line and the
 numbered item lines already written, then a blank line, then one `Answer:` line for the whole
-brief (`Answer: <slug>: fine | accept 2 | reverse 2, 5 | talk about 3` for one run, `Answer per
+brief (`Answer: <slug>: fine | accept <a> | reverse <a>, <b> | talk about <z>` for one run, built
+from the items still shown, `Answer per
 run, one per line or separated by ';': <slug>: <answer>` for several); `brief: none` with no
 drafts. `answer` (read-only) splits `--line` on newlines and `;` into `<slug>: <answer>`
 segments (a segment with no slug belongs to the only run with a draft); it prints `answer <slug>
@@ -625,23 +627,17 @@ def objective_facts(path):
 
 def resume_count(text):
     """The count a supervisor resuming from this objective starts from (the run skill's "The
-    cycle cap", At Resume): the scoreboard's `Cycles used:` numerator when `Run state:` reads
-    `settled <date> -- nothing to settle`, or reads `stopped --` and any `Lane state:` line
-    carries `self-stop:`; 0 otherwise, every other state (`fleet-relaunch`, `/stu:settle` lines,
-    running) and any missing field included."""
+    cycle cap", At Resume): the scoreboard's `Cycles used:` numerator in every `Run state:`,
+    `/stu:settle` and `board settled` lines included, so a settle never grants a fresh cap; 0
+    only for `fleet-relaunch <date>` (the coordinator's relaunch, counted against the fleet's
+    cycle budget) or a missing field."""
     if "## Scoreboard" in text:
         text = text[text.index("## Scoreboard"):]
-    dash = r"(?:—|–|--|-)"
     state = re.search(r"(?m)^\s*Run state:\s*(.*)$", text)
     used = re.search(r"(?m)^\s*Cycles used:\s*(\d+)\s*/\s*\d+", text)
-    if not state or not used:
+    if not state or not used or state.group(1).strip().startswith("fleet-relaunch"):
         return 0
-    st = state.group(1).strip()
-    cont = bool(re.match(r"settled\s+\S+\s*%s\s*nothing to settle" % dash, st))
-    if not cont and re.match(r"stopped\s*%s" % dash, st):
-        cont = any("self-stop:" in ln for ln in text.splitlines()
-                   if re.match(r"\s*Lane state:", ln))
-    return int(used.group(1)) if cont else 0
+    return int(used.group(1))
 
 
 def split_list(v):
@@ -2165,6 +2161,15 @@ def drafted_runs(prog):
     return out
 
 
+def answer_example(nums):
+    """The example answer line, built from the brief's own item numbers."""
+    if not nums:
+        return "fine"
+    a, b, z = nums[0], nums[1] if len(nums) > 1 else None, nums[-1]
+    return "fine | accept %d | reverse %s | talk about %d" % (
+        a, "%d, %d" % (a, b) if b else str(a), z)
+
+
 def cmd_brief(sub, a):
     prog = load_program(a["program"])
     rc = need_valid(prog)
@@ -2174,19 +2179,28 @@ def cmd_brief(sub, a):
     if not drafts:
         print("brief: none")
         return 0
+    nums = []
     for run, b, d in drafts:
         keep = []
         for ln in (d["brief"] or "").splitlines():
+            h = re.match(r"^Run\s+\S+:\s*(\d+)\s+rulings?\s+drafted\s*$", ln)
+            if h and not keep:
+                # The settler heads its brief with the run-directory slug; `answer` takes the
+                # program's slug, so the header names that one.
+                n = int(h.group(1))
+                ln = "Run %s: %d ruling%s drafted" % (run["slug"], n, "" if n == 1 else "s")
             m = re.match(r"^\s*(\d+)\.\s", ln)
             if m and int(m.group(1)) in b["written"]:
                 continue
+            if m:
+                nums.append(int(m.group(1)))
             keep.append(ln)
         while keep and (not keep[-1].strip() or keep[-1].startswith("Answer:")):
             keep.pop()  # the run's own Answer: line; one line for the whole brief follows
         print("\n".join(keep))
         print()
     if len(drafts) == 1:
-        print("Answer: %s: fine | accept 2 | reverse 2, 5 | talk about 3" % drafts[0][0]["slug"])
+        print("Answer: %s: %s" % (drafts[0][0]["slug"], answer_example(nums)))
     else:
         print("Answer per run, one per line or separated by ';': <slug>: <answer>")
     return 0

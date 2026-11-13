@@ -142,6 +142,19 @@ Closing, by the unit's row (field = the gate field that closes it):
   is also in CLOSED_IDS or in its row's closing field is `BLOCKED closed-but-remaining`: a unit
   closed this return is not outstanding. An AFTER_PASS_FAILED entry for the ID exempts its
   closing field (that entry keeps the unit outstanding) but never a CLOSED_IDS entry.
+  Owner-question hold: the questions file is the --objective path with `-questions.md` for
+  `-objective.md` (absent: nothing is held). Every `## ` heading but `## Answers ...` is an entry; it
+  names each issued unit id that appears in it as a whole token (`## 9271 — ...`, `## #9271 — ...`,
+  `## a-ios, a-android — ...`, `## 6975 (and 6976) — ...`); a heading that names no unit the
+  objective knows (issued, unit table, `Ever issued:`) is `QUESTIONS BLOCKED
+  owner-question-unreadable`, and a known unit no longer issued is exempt. An entry holds its units while no answer line under
+  `## Answers — <date>` names them (handoff-format.md, section 3, gives the shape), as the family's
+  OWNER_HOLD says: owner-only (default) skips an entry only when its `Why it is the owner's:` line
+  names rows and none is 2-6 (a missing or unreadable row holds), any-question holds every entry,
+  none holds nothing. A UNITS_CHANGED that splits a held unit is blocked too. A held
+  unit in CLOSED_IDS, MERGED_IDS, READY_IDS, PASSED_IDS, TAGGED_IDS, APPROVAL_IDS, INTEGRATED_IDS or
+  AFTER_PASS_FAILED, or missing from PARKED_IDS, is `BLOCKED owner-question-not-held` (a unit the
+  scoreboard's `Closed:` already lists is exempt). The check detects; it cannot undo an arming.
   Leg 2 of a before-push unit: a PASSED_IDS entry on a before-push row needs an approvals
   record for exactly that id and sha, else `BLOCKED leg2-unapproved`. A MERGED_IDS or
   READY_IDS entry for a before-push row is `BLOCKED wrong-field-for-mode`. A before-push row
@@ -161,7 +174,7 @@ passed-pr-closed, ready-needs-pr-and-sha, ready-other-slug, ready-wrong-sha, rea
 ready-label-absent, leg2-unapproved, waiting-without-after, waiting-predecessor-not-closed,
 waiting-predecessor-landed, predecessor-not-landed, predecessor-not-tagged,
 predecessor-unverified, predecessor-moved-head, closed-but-remaining,
-tracking-field-does-not-close, tracked-not-remaining.
+tracking-field-does-not-close, tracked-not-remaining, owner-question-not-held, owner-question-unreadable.
 
 Evidence (what each check proves):
   MERGED_IDS     after `git fetch <remote> <base>`, the sha is an ancestor of
@@ -431,6 +444,7 @@ class Check:
         self.row_cache = {}
         self.fetched = set()
         self.approvals = {}
+        self.opath = None
 
     # row resolution
     def env(self, name):
@@ -943,6 +957,120 @@ def evaluate(chk, ident, got, issued, awaiting, held):
     return u
 
 
+# ---- owner-question hold ----------------------------------------------------------------
+
+ARMING_FIELDS = ("CLOSED_IDS", "MERGED_IDS", "READY_IDS", "PASSED_IDS", "TAGGED_IDS",
+                 "APPROVAL_IDS", "INTEGRATED_IDS", "AFTER_PASS_FAILED")
+_Q_SPLIT = re.compile(r"\s+(?:—|–|--|-)\s+")
+_Q_ROW = re.compile(r"(?i)Why it is the owner(?:'|’)s\**\s*:\s*\**\s*rows?\s+([0-9][0-9 ,and&/-]*)")
+_ID_TOKEN = re.compile(r"[^\s,;()\[\]`*]+")
+
+
+def questions_path(objective_path):
+    """The run's questions file: the objective path with `-questions.md` (settle, step 1)."""
+    if objective_path and objective_path.endswith("-objective.md"):
+        return objective_path[:-len("-objective.md")] + "-questions.md"
+    return None
+
+
+def parse_questions(text):
+    """-> ([(heading, question, rows)], [answer line]). Every `## ` heading other than
+    `## Answers ...` is an entry; rows are the numbers on its `Why it is the owner's:` line
+    ([] when that line is missing or unreadable). Answers are the lines under `## Answers`."""
+    entries, answers, cur, in_answers = [], [], None, False
+    for line in text.splitlines():
+        if re.match(r"^##(?!#)\s", line):
+            cur = None
+            head = line[2:].strip()
+            in_answers = bool(re.match(r"^Answers\b", head))
+            if not in_answers and not re.match(r"^Questions\b", head):
+                parts = _Q_SPLIT.split(head, 1)
+                cur = [parts[0], parts[1] if len(parts) > 1 else head, None]
+                entries.append(cur)
+            continue
+        if in_answers:
+            answers.append(line)
+        elif cur is not None and cur[2] is None:
+            m = _Q_ROW.search(line)
+            if m:
+                cur[2] = [int(n) for n in re.findall(r"[0-9]+", m.group(1))]
+    return [(h, q, r or []) for h, q, r in entries], answers
+
+
+def ids_in(text, issued):
+    """Issued unit ids named in text as whole tokens (a leading `#` dropped)."""
+    out = []
+    for tok in _ID_TOKEN.findall(text):
+        for t in (tok, tok.lstrip("#"), tok.rstrip(".:")):
+            if t in issued and t not in out:
+                out.append(t)
+                break
+    return out
+
+
+def answered(ident, question, n_for_unit, answers):
+    """An entry is answered when an answer line `- <id>[, <id> ...] — <question>: <answer>` (or
+    `- <ids>: <answer>`) names its unit among the ids before the first dash or colon and either
+    quotes its question or the unit has only this one entry."""
+    for ln in answers:
+        m = re.match(r"^\s*[-*]\s*(.*)$", ln)
+        if not m:
+            continue
+        lead = re.split(r"\s+(?:—|–|--)\s+|:", m.group(1), 1)[0]
+        names = [t.strip("*#` ") for t in re.split(r"[,\s]+", lead) if t.strip("*#` ")]
+        if ident in names and (n_for_unit == 1 or question in ln):
+            return True
+    return False
+
+
+def held_units(chk, issued):
+    """-> ({unit id: question}, [problem]) for every issued unit an unanswered questions-file
+    entry holds, under the family's owner_hold. owner-only skips an entry only when its row line
+    names numbers and none is 2-6; a missing or unreadable row holds. A heading that names no
+    known unit is a problem."""
+    path = questions_path(chk.opath)
+    if not path or not os.path.exists(path):
+        return {}, []
+    entries, answers = parse_questions(read_text(path, "questions file"))
+    known = issued | set(chk.table) | set(board_items(chk.board, "ever issued"))
+    named = [(ids_in(h, known), q, rows, h) for h, q, rows in entries]
+    per_unit = {}
+    for ids, _, _, _ in named:
+        for i in ids:
+            per_unit[i] = per_unit.get(i, 0) + 1
+    out, problems = {}, []
+    for ids, question, rows, head in named:
+        if not ids:
+            problems.append(head)
+            continue
+        ids = [i for i in ids if i in issued]  # a known unit no longer issued is exempt
+        if not ids:
+            continue
+        policy = chk.row_of(ids[0]).get("OWNER_HOLD") or "owner-only"
+        if policy == "none":
+            continue
+        if policy == "owner-only" and rows and not any(2 <= r <= 6 for r in rows):
+            continue
+        for ident in ids:
+            if ident not in out and not answered(ident, question, per_unit[ident], answers):
+                out[ident] = question
+    return out, problems
+
+
+def hold_problem(ident, holds, got, parked, closed_before):
+    """-> the detail of an owner-question-not-held block for ident, or None."""
+    if ident not in holds or ident in closed_before:
+        return None
+    armed = [f for f in ARMING_FIELDS if ident in got.get(f, {})]
+    if armed:
+        return ("%s is in %s, but the unanswered owner question %r holds it; park it and leave "
+                "its PR unarmed until settle answers" % (ident, "/".join(armed), holds[ident]))
+    if ident not in parked:
+        return ("%s is not in PARKED_IDS, but the unanswered owner question %r holds it"
+                % (ident, holds[ident]))
+    return None
+
+
 # ---- driver -----------------------------------------------------------------------------
 
 SUP_KEY = re.compile(r"^\s*([A-Z][A-Z0-9-]*):[ \t]*(.*?)\s*$")
@@ -1103,9 +1231,22 @@ def run_returns(chk, fields):
     for f in ("REMAINING_IDS", "PARKED_IDS", "INTEGRATING_IDS"):
         for i in items(fields.get(f, "")):
             held.setdefault(i.partition("@")[0], f)
+    kids_of = {}
+    changed = head_of(fields.get("UNITS_CHANGED", ""))
+    if "->" in changed:
+        left, right = changed.split("->", 1)
+        for parent in items(left):
+            kids_of[parent.partition("@")[0]] = [k.partition("@")[0] for k in items(right)]
+    holds, unread = held_units(chk, issued)
+    parked = set(i.partition("@")[0] for i in items(fields.get("PARKED_IDS", "")))
+    closed_before = set(board_items(chk.board, "closed"))
     lines, any_blocked = [], False
     for ident in order:
-        line, blocked = evaluate(chk, ident, got, issued, awaiting, held).line(ident)
+        u = evaluate(chk, ident, got, issued, awaiting, held)
+        why = hold_problem(ident, holds, got, parked, closed_before)
+        if why:
+            u.blocked.insert(0, "owner-question-not-held: " + why)
+        line, blocked = u.line(ident)
         lines.append(line)
         any_blocked = any_blocked or blocked
     seen = set(order)
@@ -1122,6 +1263,21 @@ def run_returns(chk, fields):
             lines.append("%s BLOCKED park-row: %s belongs to a row with mode: park" % (
                 ident, ident))
             any_blocked = True
+    for ident in sorted(holds):
+        if ident in kids_of:
+            # A held unit is not split until settle answers; descoping is the owner's call.
+            why = ("%s is split by UNITS_CHANGED, but the unanswered owner question %r holds it; "
+                   "a held unit is not split until settle answers" % (ident, holds[ident]))
+        else:
+            why = None if ident in order else hold_problem(ident, holds, got, parked,
+                                                           closed_before)
+        if why:
+            lines.append("%s BLOCKED owner-question-not-held: %s" % (ident, why))
+            any_blocked = True
+    for head in unread:
+        lines.append("QUESTIONS BLOCKED owner-question-unreadable: the heading %r names no known "
+                     "unit; write it as '## <unit id> — <question>'" % head)
+        any_blocked = True
     return lines, any_blocked
 
 
@@ -1190,6 +1346,7 @@ def main(argv):
         else:
             fields = parse_return(read_text(args["return"], "return"))
             chk = Check(chk_text, fields)
+            chk.opath = args["objective"]
             lines, blocked = run_returns(chk, fields)
     except ToolError as e:
         sys.stderr.write("stu-run-check: %s: %s\n" % (e.cls, e.detail))

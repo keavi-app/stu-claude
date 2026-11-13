@@ -344,19 +344,20 @@ def test_resume_count():
     rc = stu_fleet.resume_count
     sb = lambda st, used="3/4", extra="": "Run state: %s\nCycles used: %s\n%s" % (st, used, extra)
     check("settled nothing to settle continues", rc(sb("settled 2026-01-02 — nothing to settle")), 3)
-    check("settled other starts 0", rc(sb("settled 2026-01-02 — ruled 2 questions")), 0)
-    check("stopped plain starts 0", rc(sb("stopped — BLOCKED: x")), 0)
+    # A settle never grants a fresh cap (fleet trial 3: cap 2 ran 3 cycles across a settle).
+    check("settled with answers continues", rc(sb("settled 2026-01-02 — 1 answered, 1 unparked, "
+                                                  "0 added, 0 dropped", used="1/2")), 1)
+    check("stopped plain continues", rc(sb("stopped — BLOCKED: x")), 3)
     check("stopped with self-stop lane continues",
           rc(sb("stopped — BLOCKED: x", extra="Lane state: stopped — self-stop: context\n")), 3)
-    check("self-stop text but state not stopped", rc(sb("running", extra="Lane state: self-stop: x\n")), 0)
+    check("running continues", rc(sb("running", extra="Lane state: self-stop: x\n")), 3)
     check("fleet-relaunch starts 0", rc(sb("fleet-relaunch 2026-01-03")), 0)
-    check("running starts 0", rc(sb("running")), 0)
-    check("waiting-on-human starts 0", rc(sb("waiting-on-human")), 0)
+    check("waiting-on-human continues", rc(sb("waiting-on-human")), 3)
     check("no scoreboard starts 0", rc("# Objective: x\n"), 0)
     check("no cycles used starts 0", rc("Run state: settled 2026-01-02 — nothing to settle\n"), 0)
     check("template text above the scoreboard is ignored",
           rc("Run state: settled 2026-01-02 — nothing to settle\nCycles used: 9/9\n"
-             "## Scoreboard\nRun state: running\nCycles used: 1/4\n"), 0)
+             "## Scoreboard\nRun state: fleet-relaunch 2026-01-03\nCycles used: 1/4\n"), 0)
 
 
 def test_program_check():
@@ -1000,7 +1001,8 @@ def test_nonces():
 
 
 def test_idle():
-    o = lifecycle(scoreboard="Run state: running\nCycles used: 3/4\nClosed: NONE\nLast handoff: /x/last.md\n"
+    # fleet-relaunch is the one state a resume counts from 0 (resume_count).
+    o = lifecycle(scoreboard="Run state: fleet-relaunch 2026-01-01\nCycles used: 3/4\nClosed: NONE\nLast handoff: /x/last.md\n"
                              "Last handoff: /x/later.md\n")
     rc, out, err = pfleet("board", "idle", PROG, "--run", "alpha")
     check("idle on queued refused 13", (rc, out[0].startswith("REFUSED fleet-board:")), (13, True))
@@ -1054,7 +1056,7 @@ def test_relaunch():
     check("relaunch exits 0 and prints the nonce last", (rc, out[-1]), (0, "nonce: " + NONCE))
     check("only the Run state line changed", after, want)
     check("board is live from 0, launches 2", (field(out[0], "state"), field(out[0], "from"), field(out[0], "launches"),
-          field(out[0], "cycles")), ("live", "0", "2", "4"))
+          field(out[0], "cycles")), ("live", "0", "2", "0"))  # the first launch resumed at 4/4
     check("objective lock file is the only extra", sorted(f for f in os.listdir(PDIR) if f.startswith("rl-objective")),
           ["rl-objective.md", "rl-objective.md.lock"])
     rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
@@ -1402,7 +1404,7 @@ def test_skim_only_run_settles_to_done():
     check("skim: draft accepted with nothing parked", rc, 0)
     check("skim: next says brief", pfleet("next", PROG)[1][0], "brief alpha")
     rc, out, err = pfleet("brief", PROG)
-    check("skim: brief prints", (rc, out[0]), (0, "Run demo: 3 rulings drafted"))
+    check("skim: brief prints", (rc, out[0]), (0, "Run alpha: 3 rulings drafted"))
     rc, out, err = pfleet("answer", PROG, "--line", "alpha: fine")
     check("skim: answer routes", (rc, out[0].startswith("answer alpha | draft: ")), (0, True))
     before = open(o).read()
@@ -1485,17 +1487,21 @@ def test_brief_and_answer():
     before = open(PROG).read()
     rc, out, err = pfleet("brief", PROG)
     check("brief for one run: the block, a blank line, one Answer line", (rc, out), (0, [
-        "Run demo: 3 rulings drafted",
+        "Run alpha: 3 rulings drafted",
         "1. Keep the label? -> recommend yes. Reverses if support sees confusion.",
         "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]",
         "3. Ship the export? -> recommend yes.", "",
-        "Answer: alpha: fine | accept 2 | reverse 2, 5 | talk about 3"]))
+        "Answer: alpha: fine | accept 1 | reverse 1, 2 | talk about 3"]))
     check("brief never writes", open(PROG).read(), before)
     # written items vanish, numbering stays
     rc, out, err = settled(o, "bw", "R1, R3", "R2")
     rc, out, err = pfleet("brief", PROG)
     check("brief hides written items and keeps numbering", out[1:3], [
         "2. Add the screen? -> recommend yes. Reverses if disliked. [owner-only]", ""])
+    check("one item left: header singular, answer line uses its number", (out[0], out[-1]), (
+        "Run alpha: 3 rulings drafted", "Answer: alpha: fine | accept 2 | reverse 2 | talk about 2"))
+    one = stu_fleet.answer_example
+    check("answer example, none left", one([]), "fine")
     check("two lines of the block gone", ("1. Keep" in "\n".join(out), "3. Ship" in "\n".join(out)), (False, False))
     # answers, single run
     rc, out, err = pfleet("answer", PROG, "--line", "accept 2")
@@ -1516,8 +1522,8 @@ def test_brief_and_answer():
     # several runs
     oa, ob, da, db = two_drafts()
     rc, out, err = pfleet("brief", PROG)
-    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if x.startswith("Run demo:")])),
-          (0, "Run demo: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
+    check("brief for several runs: blocks in Runs order, one Answer line", (rc, out[0], out[-1], len([x for x in out if re.match(r"Run \S+: 3 rulings drafted$", x)])),
+          (0, "Run alpha: 3 rulings drafted", "Answer per run, one per line or separated by ';': <slug>: <answer>", 2))
     rc, out, err = pfleet("answer", PROG, "--line", "beta: reverse 1\nalpha: fine; ")
     check("several runs answered in Runs order", (rc, out), (0, [
         "answer alpha | draft: /runs/a/draft.md | line: fine", "answer beta | draft: /runs/b/draft.md | line: reverse 1"]))

@@ -150,7 +150,7 @@ else echo "FAIL designer is on the default judgment model and holds Agent"; fail
 missing=$(need agents/settler.md '5a' 'You never perform 5b' 'MODE: draft' 'MODE: write' 'stu-run-check' 'SCOREBOARD-TODO')
 check_set "settler names 5a and never performs 5b" "$missing"
 # The groomer files only under the filing test, never touches an existing objective, scoreboard or ledger.md.
-missing=$(need agents/groomer.md 'Phase 1' 'filing test' 'never edit an existing objective' 'Never' 'ledger.md' 'ledger-inbox' 'KIND: groom' 'KIND: audit' 'Not reached' 'GROOMER: SPLIT' 'nothing to feed' 'audit does not feed a run')
+missing=$(need agents/groomer.md 'Phase 1' 'filing test' 'never edit an existing objective' 'Never' 'ledger.md' 'ledger-inbox' 'KIND: groom' 'KIND: audit' 'Not reached' 'GROOMER: SPLIT' 'nothing to feed' 'audit does not feed a run' 'by: program' 'Never write extra copies of your return block')
 check_set "groomer names the filing test, the ledger inbox and its context rules" "$missing"
 none "groomer is not a dispatcher of orchestrators, implementers, reviewers or gates" \
   'stu:(orchestrator|implementer|reviewer|merge-gate)' agents/groomer.md
