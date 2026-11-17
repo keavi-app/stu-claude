@@ -267,9 +267,7 @@ and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read the band in br
   as the hard ceiling): hand off now.
 
 The board is the resume state: a handoff names the program path, the supervisors still live
-and any judgment job still live (slug, agent id, nonce and session id each), and never stops one.
-The next coordinator checks a carried judgment job with operation 4; if its tree reads finished
-and no return was saved, it tells the owner the return was lost rather than guessing. Items you were carrying
+(slug, agent id, nonce and session id each), and never stops one. Items you were carrying
 survive the handoff too ("When no run is live"). The next coordinator starts at "Startup", then `next`;
 for each live supervisor it re-arms one deadline (operation 3) and checks it is still alive
 (operation 4). An inherited supervisor sends no completion notice to this session, so when its
