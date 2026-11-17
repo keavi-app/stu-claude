@@ -1793,6 +1793,78 @@ def test_job_grammar():
     check("a job line for no Judgment work line is rejected (3)", pfleet("next", PROG)[0], 3)
 
 
+def only_line_differs(before, after, at, want):
+    """True when after is before with exactly line index `at` replaced by `want`."""
+    b, a = before.splitlines(keepends=True), after.splitlines(keepends=True)
+    return len(b) == len(a) and all(x == y for i, (x, y) in enumerate(zip(b, a)) if i != at) and a[at] == want
+
+
+def test_set_cap_and_budget():
+    o = lifecycle(scoreboard="Run state: running\nCycles used: 3/4\nClosed: NONE\n")
+    before = open(o).read()
+    prog_before = open(PROG, "rb").read()
+    rc, out, err = pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", "9")
+    after = open(o).read()
+    check("set-cap prints old and new", (rc, out), (0, ["fleet-board: alpha cycle cap 4 -> 9"]))
+    check("set-cap changes only the header line", only_line_differs(
+        before, after, 2, "Written 2026-01-01. Mode: plain. Cycle cap: 9.\n"), True)
+    check("set-cap leaves the scoreboard denominator and the program", ("Cycles used: 3/4" in after,
+          open(PROG, "rb").read()), (True, prog_before))
+    check("objective_facts reads the new cap", stu_fleet.objective_facts(o)[0], 9)
+    frozen = open(o, "rb").read()
+    rc, out, err = pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", "2")
+    check("set-cap below cycles used refused 13", (rc, out[0].startswith("REFUSED "), open(o, "rb").read()),
+          (13, True, frozen))
+    rc, out, err = pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", "3")
+    check("set-cap equal to cycles used accepted", rc, 0)
+    for bad in ("0", "x", "-1", "2.5"):
+        check("set-cap --cap %s is usage" % bad, pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", bad)[0], 2)
+    check("set-cap needs --cap", pfleet("board", "set-cap", PROG, "--run", "alpha")[0], 2)
+    o2 = objective("nocap", cap="", scoreboard="Run state: running\nCycles used: 0/4\n")
+    program([("alpha", o2, "none", "none")])
+    frozen = open(o2, "rb").read()
+    rc, out, err = pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", "5")
+    check("set-cap with no Cycle cap line is refused (the program check blocks it, 1), objective untouched", (rc, open(o2, "rb").read()), (1, frozen))
+    # a Cycle cap line below the first heading is not the header
+    write(o2, "# Objective: nocap\n\n## Scoreboard\nCycle cap: 4\nCycles used: 0/4\n")
+    frozen = open(o2, "rb").read()
+    check("a Cycle cap below the first heading is not the header", (
+        pfleet("board", "set-cap", PROG, "--run", "alpha", "--cap", "5")[0], open(o2, "rb").read()), (1, frozen))
+
+    # set-budget
+    o = lifecycle(header=HEADER + "Cycle budget: 20\n")
+    pfleet("board", "launch", PROG, "--run", "alpha")
+    pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "sb.txt"), o, cycles="3/4"))
+    text = open(PROG).read()
+    used = sum(b["cycles"] for b in stu_fleet.effective_board(stu_fleet.load_program(PROG)))
+    rc, out, err = pfleet("board", "set-budget", PROG, "--budget", "30")
+    check("set-budget prints old and new", (rc, out), (0, ["fleet-board: cycle budget 20 -> 30"]))
+    check("set-budget changes only that line", only_line_differs(
+        text, open(PROG).read(), text.splitlines().index("Cycle budget: 20"), "Cycle budget: 30\n"), True)
+    check("program check reads it", "cycle-budget: 30" in pfleet("program", "check", PROG)[1], True)
+    frozen = open(PROG, "rb").read()
+    rc, out, err = pfleet("board", "set-budget", PROG, "--budget", str(used - 1))
+    check("set-budget below the used total refused 13", (used > 0, rc, open(PROG, "rb").read()), (True, 13, frozen))
+    check("set-budget equal to the used total accepted", pfleet("board", "set-budget", PROG, "--budget", str(used))[0], 0)
+    rc, out, err = pfleet("board", "set-budget", PROG, "--budget", "none")
+    check("set-budget none accepted", (rc, "Cycle budget: none" in open(PROG).read()), (0, True))
+    for bad in ("0", "x", "-3"):
+        check("set-budget --budget %s is usage" % bad, pfleet("board", "set-budget", PROG, "--budget", bad)[0], 2)
+    check("set-budget takes no --run", pfleet("board", "set-budget", PROG, "--run", "alpha", "--budget", "9")[0], 2)
+    # an absent line is added after the header
+    lifecycle()
+    text = open(PROG).read()
+    rc, out, err = pfleet("board", "set-budget", PROG, "--budget", "12")
+    new = open(PROG).read()
+    check("set-budget adds a missing line and says sum-of-caps", (rc, out, new), (
+        0, ["fleet-board: cycle budget sum-of-caps -> 12"], text.replace("Settle mode: draft\n", "Settle mode: draft\nCycle budget: 12\n")))
+    # a program that already fails its check is refused and left unchanged
+    write(PROG, open(PROG).read() + "\nnot a section line\n")
+    broken = open(PROG, "rb").read()
+    rc, out, err = pfleet("board", "set-budget", PROG, "--budget", "13")
+    check("set-budget on a program that fails its check changes nothing", (rc, open(PROG, "rb").read()), (1, broken))
+
+
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
@@ -1800,7 +1872,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
-          test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch, test_one_supervisor_per_run,
+          test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch, test_one_supervisor_per_run, test_set_cap_and_budget,
           test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_skim_only_run_settles_to_done, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates,
           test_judgment_jobs, test_design_verdict_loop, test_job_grammar):
     t()
