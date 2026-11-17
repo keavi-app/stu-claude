@@ -176,6 +176,14 @@ fleet_leak=$(awk '
   !bind && /(^|[^A-Za-z_])(Agent|TaskStop|ListAgents|SendMessage|PushNotification|Monitor|ToolSearch|Bash|Write|Read|Edit|Task|Skill|WebFetch|subagent_type|run_in_background|cacheTtl)([^A-Za-z_]|$)/ { print FILENAME ":" NR ": " $0 }
 ' skills/fleet/SKILL.md)
 check_set "no Claude tool name in the fleet skill outside its Runtime binding section" "$fleet_leak"
+# Inside the binding, a line naming SendMessage must forbid it (the coordinator never messages a
+# supervisor): the line contains "never" or "Never".
+fleet_msg=$(awk '
+  /^[[:space:]]*```/ { fence = !fence }
+  !fence && /^## / { bind = ($0 == "## Runtime binding") }
+  bind && /SendMessage/ && !/[Nn]ever/ { print FILENAME ":" NR ": " $0 }
+' skills/fleet/SKILL.md)
+check_set "the fleet skill's Runtime binding names SendMessage only to forbid it" "$fleet_msg"
 grep -qxF '## Runtime binding' skills/fleet/SKILL.md \
   && echo "ok   the fleet skill has a Runtime binding section" \
   || { echo "FAIL the fleet skill has a Runtime binding section"; fails=$((fails + 1)); }

@@ -656,3 +656,24 @@ fallback in `fleet-design.md` is not needed.
 
 Not covered: a wait longer than one timer, an overnight supervisor with several lanes, and
 behaviour while the subscription is in overage (the 1-hour key is silently ignored there).
+
+## One live supervisor per fleet run, and limits through the board (2026-11-17)
+
+In the second fleet trial a coordinator sent a message to a supervisor whose tree had finished.
+The message resumed it, and its workers ran beside the supervisor the coordinator launched next:
+two supervisors on one unit list, found only when the condition-11 stop fired. The rule "never two
+supervisors on one unit list" lived in prose, so `board launch` and `board relaunch` now check the
+previous nonce's tree and refuse (13) while any agent in it is not finished, before any write. A
+finished root with a live descendant refuses too, because that was the incident. Several
+transcripts for one nonce refuse (fail closed); none is no refusal. There is no override flag: it
+would bypass a guard that exists because prose did not hold. A supervisor killed without its meta
+ever reading finished keeps the guard refusing until the operator stops it (operation 5). The
+coordinator also never sends a supervisor a message; the fleet skill's Runtime binding may name
+that tool only to forbid it (`tests/content_lint_test.sh` checks each such line says "never").
+
+The same run showed the cost of keeping limits out of the board: raising a cap meant a hand
+`sed` on the objective, outside its lock and with no check against cycles already used.
+`board set-cap` and `board set-budget` do that edit under the existing locks, refuse below the
+cycles used, and run only on the owner's explicit yes. `start` asks the cap question before
+launch when fewer cycles remain than units outstanding, so a run does not launch into a cap it
+cannot finish.

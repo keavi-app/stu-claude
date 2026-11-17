@@ -993,7 +993,7 @@ Report `CYCLES_USED/CAP` in the morning line.
 **The cap counts per run**, not per invocation, and a settle does not reset it. At Resume the
 count continues from `Cycles used:` (`<n+1>/<cap>`) whatever `Run state:` reads, every
 `/stu:settle` line included; a run resuming at its cap stops at once with condition 10, and the
-owner raises the objective's `Cycle cap:` to grant more. The one exception is
+owner raises the objective's `Cycle cap:` to grant more (under a fleet, through `stu-fleet board set-cap`). The one exception is
 `Run state: fleet-relaunch <date>`, which only a fleet coordinator writes: that run starts at
 `0/<cap>`, and the fleet's cycle budget bounds the total.
 

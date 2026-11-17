@@ -65,13 +65,20 @@ def agent_turns(path):
     return models
 
 
-def find_supervisor(nonce):
-    """-> (subagents dir, agent id). Raises agent_tree.NotFound unless exactly one agent matches."""
+def supervisor_matches(nonce):
+    """-> [(subagents dir, agent id)] for every agent file carrying the nonce line, possibly empty.
+    Raises agent_tree.NotFound only for an unusable nonce."""
     if not nonce or not agent_tree.NONCE_RE.match(nonce):
         raise agent_tree.NotFound("no usable launch nonce on the board line")
     hits = []
     for sdir in sorted(glob.glob(os.path.join(agent_tree.projects_root(), "*", "*", "subagents"))):
         hits += [(sdir, agent_tree.agent_id(p)) for p in agent_tree.nonce_hits(sdir, nonce)]
+    return hits
+
+
+def find_supervisor(nonce):
+    """-> (subagents dir, agent id). Raises agent_tree.NotFound unless exactly one agent matches."""
+    hits = supervisor_matches(nonce)
     if not hits:
         raise agent_tree.NotFound("no agent file under %s has the nonce line %s" % (
             agent_tree.projects_root(), nonce))

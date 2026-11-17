@@ -8,6 +8,7 @@ Run: python3 scripts/stu_fleet_test.py
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -786,10 +787,10 @@ def asst_rec(rid, model, out):
         "id": "m-" + rid, "model": model, "usage": {"output_tokens": out}}}
 
 
-def put_agent(root, session, aid, seat, parent=None, nonce=None, recs=()):
+def put_agent(root, session, aid, seat, parent=None, nonce=None, recs=(), finished=True):
     sdir = os.path.join(root, "proj", session, "subagents")
     os.makedirs(sdir, exist_ok=True)
-    meta = {"agentType": seat, "finished": True}
+    meta = {"agentType": seat, "finished": finished}
     if parent:
         meta["parentAgentId"] = parent
     with open(os.path.join(sdir, "agent-%s.meta.json" % aid), "w") as f:
@@ -1044,6 +1045,56 @@ def relaunch_setup(header=HEADER, scoreboard=SB, tail_text="\nNotes: Run state: 
     pfleet("board", "launch", PROG, "--run", "alpha")
     pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "rl.txt"), o, cycles="4/4"))
     return o
+
+
+def test_one_supervisor_per_run():
+    root = os.path.join(TMP, "projects-one")
+    shutil.rmtree(root, ignore_errors=True)
+    env = {"STU_PROJECTS_ROOT": root}
+    nonce = "stu-one-prev"
+    snap = lambda o: (open(o, "rb").read(), open(PROG, "rb").read())
+
+    def at_relaunch():
+        o = relaunch_setup(header=HEADER + "Cycle budget: 20\n")  # first launch used NONCE
+        write(PROG, re.sub(r"nonce: stu-[0-9a-f]+", "nonce: " + nonce, open(PROG).read()))
+        return o
+
+    def at_queued():
+        o = lifecycle()
+        pfleet("board", "launch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": nonce})
+        pfleet("board", "idle", PROG, "--run", "alpha", extra=env)
+        pfleet("board", "requeue", PROG, "--run", "alpha")
+        return o
+
+    def tree(sup_finished, kid_finished, session="s1", sup_nonce=nonce):
+        shutil.rmtree(root, ignore_errors=True)
+        put_agent(root, session, "sup", "stu:supervisor", nonce=sup_nonce, finished=sup_finished)
+        put_agent(root, session, "kid", "stu:implementer", parent="sup", finished=kid_finished)
+
+    for verb, setup in (("relaunch", at_relaunch), ("launch", at_queued)):
+        for name, sf, kf in (("a live supervisor", False, True),
+                             ("a finished root with a live descendant", True, False)):
+            o = setup()
+            tree(sf, kf)
+            before = snap(o)
+            rc, out, err = pfleet("board", verb, PROG, "--run", "alpha", extra=env)
+            check("%s refused 13 on %s" % (verb, name), (rc, out[0].startswith("REFUSED fleet-board: alpha previous supervisor sup (nonce %s) still has live agents: " % nonce)), (13, True))
+            check("%s on %s wrote nothing" % (verb, name), snap(o), before)
+        o = setup()
+        tree(True, True)
+        rc, out, err = pfleet("board", verb, PROG, "--run", "alpha", extra=env)
+        check("%s accepted when every agent finished" % verb, (rc, out[-1].startswith("nonce: ")), (0, True))
+        o = setup()
+        shutil.rmtree(root, ignore_errors=True)
+        rc, out, err = pfleet("board", verb, PROG, "--run", "alpha", extra=env)
+        check("%s accepted when no transcript matches" % verb, rc, 0)
+        o = setup()
+        tree(True, True)
+        put_agent(root, "s2", "twin", "stu:supervisor", nonce=nonce, finished=True)
+        before = snap(o)
+        rc, out, err = pfleet("board", verb, PROG, "--run", "alpha", extra=env)
+        check("%s refused 13 on two matches" % verb, (rc, "matches 2 agent files" in out[0]), (13, True))
+        check("%s on two matches wrote nothing" % verb, snap(o), before)
 
 
 def test_relaunch():
@@ -1749,7 +1800,7 @@ for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_t
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,
-          test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch,
+          test_board_v2_grammar, test_loop_guard, test_nonces, test_idle, test_relaunch, test_one_supervisor_per_run,
           test_limits_and_next, test_board_v4_and_draft, test_board_settled, test_skim_only_run_settles_to_done, test_settled_crash_and_guards, test_brief_and_answer, test_actuals, test_actuals_review_fixes, test_v2_board_migrates,
           test_judgment_jobs, test_design_verdict_loop, test_job_grammar):
     t()

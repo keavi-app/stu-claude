@@ -148,7 +148,7 @@ limit). Then, in one step, it rewrites the first `Run state:` line inside the ob
 `board launch` does (so `from` is 0), printing the board line and the nonce. This is one of
 two places stu-fleet writes an objective (the other is `board settled`, below), both through one
 writer: under a flock on `<objective>.lock`, atomic replace, nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
-is refused (13) before anything is written. It never edits a `Cycle cap:`.
+is refused (13) before anything is written. Only `board set-cap` edits a `Cycle cap:`.
 
 The settle loop (docs/fleet-design.md, "Settling"). `draft` is the absolute path of the saved
 DRAFTED settler return for the run's current settle, `written` the brief item numbers already
@@ -196,7 +196,7 @@ Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `boa
 the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
 runs' caps, `none` = no limit; spent at used >= limit), judgment jobs (used = the fleet line's
 `judgment`; `Judgment jobs:`, default none; spent at used >= limit) and `Stop at:` (passed when
-the program clock is at or after it). Limits are never raised or edited here. `board judgment
+the program clock is at or after it). Limits change only through `board set-cap` and `board set-budget`. `board judgment
 --job SLUG` counts one dispatch (SLUG must be a `## Judgment work` line, else exit 1); it is
 refused (13) when judgment jobs are spent or Stop at has passed; it prints
 `judgment-jobs: <used>/<limit|none>`.
@@ -1358,6 +1358,34 @@ def set_run_state(path, date):
     return rewrite_objective(path, transform)[0]
 
 
+def previous_tree_refusal(run, b):
+    """The one-supervisor-per-run guard for launch and relaunch, called before any write.
+    -> refusal text, or None when the board line's previous nonce has no live agent. A nonce of
+    `none`, or one no transcript carries, is nothing to refuse; several transcripts carrying one
+    nonce refuse (fail closed). A finished root with a live descendant refuses."""
+    nonce = b["nonce"]
+    if nonce == "none":
+        return None
+    import agent_tree
+    import fleet_actuals
+    try:
+        hits = fleet_actuals.supervisor_matches(nonce)
+    except agent_tree.NotFound:
+        return None  # a nonce that is not a launch nonce names no supervisor
+    if not hits:
+        return None
+    if len(hits) > 1:
+        return "fleet-board: %s previous nonce %s matches %d agent files (%s); stop it (operation 5) and retry" % (
+            run["slug"], nonce, len(hits), ", ".join(h[1] for h in hits))
+    sdir, root = hits[0]
+    agents = agent_tree.load_agents(sdir)
+    live = [x for x in agent_tree.walk(agents, root) if agents[x]["meta"].get("finished") is not True]
+    if live:
+        return ("fleet-board: %s previous supervisor %s (nonce %s) still has live agents: %s; "
+                "stop it (operation 5) and retry" % (run["slug"], root, nonce, ", ".join(live)))
+    return None
+
+
 def cmd_board(sub, a):
     if sub == "show":
         prog = load_program(a["program"])
@@ -1402,6 +1430,9 @@ def cmd_board(sub, a):
             held = fed_hold(run, {j["slug"]: j for j in effective_jobs(prog)})
             if held:
                 return refuse(EXIT_BOARD, "fleet-board: %s" % decision_line(run["slug"], *held))
+            why = previous_tree_refusal(run, b)
+            if why:
+                return refuse(EXIT_BOARD, why)
             nonce = begin_launch(run, b)
         elif sub == "relaunch":
             if b["state"] != "relaunch":
@@ -1413,6 +1444,9 @@ def cmd_board(sub, a):
             if word != "relaunch":
                 return refuse(EXIT_BOARD, "fleet-board: policy says %s for %s now, not relaunch" % (
                     decision_line(slug, word, text), run["slug"]))
+            why = previous_tree_refusal(run, b)
+            if why:
+                return refuse(EXIT_BOARD, why)
             bad = set_run_state(run["objective"], stamp()[:10])
             if bad:
                 return refuse(EXIT_BOARD, bad)
