@@ -149,15 +149,15 @@ live agent: stop it (operation 5) and retry.
   Never launch it. A Runs line declares `lanes: <n>`, required for an overnight objective (a
   run's lane count is the larger of that and its `Lane:` headings, minimum 1).
 - `owner <slug> — cycle budget spent ...`, `owner <slug> — stop at ... passed` and
-  `owner <slug> — loop guard ...`: a limit. Send the line to the owner with the fix: only the
-  owner raises the cycle budget or `Stop at:` or edits the program, or looks at why two launches
-  closed no unit. You raise a limit only on the owner's explicit yes, in the same message that
-  records the answer, never on your own: `stu-fleet board set-cap <program path> --run <slug>
-  --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13 below the cycles used; the
+  `owner <slug> — loop guard ...`: a limit. Send the line to the owner with the fix. The owner
+  decides every limit change (the cycle cap, the cycle budget, `Stop at:`, any other program edit)
+  and looks at why two launches closed no unit. You apply a cap or budget change only on the
+  owner's explicit yes, in the same message that records the answer: `stu-fleet board set-cap
+  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13 below the cycles used; the
   scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
   `stu-fleet board set-budget <program path> --budget <n|none>` rewrites the program's
-  `Cycle budget:` (refused 13 below the cycles spent). `Stop at:` and any other program edit
-  stay the owner's. Live supervisors are never stopped for a limit; only starts and relaunches
+  `Cycle budget:` (refused 13 below the cycles spent). `Stop at:` and any other program edit are
+  not yours to apply. Live supervisors are never stopped for a limit; only starts and relaunches
   are held.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means

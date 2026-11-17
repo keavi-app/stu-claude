@@ -125,7 +125,8 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
 
 - **Board, on disk.** One line per run: state, cycles and launches spent, last handoff path,
   last stop condition. A fresh coordinator resumes from the file alone.
-- **Budget.** See "Budget" below. A settle never resets it, and only the owner raises it (the coordinator applies the owner's yes with `board set-budget`).
+- **Budget.** See "Budget" below. A settle never resets it. The owner decides every change to it;
+  the coordinator applies the owner's yes with `board set-budget`.
 - **Liveness.** A notification without the return schema is interim: one line, no action. A
   relaunch happens only after the deadline, an idle-tree check, and an explicit stop of the old
   supervisor. Never two supervisors on one unit list.
