@@ -7,7 +7,8 @@
 #   1. `roborev fix --list --branch <b>` reports an open job;
 #   2. a queued or running review job exists for the pushed SHA;
 #   3. no `done` review job exists for the pushed SHA (never reviewed, or only failed).
-# Passes: deletes, tag pushes (a tag names a commit that was reviewed on its branch), and
+# Passes: deletes, pushes whose destination is a tag (a tag names a commit already on a
+# branch), and
 # STU_SKIP_ROBOREV_PUSH_GUARD=1 (humans only; agents never set it).
 # Fails open, loudly, when roborev is absent or a query fails or prints something unknown:
 # the push proceeds with a warning, and the pusher confirms review state by hand.
@@ -108,7 +109,8 @@ fi
 while read -r local_ref local_sha remote_ref remote_sha; do
     [ -n "${local_ref:-}" ] || continue
     [ "$local_sha" != "$ZERO" ] || continue
-    case "$local_ref" in refs/tags/*) continue ;; esac
+    # The destination decides: a tag source pushed to a branch ref still lands commits there.
+    case "$remote_ref" in refs/tags/*) continue ;; esac
     branch=$(push_branch "$local_ref" "$remote_ref")
     clean_status "$branch" "$local_sha"
     case $? in

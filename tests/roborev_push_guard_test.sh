@@ -60,6 +60,9 @@ has "warns when down" "$out" "WARNING"
 reset; run "refs/tags/0.2.23 $SHA refs/tags/0.2.23 $ZERO"
 check "tag push: pass" 0 "$rc"
 
+reset; run "refs/tags/0.2.23 $SHA refs/heads/feat $ZERO"
+check "tag source pushed to a branch ref: still checked, refused" 1 "$rc"
+
 reset; run "(delete) $ZERO refs/heads/feat $SHA"
 check "branch delete: pass" 0 "$rc"
 

@@ -152,12 +152,14 @@ For shape (indented so it is not a heading):
 -->
 The tag follows `.claude-plugin/plugin.json`, the version Claude Code installs by, and keeps the
 plain `<version>` names of the existing tags (no `v`). `tag_by` is left unset on purpose: stu's
-built-in tagger counts from the last tag and would disagree with `plugin.json`.
+built-in tagger counts from the last tag and would disagree with `plugin.json`. The tag goes on the
+first commit on `keavi/main` carrying the unit's version (the commit that landed it), never on a
+newer tip; `tools/tag-release.sh` documents the rule.
 
 ### tag-release
 when: landed
-run: git fetch -q keavi main --tags && v=$(git show keavi/main:.claude-plugin/plugin.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])') && { git rev-parse -q --verify "refs/tags/$v" >/dev/null || git tag -a "$v" -m "$v" keavi/main; } && git push -q keavi "refs/tags/$v"
-check: git fetch -q keavi main && v=$(git show keavi/main:.claude-plugin/plugin.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])') && git ls-remote --exit-code --tags keavi "refs/tags/$v" >/dev/null
+run: tools/tag-release.sh run
+check: tools/tag-release.sh check
 required: true
 
 ## extra-gate-rows
