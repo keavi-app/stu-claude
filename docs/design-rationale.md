@@ -677,3 +677,30 @@ The same run showed the cost of keeping limits out of the board: raising a cap m
 cycles used, and run only on the owner's explicit yes. `start` asks the cap question before
 launch when fewer cycles remain than units outstanding, so a run does not launch into a cap it
 cannot finish.
+
+## Coordinator context, returns by copy, supervisors across sessions (2026-11-17)
+
+In the third fleet trial the coordinator's handoff rule said "at 120k" and named no measurement,
+so it handed off by feel and ran well past the line. It now runs `RUN_CTX_SOFT=120000 stu-ctx`
+after every `board record`, `board idle` and wave report; the soft and hard tokens are the ones
+`stu-ctx` prints, and a failed read counts as the hard ceiling, as it does everywhere else.
+
+The same coordinator retyped supervisor return blocks into a heredoc to save them. Retyping
+drifts, costs output tokens, and the checked block is not the block recorded. The supervisor now
+writes its block to the fixed path `<run-dir>/supervisor-return.txt` and checks that file, and
+the coordinator archives it with `cp`. An interim notification and a long status message after
+each event were also pure cost: interim gets no reply, a status is at most five lines. A
+content-lint row keeps the fleet skill free of a heredoc of a return.
+
+`stu-tree --root` resolved only the current session, but an inherited supervisor lives in the
+previous coordinator's session folder, so the lookup failed exactly when a resumed coordinator
+needed it (and such a supervisor sends no completion notice here). `--root` and `--nonce` now
+search every session folder and fail (exit 3, naming the count) on none or several; `--session`
+still pins one folder. `find_by_nonce` keeps its single-session behaviour for `stu-ctx --nonce`.
+The lookup lives in `agent_tree.py` because `fleet_actuals.py` already imports it, so sharing the
+other way would be an import cycle.
+
+A handoff carried only the program and live supervisors, so a decided item, or a "raise at that
+run's settle" item whose run ended without a settle, was dropped between coordinators and never
+reached the owner. With no run live the coordinator now works the carried items in order, and
+that last kind goes to the owner in the next message.

@@ -50,8 +50,8 @@ things differ:
    which replaces the printed `Next up, settle ...` and `Next up, resume ...` lines and the
    `DONE` prose of the final message. Write the `Run state:` and release claims exactly as the
    final message says, then copy the scoreboard's `Run state:` line into `RUN-STATE`, map the stop
-   with that section's table, check the block with `stu-run-check --supervisor-return <path>` (write it
-   to a file in the run folder first), and return it as the last lines of your message with nothing
+   with that section's table, check the block with `stu-run-check --supervisor-return <run-dir>/supervisor-return.txt` (write it
+   to that fixed path in the run folder first; the coordinator archives that file with `cp`), and return it as the last lines of your message with nothing
    after.
 
 ## Startup, in ONE message

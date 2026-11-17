@@ -229,10 +229,15 @@ live agent: stop it (operation 5) and retry.
   their own.
 - `lanes: <live>/<cap>`: the lane use. The cap counts lanes, not supervisors.
 
-**A notification that carries no supervisor return block is interim:** one line, no action. A
-supervisor return is the block that ends with `STU-RUN:` through `NEXT:` (`skills/run/handoff-format.md`,
-section 4). When one arrives, write the block to a file in the return directory, then run
-`stu-fleet board record <program path> --run <slug> --return <file>`. A refusal (exit 1 or 13)
+**A notification that carries no supervisor return block is interim:** no action and no reply
+text at all. A supervisor return is the block that ends with `STU-RUN:` through `NEXT:`
+(`skills/run/handoff-format.md`, section 4). The supervisor has already written it to
+`<run-dir>/supervisor-return.txt`. When one arrives, archive that file with
+`mkdir -p <return directory> && cp <run-dir>/supervisor-return.txt <return directory>/supervisor-return.txt`,
+then, only if that succeeded, run
+`stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
+Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
+message after an event is at most five lines: what changed, then the open asks. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
@@ -251,11 +256,28 @@ written only by `stu-fleet`.
 
 ## 4. Context and handoff
 
-Hand off to a fresh coordinator at **120k context, at a wave boundary** (no supervisor
-mid-return). The board is the resume state: a handoff names the program path and the supervisors
-still live (their slugs, agent ids and nonces) and nothing else the board holds. The next
-coordinator starts at "Startup", then `next`; for each live supervisor it re-arms one deadline
-(operation 3) and checks it is still alive (operation 4).
+Measure your own context; do not estimate it. After every `board record`, every `board idle`
+and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read the band in brackets on its first line
+(`context: <n> tokens  [<band>]`):
+
+- `OK`: carry on.
+- `SOFT EXCEEDED - finish this unit, then hand off`: hand off to a fresh coordinator at the next
+  wave boundary (no supervisor mid-return).
+- `HARD EXCEEDED - hand off now, mid-unit if necessary`, or exit 2 (the read failed, which counts
+  as the hard ceiling): hand off now.
+
+The board is the resume state: a handoff names the program path, the supervisors still live
+(slug, agent id, nonce and session id each), and never stops one. Items you were carrying
+survive the handoff too ("When no run is live"). The next coordinator starts at "Startup", then `next`;
+for each live supervisor it re-arms one deadline (operation 3) and checks it is still alive
+(operation 4). An inherited supervisor sends no completion notice to this session, so when its
+tree reads finished (`stu-tree --root <agent id>` searches every session, so it finds one
+launched from a previous coordinator's session; exit 1 means finished), read
+`<run-dir>/supervisor-return.txt` and record it as in section 2.
+
+**When no run is live,** work through the handoff's carried items in order. Dispatch any item
+already decided without asking the owner again. An item marked "raise at that run's settle"
+whose run ends without a settle goes to the owner in your next message.
 
 ## 5. Judgment jobs
 
