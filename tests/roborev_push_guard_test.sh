@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Tests for tools/roborev-push-guard.sh. A fake `roborev` on PATH models the CLI; nothing
 # real is queried. State files in $st: down, fix_out, list_queued, list_running, list_done.
+# The fake answers a job listing only when it asks for every job (--limit 0), as on a long
+# branch whose jobs sit beyond any page size.
 set -u
 here="$(cd "$(dirname "$0")/.." && pwd)"
 guard="$here/tools/roborev-push-guard.sh"
@@ -17,8 +19,9 @@ if [ -e "\$S/down" ]; then echo "Error: connection refused" >&2; exit 1; fi
 [ "\$1" = job ] && shift
 case "\$1" in
 fix) if [ -s "\$S/fix_out" ]; then cat "\$S/fix_out" >&2; else echo "No open jobs found." >&2; fi ;;
-list) s=""; while [ \$# -gt 0 ]; do [ "\$1" = --status ] && s="\$2"; shift; done
-      if [ -s "\$S/list_\$s" ]; then cat "\$S/list_\$s"; else echo "[]"; fi ;;
+list) s=""; l=50; while [ \$# -gt 0 ]; do [ "\$1" = --status ] && s="\$2"; [ "\$1" = --limit ] && l="\$2"; shift; done
+      # Every fixture job is older than any page: only an unlimited listing (--limit 0) sees it.
+      if [ "\$l" = 0 ] && [ -s "\$S/list_\$s" ]; then cat "\$S/list_\$s"; else echo "[]"; fi ;;
 *) exit 2 ;;
 esac
 SHIM
