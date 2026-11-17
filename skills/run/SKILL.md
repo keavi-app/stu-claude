@@ -52,8 +52,8 @@ things differ:
    final message says, then copy the scoreboard's `Run state:` line into `RUN-STATE`, map the stop
    with that section's table, check the block with `stu-run-check --supervisor-return <run-dir>/supervisor-return.txt` (write it
    to that fixed path in the run folder first; the coordinator archives that file with `cp`), and return it as the last lines of your message with nothing
-   after. For condition 10 the final message says "the coordinator relaunches with a fresh cap",
-   never "raise the cap": the cap is not the owner's to raise there.
+   after. For condition 10 the final message says "the coordinator relaunches with a fresh cap
+   if the fleet budget allows", never "raise the cap": the cap is not the owner's to raise there.
 
 ## Startup, in ONE message
 
@@ -644,7 +644,8 @@ Set operations on IDs you already hold; none requires reading anything.
    - **Parked only.** A cycle whose `REMAINING_IDS` minus `PARKED_IDS` is `NONE` (every remaining
      unit is parked, so it stops on condition 5) triggers neither condition: parking on owner
      questions was that cycle's job, not a failure to close. Write `Cycles with no close` and the
-     `REMAINING_IDS was` count unchanged for it, so the cycle after a settle does not inherit it.
+     `REMAINING_IDS was` count unchanged for it, so the cycle after a settle does not inherit it. A cycle that closes a unit still resets
+     them as usual; this carve-out only keeps a park from adding to a streak.
    - **Merged mode, for a unit on a label-handoff row that uses GitHub auto-merge.** A unit in `REMAINING_IDS` because it is labelled
      and waiting on auto-merge yields `CLOSED_IDS: NONE` and unchanged `REMAINING_IDS` each cycle.
      **Neither trigger fires on that basis while every unchanged remaining ID is in the
