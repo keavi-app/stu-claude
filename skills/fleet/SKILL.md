@@ -233,7 +233,8 @@ live agent: stop it (operation 5) and retry.
 text at all. A supervisor return is the block that ends with `STU-RUN:` through `NEXT:`
 (`skills/run/handoff-format.md`, section 4). The supervisor has already written it to
 `<run-dir>/supervisor-return.txt`. When one arrives, archive that file with
-`cp <run-dir>/supervisor-return.txt <return directory>/supervisor-return.txt`, then run
+`mkdir -p <return directory> && cp <run-dir>/supervisor-return.txt <return directory>/supervisor-return.txt`,
+then, only if that succeeded, run
 `stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
 Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
 message after an event is at most five lines: what changed, then the open asks. A refusal (exit 1 or 13)
@@ -256,7 +257,8 @@ written only by `stu-fleet`.
 ## 4. Context and handoff
 
 Measure your own context; do not estimate it. After every `board record`, every `board idle`
-and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read its first token:
+and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read the band in brackets on its first line
+(`context: <n> tokens  [<band>]`):
 
 - `OK`: carry on.
 - `SOFT EXCEEDED - finish this unit, then hand off`: hand off to a fresh coordinator at the next
@@ -264,12 +266,15 @@ and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read its first toke
 - `HARD EXCEEDED - hand off now, mid-unit if necessary`, or exit 2 (the read failed, which counts
   as the hard ceiling): hand off now.
 
-The board is the resume state: a handoff names the program path and the supervisors still live
-(slug, agent id, nonce and session id each) and never stops one. Items you were carrying
+The board is the resume state: a handoff names the program path, the supervisors still live
+and any judgment job still live (slug, agent id, nonce and session id each), and never stops one.
+The next coordinator checks a carried judgment job with operation 4; if its tree reads finished
+and no return was saved, it tells the owner the return was lost rather than guessing. Items you were carrying
 survive the handoff too ("When no run is live"). The next coordinator starts at "Startup", then `next`;
 for each live supervisor it re-arms one deadline (operation 3) and checks it is still alive
 (operation 4). An inherited supervisor sends no completion notice to this session, so when its
-tree reads finished (`stu-tree --root <agent id>` finds it in any session), read
+tree reads finished (`stu-tree --root <agent id>` searches every session, so it finds one
+launched from a previous coordinator's session; exit 1 means finished), read
 `<run-dir>/supervisor-return.txt` and record it as in section 2.
 
 **When no run is live,** work through the handoff's carried items in order. Dispatch any item
