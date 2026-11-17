@@ -24,6 +24,17 @@
                                         a live supervisor found idle and stopped, no return -> relaunch
   stu-fleet board relaunch PROGRAM --run SLUG
                                         relaunch a run the policy allows now; prints the new nonce
+                                        (launch and relaunch refuse 13 while the previous nonce's
+                                        supervisor tree has a live agent, or several carry it)
+  stu-fleet board set-cap PROGRAM --run SLUG --cap N
+                                        rewrite only the objective's `Cycle cap:` header; refused 13
+                                        with no such line or N below the cycles used; prints old and
+                                        new; leaves the scoreboard's `Cycles used: n/cap` to the
+                                        supervisor's next cycle. Run only on the owner's yes
+  stu-fleet board set-budget PROGRAM --budget N|none
+                                        rewrite the program's `Cycle budget:` (added when absent);
+                                        refused 13 below the cycles used, 1 if the program check then
+                                        fails (file unchanged); prints old and new. Owner's yes only
   stu-fleet board judgment PROGRAM --job SLUG
                                         a queued groom, audit or design job -> live; counts one dispatch
   stu-fleet board judged PROGRAM --job SLUG --return FILE
@@ -148,7 +159,7 @@ limit). Then, in one step, it rewrites the first `Run state:` line inside the ob
 `board launch` does (so `from` is 0), printing the board line and the nonce. This is one of
 two places stu-fleet writes an objective (the other is `board settled`, below), both through one
 writer: under a flock on `<objective>.lock`, atomic replace, nothing else in the file changes; an objective with no `## Scoreboard` or no `Run state:` there
-is refused (13) before anything is written. It never edits a `Cycle cap:`.
+is refused (13) before anything is written. Only `board set-cap` edits a `Cycle cap:`.
 
 The settle loop (docs/fleet-design.md, "Settling"). `draft` is the absolute path of the saved
 DRAFTED settler return for the run's current settle, `written` the brief item numbers already
@@ -196,7 +207,7 @@ Limits, evaluated by one function for `next`, `spend`, `board relaunch` and `boa
 the cycle budget (used = sum of board `cycles`; limit = `Cycle budget:`, default the sum of the
 runs' caps, `none` = no limit; spent at used >= limit), judgment jobs (used = the fleet line's
 `judgment`; `Judgment jobs:`, default none; spent at used >= limit) and `Stop at:` (passed when
-the program clock is at or after it). Limits are never raised or edited here. `board judgment
+the program clock is at or after it). Limits change only through `board set-cap` and `board set-budget`. `board judgment
 --job SLUG` counts one dispatch (SLUG must be a `## Judgment work` line, else exit 1); it is
 refused (13) when judgment jobs are spent or Stop at has passed; it prints
 `judgment-jobs: <used>/<limit|none>`.
@@ -1358,6 +1369,113 @@ def set_run_state(path, date):
     return rewrite_objective(path, transform)[0]
 
 
+def previous_tree_refusal(run, b):
+    """The one-supervisor-per-run guard for launch and relaunch, called before any write.
+    -> refusal text, or None when the board line's previous nonce has no live agent. A nonce of
+    `none`, or one no transcript carries, is nothing to refuse; several transcripts carrying one
+    nonce refuse (fail closed). A finished root with a live descendant refuses."""
+    nonce = b["nonce"]
+    if nonce == "none":
+        return None
+    import agent_tree
+    import fleet_actuals
+    try:
+        hits = fleet_actuals.supervisor_matches(nonce)
+    except agent_tree.NotFound:
+        return None  # a nonce that is not a launch nonce names no supervisor
+    if not hits:
+        return None
+    if len(hits) > 1:
+        return "fleet-board: %s previous nonce %s matches %d agent files (%s); stop it (operation 5) and retry" % (
+            run["slug"], nonce, len(hits), ", ".join(h[1] for h in hits))
+    sdir, root = hits[0]
+    agents = agent_tree.load_agents(sdir)
+    live = [x for x in agent_tree.walk(agents, root) if agents[x]["meta"].get("finished") is not True]
+    if live:
+        return ("fleet-board: %s previous supervisor %s (nonce %s) still has live agents: %s; "
+                "stop it (operation 5) and retry" % (run["slug"], root, nonce, ", ".join(live)))
+    return None
+
+
+def board_set_cap(a):
+    """board set-cap: rewrite only the objective header's `Cycle cap: <n>` (the match
+    objective_facts reads), through the one objective writer. Refused (13) with no such header or
+    N below the cycles used. The scoreboard's `Cycles used: n/cap` is supervisor-owned and keeps
+    its old denominator until the supervisor's next cycle."""
+    need(a, "cap")
+    if not re.fullmatch(r"[1-9][0-9]*", a["cap"]):
+        raise Fail(EXIT_USAGE, "--cap must be a positive whole number")
+    new = int(a["cap"])
+    with ProgramLocked(a["program"]) as st:
+        rc = need_valid(st.prog)
+        if rc:
+            return rc
+        run = find_run(st.prog, a["run"])
+        path = run["objective"]
+
+        def transform(lines):
+            text = "".join(lines)
+            head_end = next((i for i, ln in enumerate(lines) if ln.startswith("## ")), len(lines))
+            head = "".join(lines[:head_end])
+            m = re.search(r"\bCycle cap:\s*(\d+)", head)
+            if not m:
+                raise ObjectiveRefusal("fleet-board: %s objective %s has no 'Cycle cap:' header "
+                                       "line; nothing changed" % (run["slug"], path))
+            used = cycles_used(text)
+            if new < used:
+                raise ObjectiveRefusal("fleet-board: %s has used %d cycles; a cap of %d is below "
+                                       "that; nothing changed" % (run["slug"], used, new))
+            out = head[:m.start(1)] + str(new) + head[m.end(1):] + "".join(lines[head_end:])
+            return [out], (m.group(1), new)
+
+        bad, got = rewrite_objective(path, transform)
+        if bad:
+            return refuse(EXIT_BOARD, bad)
+        print("fleet-board: %s cycle cap %s -> %d" % (run["slug"], got[0], got[1]))
+        return 0
+
+
+def board_set_budget(a):
+    """board set-budget: rewrite (or add) the program's `Cycle budget:` header line under the
+    program lock, re-run the program check on the result (refused 1, file unchanged, if it fails),
+    and refuse (13) N below the cycles used (sum of board `cycles`, as `spend` shows)."""
+    need(a, "budget")
+    raw = a["budget"]
+    if raw != "none" and not re.fullmatch(r"[1-9][0-9]*", raw):
+        raise Fail(EXIT_USAGE, "--budget must be a positive whole number or none")
+    with ProgramLocked(a["program"]) as st:
+        prog = st.prog
+        rc = need_valid(prog)
+        if rc:
+            return rc
+        used = sum(b["cycles"] for b in effective_board(prog))
+        if raw != "none" and int(raw) < used:
+            return refuse(EXIT_BOARD, "fleet-board: the fleet has used %d cycles; a budget of %s "
+                          "is below that; nothing changed" % (used, raw))
+        lines = list(prog["lines"])
+        old = prog["header"].get("Cycle budget")
+        if old:
+            at = old[1] - 1
+            end = re.search(r"\r?\n?$", lines[at]).group(0)
+            lines[at] = "Cycle budget: %s%s" % (raw, end)
+        else:
+            at = max(n for _, n in prog["header"].values())  # after the last header line
+            end = re.search(r"\r?\n?$", lines[at - 1]).group(0) or "\n"
+            if not lines[at - 1].endswith("\n"):
+                lines[at - 1] += end
+            lines.insert(at, "Cycle budget: %s%s" % (raw, end))
+        text = "".join(lines)
+        again = parse_program(text)
+        if again["problems"]:
+            for p in again["problems"]:
+                print(p)
+            print("BLOCKED")
+            return EXIT_INVALID
+        atomic_write(a["program"], text, prefix=".fleet-program-")
+        print("fleet-board: cycle budget %s -> %s" % (old[0] if old else "sum-of-caps", raw))
+        return 0
+
+
 def cmd_board(sub, a):
     if sub == "show":
         prog = load_program(a["program"])
@@ -1379,7 +1497,11 @@ def cmd_board(sub, a):
         if "run" in a:
             raise Fail(EXIT_USAGE, "--run and --job are mutually exclusive")
         return cmd_job(sub, a)
+    if sub == "set-budget":
+        return board_set_budget(a)
     need(a, "run")
+    if sub == "set-cap":
+        return board_set_cap(a)
     if sub in ("record", "draft", "settled"):
         need(a, "return")
     with ProgramLocked(a["program"]) as st:
@@ -1402,6 +1524,9 @@ def cmd_board(sub, a):
             held = fed_hold(run, {j["slug"]: j for j in effective_jobs(prog)})
             if held:
                 return refuse(EXIT_BOARD, "fleet-board: %s" % decision_line(run["slug"], *held))
+            why = previous_tree_refusal(run, b)
+            if why:
+                return refuse(EXIT_BOARD, why)
             nonce = begin_launch(run, b)
         elif sub == "relaunch":
             if b["state"] != "relaunch":
@@ -1413,6 +1538,9 @@ def cmd_board(sub, a):
             if word != "relaunch":
                 return refuse(EXIT_BOARD, "fleet-board: policy says %s for %s now, not relaunch" % (
                     decision_line(slug, word, text), run["slug"]))
+            why = previous_tree_refusal(run, b)
+            if why:
+                return refuse(EXIT_BOARD, why)
             bad = set_run_state(run["objective"], stamp()[:10])
             if bad:
                 return refuse(EXIT_BOARD, bad)
@@ -2291,6 +2419,8 @@ PROGRAM_SPEC = {
     ("board", "verdict"): (("job", "line"), ("done",)),
     ("board", "draft"): (("run", "return"), ()),
     ("board", "settled"): (("run", "return"), ()),
+    ("board", "set-cap"): (("run", "cap"), ()),
+    ("board", "set-budget"): (("budget",), ()),
     ("brief", None): ((), ()),
     ("answer", None): (("line",), ()),
     ("spend", None): ((), ()),
@@ -2298,7 +2428,7 @@ PROGRAM_SPEC = {
     ("next", None): ((), ()),
 }
 USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
-         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|judged|verdict|draft|settled P [flags] | spend P | actuals P | next P | "
+         "program check P | board show|launch|record|requeue|idle|relaunch|judgment|judged|verdict|draft|settled|set-cap|set-budget P [flags] | spend P | actuals P | next P | "
          "brief P | answer P --line TEXT")
 
 

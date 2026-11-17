@@ -60,7 +60,21 @@ nonzero exit from `stu-fleet` (1, 2, 3 or 13, from `program`, `board` or `next`)
 show its `REFUSED` or `BLOCKED` lines to the owner as they are and do nothing else until they
 answer. Act on the lines, then run `next` again after every state change.
 
-- `start <slug>`: run `stu-fleet board launch <program path> --run <slug>` (it accepts only a
+**Never send a supervisor a message,** live or finished: a message resumes a finished tree
+beside the new launch, and two supervisors then share one unit list. Apply a limit or
+instruction change with the board commands below (`board set-cap`, `board set-budget`); the
+running supervisor finishes under the old value and the next launch reads the new one.
+`board launch` and `board relaunch` refuse (13) while the run's previous supervisor tree has a
+live agent: stop it (operation 5) and retry.
+
+- `start <slug>`: first compare the cycles that remain with the units outstanding. Remaining is
+  the run's `cap` from `stu-fleet program check` minus the numerator of the objective
+  scoreboard's `Cycles used:` (the count a launch resumes from; `stu-fleet spend` cycles are
+  cumulative across launches and do not apply to the cap); outstanding is the objective scoreboard's
+  `Outstanding:` line. When fewer cycles remain than units, ask the owner the cap question
+  first (a raise of the objective's cap, and of the program's cycle budget if it would then be
+  short) and launch after the answer. Then run
+  `stu-fleet board launch <program path> --run <slug>` (it accepts only a
   `queued` run). Its **last stdout line** is `nonce: <nonce>`; launch a supervisor (operation 1)
   for that run with `STU-SUPERVISED: <nonce>` using exactly that nonce, never one you generate,
   and the objective path in its prompt, so it runs `/stu:run` in supervised mode. Keep its agent
@@ -135,10 +149,16 @@ answer. Act on the lines, then run `next` again after every state change.
   Never launch it. A Runs line declares `lanes: <n>`, required for an overnight objective (a
   run's lane count is the larger of that and its `Lane:` headings, minimum 1).
 - `owner <slug> — cycle budget spent ...`, `owner <slug> — stop at ... passed` and
-  `owner <slug> — loop guard ...`: a limit. Send the line to the owner with the fix: only the
-  owner raises the cycle budget or `Stop at:` or edits the program, or looks at why two launches
-  closed no unit. You never raise a limit or edit the program. Live supervisors are never
-  stopped for a limit; only starts and relaunches are held.
+  `owner <slug> — loop guard ...`: a limit. Send the line to the owner with the fix. The owner
+  decides every limit change (the cycle cap, the cycle budget, `Stop at:`, any other program edit)
+  and looks at why two launches closed no unit. You apply a cap or budget change only on the
+  owner's explicit yes, in the same message that records the answer: `stu-fleet board set-cap
+  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13 below the cycles used; the
+  scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
+  `stu-fleet board set-budget <program path> --budget <n|none>` rewrites the program's
+  `Cycle budget:` (refused 13 below the cycles spent). `Stop at:` and any other program edit are
+  not yours to apply. Live supervisors are never stopped for a limit; only starts and relaunches
+  are held.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
   opus). The settler's dispatch line (`agents/settler.md`) is the `MODE:` line, then the input it
@@ -278,6 +298,6 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    next status line ("deadline fired <n> min late; the machine likely slept"). Never a stop.
 4. **List descendants:** `stu-tree --root <supervisor agent id>` (exit 0 means something in the
    tree is live). `ListAgents` is not available inside a subagent and is not used.
-5. **Stop a supervisor:** `TaskStop` with its agent id.
+5. **Stop a supervisor:** `TaskStop` with its agent id. Never use `SendMessage` on a supervisor.
 6. **Owner brief and answer:** a message to the owner and their reply in the same session.
 7. **One-way notify:** `PushNotification` if it is available, otherwise an ordinary message.

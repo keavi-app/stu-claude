@@ -125,7 +125,8 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
 
 - **Board, on disk.** One line per run: state, cycles and launches spent, last handoff path,
   last stop condition. A fresh coordinator resumes from the file alone.
-- **Budget.** See "Budget" below. A settle never resets it, and only the owner raises it.
+- **Budget.** See "Budget" below. A settle never resets it. The owner decides every change to it;
+  the coordinator applies the owner's yes with `board set-budget`.
 - **Liveness.** A notification without the return schema is interim: one line, no action. A
   relaunch happens only after the deadline, an idle-tree check, and an explicit stop of the old
   supervisor. Never two supervisors on one unit list.
@@ -135,7 +136,8 @@ It dispatches, watches liveness, relaunches, assembles the brief, and reports.
   continues the count, so a relaunch would start exhausted. Supervised mode (S8) therefore adds one
   explicit rule: a relaunch by the coordinator writes `Run state: fleet-relaunch <date>`, and a
   run resuming from that state starts at `0/<cap>`. The objective's cap becomes per launch, and the
-  fleet's cycle budget bounds the total. The coordinator never edits an objective's cap. With no
+  fleet's cycle budget bounds the total. The coordinator edits an objective's cap only through
+  `board set-cap`, on the owner's explicit yes. With no
   cycle budget room left, a cap hit goes in the brief. Under the default budget (the sum of the
   runs' caps), the only room a cap-hit relaunch has is cycles other runs left unspent; a program
   that wants cap-hit relaunches as a matter of course sets a larger budget or `none`.
@@ -219,7 +221,9 @@ Every limit is optional, and they are separate:
 - **Paid API spend** stays where it is, as a dollar line in the objective that incurs it.
 
 At 80% of any limit the coordinator says so once. At 100% it dispatches nothing new, lets cycles
-in flight finish, and reports. It never raises a limit.
+in flight finish, and reports. It never raises a limit on its own: `board set-cap` and
+`board set-budget` apply a raise only on the owner's explicit yes, and `board launch` and
+`board relaunch` refuse while the run's previous supervisor tree has a live agent.
 
 **The board records actuals** per run and for the fleet: cycles, launches, agents, output
 tokens, and turns by seat and model, read from the transcripts by a script. That is what makes
