@@ -65,6 +65,16 @@ class DeadlineTest(unittest.TestCase):
         self.assertEqual(c.log, [30, 30, 30, 10])
         self.assertIn('late 0s)', out)
 
+    def test_partial_wall_clock_jump_does_not_fire_early(self):
+        c = Clock()
+        c.jump = 20  # a short nap during the first poll: wall is 50 s in, due at 100 s
+        code, out = run(c, ['--seconds', '100', '--label', 'x'])
+        self.assertEqual(code, 0)
+        # not fired after the jump (that would be 1 sleep); it polls on and fires once due
+        self.assertEqual(c.log, [30, 30, 20])
+        self.assertEqual(out.count(' fired at '), 1)
+        self.assertIn('late 0s)', out)
+
     def test_start_line_prints_armed_and_due(self):
         c = Clock()
         _, out = run(c, ['--seconds', '60', '--label', 'x'])

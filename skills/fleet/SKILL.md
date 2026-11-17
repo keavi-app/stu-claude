@@ -274,6 +274,8 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    operation 4 and apply the supervisor rule in "The loop": re-arm with no bound while the tree is
    alive, stop it (operation 5) and run `board idle`, as in "The loop". The run skill's repair, restart and 6-hour bound do not
    apply to supervisors.
+   A fire line reporting `late` over 600 s means the machine likely slept: say so once, in the
+   next status line ("deadline fired <n> min late; the machine likely slept"). Never a stop.
 4. **List descendants:** `stu-tree --root <supervisor agent id>` (exit 0 means something in the
    tree is live). `ListAgents` is not available inside a subagent and is not used.
 5. **Stop a supervisor:** `TaskStop` with its agent id.
