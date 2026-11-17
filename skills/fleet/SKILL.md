@@ -251,11 +251,22 @@ written only by `stu-fleet`.
 
 ## 4. Context and handoff
 
-Hand off to a fresh coordinator at **120k context, at a wave boundary** (no supervisor
-mid-return). The board is the resume state: a handoff names the program path and the supervisors
-still live (their slugs, agent ids and nonces) and nothing else the board holds. The next
-coordinator starts at "Startup", then `next`; for each live supervisor it re-arms one deadline
-(operation 3) and checks it is still alive (operation 4).
+Measure your own context; do not estimate it. After every `board record`, every `board idle`
+and every wave report, run `RUN_CTX_SOFT=120000 stu-ctx` and read its first token:
+
+- `OK`: carry on.
+- `SOFT EXCEEDED - finish this unit, then hand off`: hand off to a fresh coordinator at the next
+  wave boundary (no supervisor mid-return).
+- `HARD EXCEEDED - hand off now, mid-unit if necessary`, or exit 2 (the read failed, which counts
+  as the hard ceiling): hand off now.
+
+The board is the resume state: a handoff names the program path and the supervisors still live
+(slug, agent id, nonce and session id each) and never stops one. Items you were carrying
+survive the handoff too ("When no run is live"). The next coordinator starts at "Startup", then `next`;
+for each live supervisor it re-arms one deadline (operation 3) and checks it is still alive
+(operation 4). An inherited supervisor sends no completion notice to this session, so when its
+tree reads finished (`stu-tree --root <agent id>` finds it in any session), read
+`<run-dir>/supervisor-return.txt` and record it as in section 2.
 
 ## 5. Judgment jobs
 
