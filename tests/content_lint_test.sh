@@ -164,6 +164,7 @@ then echo "ok   settler is on the default judgment model and holds Agent"
 else echo "FAIL settler is on the default judgment model and holds Agent"; fails=$((fails + 1)); fi
 # No agent or skill names a literal Claude model ID; models come from config or aliases.
 none "no literal Claude model ID in agents or skills" "$EXCL" 'claude-(opus|sonnet|haiku|fable|[0-9])' skills agents
+none "no sleep 5400 deadline timer in skills (use stu-deadline)" 'sleep 5400' skills
 # Runtime binding: the fleet skill names Claude tools and agent-invocation details only inside
 # its "## Runtime binding" section (fleet-design.md, "Built for a second runtime"). The YAML
 # frontmatter is the Claude skill manifest, not instruction text, so it is not scanned.

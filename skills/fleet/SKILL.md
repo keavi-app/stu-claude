@@ -267,7 +267,8 @@ not Claude Code writes its own seven lines in `codex/runtime.md`.
    `stu-env section judgment-model`; empty means `opus`. Verifier and scout use the models the run
    skill's routing table gives them.
 3. **Wait:** the completion notification of the background `Agent` call, plus one background
-   `Bash` command per supervisor (`sleep 5400` with `run_in_background` and `timeout: 5500000`),
+   `Bash` command per supervisor (`stu-deadline --seconds 5400 --label <supervisor>` with `run_in_background` and
+   `timeout: 5500000`),
    the same arming as the run skill's "Liveness" (timer arming and `TaskStop` on return only).
    Keep its task id, and `TaskStop` it when the return is accepted. When it fires, take
    operation 4 and apply the supervisor rule in "The loop": re-arm with no bound while the tree is

@@ -370,6 +370,17 @@ orchestrator. Hence the content-free relay: the supervisor forwards only the tas
 so it stays blind to the child's result, and an orchestrator woken twice for one child ignores the
 second.
 
+The deadline itself runs on wall-clock time (`stu-deadline`), not `sleep`. In one overnight fleet
+run, four `sleep 5400` timers armed between 02:02 and 07:45 were each still pending when the
+work they guarded returned hours later (the largest gap 8.7 h), while the evening timer fired on
+time. The machine's `pmset -g log` showed system sleep from 01:46 UTC with brief DarkWakes about
+every 15 minutes (about 5,100 s awake in total) until a full wake at 11:21 UTC. macOS `sleep`
+counts only awake time, so a 5,400 s timer needed 90 awake minutes and the night supplied about
+85. That cause is inferred from the power log and transcript timestamps, not reproduced. A
+wall-clock comparison fires at the first wake after the due time. A fire reporting `late` over
+600 s is surfaced once in the next status line and is never a stop. Keeping the machine awake is
+a separate owner policy and not part of this rule.
+
 "Alive" alone cannot be trusted indefinitely: a stuck tool call or a loop inside one of the
 orchestrator's own turns never shows up in its 120-turn budget, which is advisory to it and
 invisible to the supervisor. The four-re-arm / six-hour bound is the only thing that catches a

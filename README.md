@@ -114,6 +114,7 @@ A `PreToolUse` hook is the publish guard's tool-call half; see Publishing safely
 | `stu-env` | Resolves this repo's paths and config; `stu-env section <id>` prints one config answer. |
 | `stu-claims` | A shared claims file, so two concurrent runs never work the same unit. |
 | `stu-ctx` | Prints this session's context size, band, and growth; `--nonce` measures a subagent's own transcript instead. |
+| `stu-deadline` | `--seconds N --label TEXT`: a liveness deadline timer on wall-clock time, so it still fires after the machine slept. |
 | `stu-tree` | Lists a subagent's live descendants and exits 0 when any is running. |
 | `stu-ci-wait` | One background call, one line: waits for a PR's CI verdict instead of polling. |
 | `stu-approve` | `stu-approve <id> <sha>`: records the owner's approval of one commit for a before-push checkpoint. Human-only. |
