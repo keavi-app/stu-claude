@@ -354,9 +354,13 @@ notice can arrive while it waits. It can also stop WITH a subagent live (its own
 runs, and a dead or hung child reaches you nowhere. Detect it with one background timer armed
 alongside the dispatch. Why: design-rationale.md, "Liveness incidents".
 
-- On dispatching the cycle's orchestrator, arm ONE background command: `sleep 5400` with
-  `run_in_background` and `timeout: 5500000` (the harness kills it at 30 minutes without a
-  `timeout`; the maximum is 7200000). Keep its task id; do not wait on it.
+- On dispatching the cycle's orchestrator, arm ONE background command: `stu-deadline --seconds 5400
+  --label <lane or unit>` with `run_in_background` and `timeout: 5500000` (the harness kills it at
+  30 minutes without a `timeout`; the maximum is 7200000). It compares the wall clock with its due
+  time, so a machine that slept still fires it at the first wake. Keep its task id; do not wait
+  on it.
+- A fire line reporting `late` over 600 s means the machine likely slept: say so once, in the
+  next status line ("deadline fired <n> min late; the machine likely slept"). Never a stop.
 - When the orchestrator's return (schema or repair reply) is accepted, `TaskStop` the timer in
   that same message. A later notification from a stopped or fired timer is one line, no check.
 - If the timer fires first, take the **tree check** once. Run `stu-tree --root <orchestrator

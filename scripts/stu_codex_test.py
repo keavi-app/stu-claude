@@ -35,7 +35,7 @@ class Contracts(unittest.TestCase):
                 self.assertNotIn('! "<plugin root>', result)
                 self.assertNotIn('<plugin root>', result)
                 for forbidden in ('subagent_type:', 'run_in_background', 'TaskStop', 'SendMessage',
-                                  'ListAgents', 'claude -p', 'sleep 5400', 'maxTurns', 'cacheTtl',
+                                  'ListAgents', 'claude -p', 'stu-deadline --seconds', 'maxTurns', 'cacheTtl',
                                   'model: "opus"', 'model: "sonnet"', 'model: haiku'):
                     self.assertNotIn(forbidden, result)
 

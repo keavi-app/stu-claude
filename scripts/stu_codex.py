@@ -25,7 +25,7 @@ SOURCES.update({'charter': 'skills/fix-campaign/orchestrator-charter.md',
 # Hash only replaced runtime regions, never shared policy. Any upstream edit inside one
 # needs deliberate adapter review; a new policy sentence must never be silently discarded.
 RUNTIME_REGIONS = {
-    '### Liveness: one deadline timer per dispatch, not a poll\n': '711c90cde0769969bb3f854d21361c357124b558ae163bff3bd601134b27bb2f',
+    '### Liveness: one deadline timer per dispatch, not a poll\n': '3f3791e00a508967933c1e91c5e678fc14514c80d10b7d36d62384074b7bdd27',
     '## Routing: which agent, which model\n': '574764d47bc368d2ff2497135e71a9defb8610209e72d955a9af550a458bff5f',
     '## Turn discipline\n': 'a36c37dbf7ccf144b58733f060c211b3fdb437d6d362a6d6a28f8054d91626f0',
     '**After a repair has been sent, a prose-only stop is still interim:**': '5263f78ffb0a85270ee60a1f230b3eb795d1efa9dfd6b8ff5ebe6edfac506b40',
@@ -332,7 +332,7 @@ def render(name, root):
     runtime = runtime.replace('@STU_BIN@', shlex.quote(str(root / 'bin')))
     runtime = runtime.replace('@STU_HELPER@', shlex.quote(str(root / 'bin/stu-codex')))
     forbidden = ('subagent_type:', 'run_in_background', 'TaskStop', 'SendMessage',
-                 'ListAgents', 'claude -p', 'sleep 5400', 'maxTurns', 'cacheTtl')
+                 'ListAgents', 'claude -p', 'stu-deadline --seconds', 'maxTurns', 'cacheTtl')
     for token in forbidden:
         if token in body:
             raise ContractDrift('unadapted runtime syntax in ' + name + ': ' + token)
