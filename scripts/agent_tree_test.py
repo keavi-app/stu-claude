@@ -170,6 +170,15 @@ class AnySession(unittest.TestCase):
         self.assertEqual(r.returncode, 3)
         self.assertIn("2 sessions", r.stderr)
 
+    def test_two_nonce_matches_in_one_session_count_agents_not_sessions(self):
+        self.f.agent("n1", 1, prompt="STU-NONCE: nonce-twice-1")
+        self.f.agent("n2", 1, prompt="STU-NONCE: nonce-twice-1")
+        r = self.f.run("--nonce", "nonce-twice-1")
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
+        self.assertIn("2 agents match", r.stderr)
+        self.assertIn("in 1 session", r.stderr)
+        self.assertNotIn("2 sessions", r.stderr)
+
     def test_session_flag_still_pins_one_folder(self):
         self.second_session("sup")
         r = self.f.run("--root", "sup", "--session", SESSION)

@@ -125,7 +125,9 @@ def one_hit(hits, what):
     if not hits:
         raise NotFound("%s not found in any session under %s" % (what, projects_root()))
     if len(hits) > 1:
-        raise NotFound("ambiguous: %d sessions match %s" % (len(hits), what))
+        sessions = len(set(d for d, _ in hits))
+        raise NotFound("ambiguous: %d agents match %s, in %d session%s"
+                       % (len(hits), what, sessions, "" if sessions == 1 else "s"))
     return hits[0]
 
 
