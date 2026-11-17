@@ -6,6 +6,9 @@ set -euo pipefail
 KIT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 command -v jq >/dev/null || { echo "ci_wait_test: jq not installed"; exit 1; }
+# Hermetic: an exported STU_CONFIG would be inherited by every ci-wait.sh
+# run below and point stu-env at a real config. Cases that need it set it explicitly.
+unset STU_CONFIG
 
 mkdir -p "$T/bin" "$T/home" "$T/cwd"
 ln -s "$KIT/tests/fake_gh.py" "$T/bin/gh"
