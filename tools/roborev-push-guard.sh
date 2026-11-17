@@ -58,7 +58,8 @@ push_branch() { # local_ref remote_ref -> branch name to review
 # clean_status <branch> <full sha>: 0 clean, 1 dirty, 2 unknown; REASON says why.
 # Each query's exit status is taken first: a nonzero exit is unknown whatever it printed.
 # `fix --list` writes both of its forms to stderr, so it is read with stderr merged; the
-# `job list --json` queries keep stderr out of the JSON.
+# `job list --json` queries keep stderr out of the JSON; `--limit 0` lists every job, so an old
+# branch's reviewed SHA is never cut off by a page size.
 clean_status() {
     local branch="$1" sha="$2" out status
     REASON=""
@@ -80,7 +81,7 @@ clean_status() {
         return 2
     fi
     for status in queued running; do
-        out=$(roborev job list --branch "$branch" --status "$status" --json --limit 100 2>/dev/null </dev/null) || {
+        out=$(roborev job list --branch "$branch" --status "$status" --json --limit 0 2>/dev/null </dev/null) || {
             REASON="roborev job list --status $status failed"
             return 2
         }
@@ -89,7 +90,7 @@ clean_status() {
             return 1
         fi
     done
-    out=$(roborev job list --branch "$branch" --status done --json --limit 200 2>/dev/null </dev/null) || {
+    out=$(roborev job list --branch "$branch" --status done --json --limit 0 2>/dev/null </dev/null) || {
         REASON="roborev job list --status done failed"
         return 2
     }

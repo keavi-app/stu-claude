@@ -72,8 +72,8 @@ temp HOME, `STU_CONFIG`, and `tests/fake_gh.py` standing in for `gh`.
 
 ## Delivery
 
-- Branch from `main`; never commit to it directly. Work in a worktree under
-  `~/Dev/stu-claude-worktrees/` when agents are running; the main checkout is read-only then.
+- Branch from `main`; never commit to it directly. Work in a separate git worktree (stu's
+  `WORKTREES_DIR`) when agents are running; the main checkout is read-only then.
 - Commit locally. RoboRev reviews every commit (git hooks below). Wait for the review with
   `roborev job wait <sha>`, read its content, fix every HIGH and genuine MEDIUM on the same branch,
   and repeat until `roborev fix --list --branch <branch>` is empty. Never run bare `roborev fix`:
@@ -81,10 +81,16 @@ temp HOME, `STU_CONFIG`, and `tests/fake_gh.py` standing in for `gh`.
 - Nothing is pushed until its review is clean. Batch fixes into one push.
 - Open a PR into `main`. It is squash-merged, so the PR title becomes the commit subject: keep it
   current. A PR that passes the stu merge gate (a `stu:reviewer` review and RoboRev both clean at
-  the head SHA, `make test` green) may be merged by the gate: that is standing authorisation.
+  the head SHA, `make test` green) may be merged by the gate: that is standing authorisation for the maintainers' runs. Outside
+  contributors open a PR and a maintainer merges it.
 - No backticks, `$(...)` or `$VAR` in an issue or PR title: they execute as shell.
 
-**Git hooks (once per clone).** The hooks live in `.git/hooks`, not the tracked `.githooks/`,
+**Maintainer tooling.** The RoboRev cycle above, the deny scan and the git hooks below are for
+maintainers: the deny scan reads a private list that only maintainers have, and RoboRev is a
+separate tool. Outside contributors skip them, run `make test`, and open a PR; a maintainer runs
+the review cycle before merging.
+
+**Git hooks (maintainers, once per clone).** The hooks live in `.git/hooks`, not the tracked `.githooks/`,
 because they hold machine paths. In a fresh clone: `roborev init`, then `stu-pre-push --install`,
 and make `.git/hooks/pre-push.local` run `.githooks/pre-push`. A push then runs the deny scan, the
 RoboRev push guard (`tools/roborev-push-guard.sh`: it refuses a branch push with an open review
@@ -95,7 +101,7 @@ state yourself then. `STU_SKIP_ROBOREV_PUSH_GUARD=1` is for humans only; agents 
 ## When to file an issue
 
 Do **not** file an issue for something you noticed while doing something else. Write it under
-`~/.stu/keavi-app-stu-claude/ledger-inbox/`; only the owner promotes a ledger entry. The one
+`<run home>/ledger-inbox/` (`RUN_HOME` from `stu-env`); only the owner promotes a ledger entry. The one
 exception needs all three: it is a defect (not an improvement); it is user-reachable, corrupts
 data, or is a broken safety net; and it exists on `main` today, verified against code. Issues go
 to `keavi-app/stu-claude`.
@@ -107,6 +113,8 @@ make test
 git ls-files -z | tools/deny-scan.sh -0
 ```
 
+The deny scan is for maintainers (see Delivery); outside contributors run `make test` only.
+
 `make test` runs every `scripts/*_test.py`, every `tests/*_test.sh` (the content and dispatch
 lints included) and the Python floor; about 5 minutes. There is no CI: these are the gate.
 
@@ -114,7 +122,8 @@ lints included) and the Python floor; about 5 minutes. There is no CI: these are
 
 - `make test` stops at the first failing suite; read each suite's own ok/failed counts, not just
   the exit code, and never pipe it through `tail` (that masks the exit status).
-- The deny scan exits 2 when its private list is missing: that is a failure, not a skip.
+- For a maintainer, the deny scan exits 2 when its private list is missing: that is a failure,
+  not a skip.
 - A content-lint change that matches nothing passes: plant a violation once to confirm it is live.
 
 ## Product taste

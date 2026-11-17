@@ -4,7 +4,7 @@ owner:
 project:
 # The project guide file the agents read. A CLAUDE.md that only @-imports another file does not
 # carry the guide: name the imported file here instead.
-guide:
+guide: AGENTS.md
 run_home:
 worktrees_dir:
 github_repo:
@@ -436,8 +436,7 @@ to grep as its rules describe.
 For shape:
   The main source language has a server. Shell scripts and config files do not: grep only.
 -->
-None for this repo's languages: the only language servers enabled are gopls and Swift. Python,
-shell and Markdown: grep only.
+None: Python, shell and Markdown have no language server configured here; grep only.
 
 ## verification-commands
 <!--
@@ -469,8 +468,8 @@ For shape:
 `make test` runs every `scripts/*_test.py`, every `tests/*_test.sh` (including the content and
 dispatch lints) and the Python 3.9 floor, about 5 minutes; it exits non-zero on the first failing
 suite. Each suite prints its own ok/failed counts: read them, not just the exit code. There is no
-CI and no integration suite beyond these. The deny scan needs the private list in
-`~/.config/stu-claude/`; it exits 2, not 0, when that list is missing.
+CI and no integration suite beyond these. The deny scan needs the maintainers' private list (kept outside the
+repo); it exits 2, not 0, when that list is missing.
 
 ```
 make test
