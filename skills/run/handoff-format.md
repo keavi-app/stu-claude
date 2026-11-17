@@ -173,13 +173,16 @@ Outstanding:            <issued minus closed, parked and Waiting, or NONE — cl
                          per the definition above, and a verified INTEGRATED_IDS entry in
                          completion: integrated; a readied-but-unlanded unit in
                          completion: merged mode is not closed and stays outstanding>
-Cycles with no close:   <n>   (check 5, trigger 1: fires at 2 consecutive — exempt in
+Cycles with no close:   <n>   (check 5, trigger 1: fires at 2 consecutive — a "Parked only"
+                         cycle, whose REMAINING_IDS minus PARKED_IDS is NONE, leaves it
+                         unchanged; exempt in
                          completion: merged while every remaining ID is in the accumulated
                          READY_IDS, the same carve-out as trigger 2, below; in
                          completion: integrated on a cycle whose INTEGRATING_IDS lists a
                          remaining ID, only while this counter is below 3; and on a cycle
                          whose verified MOVED_IDS lists a remaining ID, same bound)
-REMAINING_IDS was:      <last cycle's value> — unchanged <n> cycles, all of them in
+REMAINING_IDS was:      <last cycle's value> — unchanged <n> cycles ("Parked only" cycles
+                         do not count, as above), all of them in
                          `READY_IDS`, with no new `LANDED:` in that span
                          (check 5, trigger 2: fires at 3 — same carve-out and the same
                          three-cycle bound as trigger 1, above; past the bound the

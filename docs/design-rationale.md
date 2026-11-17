@@ -704,3 +704,13 @@ A handoff carried only the program and live supervisors, so a decided item, or a
 run's settle" item whose run ended without a settle, was dropped between coordinators and never
 reached the owner. With no run live the coordinator now works the carried items in order, and
 that last kind goes to the owner in the next message.
+
+## A park-only cycle is not non-convergence (2026-11-17)
+
+In the first fleet trial one run stopped `4 - non-convergence: no close on two consecutive cycles`
+after its first cycle parked every unit on owner questions, which was that cycle's job. The
+counter carried that cycle across the settle, so one grooming cycle later it tripped, and the
+owner reset the counter by hand. Check 5 now has a sixth carve-out, "Parked only": a cycle whose
+remaining units are all parked leaves the counters unchanged. It lives in the run skill, not in
+`board settled`, because it also covers a plain `/stu:settle` outside a fleet and keeps the
+supervisor the counter's one writer.

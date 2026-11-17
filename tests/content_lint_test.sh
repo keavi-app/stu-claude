@@ -117,6 +117,11 @@ check_set "the base-branch reading rule is in the verifier and the scout" "$(pri
 missing=$(need skills/run/SKILL.md 'Relay: your background agent' 'never count the relay as the cycle'
   need agents/orchestrator.md 'Relay: your background agent')
 check_set "nested completions are relayed to the orchestrator" "$missing"
+# Check 5's "Parked only" carve-out (a cycle whose remaining units are all parked is not
+# non-convergence) is named in the run skill and in the handoff format's counter text.
+missing=$(need skills/run/SKILL.md '**Parked only.**' 'with six carve-outs'
+  need skills/run/handoff-format.md '"Parked only"')
+check_set "check 5 names the Parked only carve-out" "$missing"
 # Cache TTL: only the orchestrator and the supervisor wait long enough to win back 1-hour writes
 # (rationale, "Cache TTL"). The key must be in each one's frontmatter and in no other agent's.
 fm() { awk 'NR==1&&/^---$/{f=1;next} f&&/^---$/{exit} f' "$1"; }

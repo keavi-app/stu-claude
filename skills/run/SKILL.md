@@ -635,11 +635,15 @@ Set operations on IDs you already hold; none requires reading anything.
 4. `PREMISE_CLAIM` missing or empty -> one repair request ("One repair request, then fail
    closed", below), then **BLOCKED** if still missing or empty.
 5. `CLOSED_IDS: NONE` twice consecutively, or `REMAINING_IDS` unchanged across three cycles ->
-   **NOT_CONVERGING**, with five carve-outs, each covering **both** triggers (a carve-out holding
+   **NOT_CONVERGING**, with six carve-outs, each covering **both** triggers (a carve-out holding
    only the second would be pre-empted by trigger 1's two-cycle bound).
    - **Waiting only.** A cycle whose accepted `WAITING_IDS` is non-empty and whose `REMAINING_IDS`
      is `NONE` triggers neither condition: nothing the run can do is outstanding, and the stop is
      `DONE` into `waiting-on-human`, not a failure to converge.
+   - **Parked only.** A cycle whose `REMAINING_IDS` minus `PARKED_IDS` is `NONE` (every remaining
+     unit is parked, so it stops on condition 5) triggers neither condition: parking on owner
+     questions was that cycle's job, not a failure to close. Write `Cycles with no close` and the
+     `REMAINING_IDS was` count unchanged for it, so the cycle after a settle does not inherit it.
    - **Merged mode, for a unit on a label-handoff row that uses GitHub auto-merge.** A unit in `REMAINING_IDS` because it is labelled
      and waiting on auto-merge yields `CLOSED_IDS: NONE` and unchanged `REMAINING_IDS` each cycle.
      **Neither trigger fires on that basis while every unchanged remaining ID is in the
