@@ -68,8 +68,9 @@ running supervisor finishes under the old value and the next launch reads the ne
 live agent: stop it (operation 5) and retry.
 
 - `start <slug>`: first compare the cycles that remain with the units outstanding. Remaining is
-  the run's `cap` from `stu-fleet program check` minus its `cycles` from `stu-fleet spend` (or
-  the objective scoreboard's `Cycles used:`); outstanding is the objective scoreboard's
+  the run's `cap` from `stu-fleet program check` minus the numerator of the objective
+  scoreboard's `Cycles used:` (the count a launch resumes from; `stu-fleet spend` cycles are
+  cumulative across launches and do not apply to the cap); outstanding is the objective scoreboard's
   `Outstanding:` line. When fewer cycles remain than units, ask the owner the cap question
   first (a raise of the objective's cap, and of the program's cycle budget if it would then be
   short) and launch after the answer. Then run
