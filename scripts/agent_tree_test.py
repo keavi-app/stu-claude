@@ -100,9 +100,13 @@ class Tree(unittest.TestCase):
     def test_not_found_exits_three(self):
         r = self.f.run("--root", "nope")
         self.assertEqual((r.returncode, r.stdout), (3, ""))
-        r = self.f.run("--root", "sup", CLAUDE_CODE_SESSION_ID="other-session")
+        # --session pins one folder: the agent is not in another session's folder
+        r = self.f.run("--root", "sup", "--session", "other-session")
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
+        # a bare listing still uses the env session, and fails when it is not found
+        r = self.f.run(CLAUDE_CODE_SESSION_ID="other-session")
         self.assertEqual(r.returncode, 3)
-        r = self.f.run("--root", "sup", CLAUDE_CODE_SESSION_ID="")
+        r = self.f.run(CLAUDE_CODE_SESSION_ID="")
         self.assertEqual(r.returncode, 3)
 
     def test_usage_exits_two(self):
@@ -117,6 +121,61 @@ class Tree(unittest.TestCase):
         self.f.agent("sup2", 1, prompt="hello\nSTU-SUPERVISED: nonce-sup-2\nbye")
         r = self.f.run("--nonce", "nonce-sup-2")
         self.assertEqual(r.stdout.split()[0], "sup2")
+
+
+class AnySession(unittest.TestCase):
+    """--root and --nonce without --session search every session folder."""
+    def setUp(self):
+        self.f = Fixture()
+        self.f.agent("sup", 1, prompt="x\nSTU-SUPERVISED: nonce-any-1\n")
+        self.f.agent("kid", 2, parent="sup", finished=True)
+
+    def second_session(self, aid, prompt="work"):
+        sdir = os.path.join(self.f.root, "proj-b", "sess-0002", "subagents")
+        os.makedirs(sdir, exist_ok=True)
+        with open(os.path.join(sdir, "agent-%s.meta.json" % aid), "w") as fh:
+            json.dump({"spawnDepth": 1}, fh)
+        with open(os.path.join(sdir, "agent-%s.jsonl" % aid), "w") as fh:
+            fh.write(prompt_record(prompt, aid))
+
+    def ids(self, r):
+        return [ln.split()[0] for ln in r.stdout.splitlines()]
+
+    def test_root_resolves_in_another_session_despite_env(self):
+        r = self.f.run("--root", "sup", CLAUDE_CODE_SESSION_ID="some-other-session")
+        self.assertEqual((r.returncode, self.ids(r)), (0, ["sup", "kid"]))
+
+    def test_nonce_resolves_in_another_session_despite_env(self):
+        r = self.f.run("--nonce", "nonce-any-1", CLAUDE_CODE_SESSION_ID="some-other-session")
+        self.assertEqual((r.returncode, self.ids(r)), (0, ["sup", "kid"]))
+
+    def test_root_found_only_in_second_session(self):
+        self.second_session("lone")
+        r = self.f.run("--root", "lone")
+        self.assertEqual((r.returncode, self.ids(r)), (0, ["lone"]))
+
+    def test_zero_matches_exit_three(self):
+        r = self.f.run("--root", "ghost")
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
+        r = self.f.run("--nonce", "no-such-nonce")
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
+
+    def test_two_matches_exit_three_naming_the_count(self):
+        self.second_session("sup")
+        r = self.f.run("--root", "sup")
+        self.assertEqual((r.returncode, r.stdout), (3, ""))
+        self.assertIn("2 sessions", r.stderr)
+        self.second_session("dup", prompt="STU-NONCE: nonce-any-1")
+        r = self.f.run("--nonce", "nonce-any-1")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("2 sessions", r.stderr)
+
+    def test_session_flag_still_pins_one_folder(self):
+        self.second_session("sup")
+        r = self.f.run("--root", "sup", "--session", SESSION)
+        self.assertEqual((r.returncode, self.ids(r)), (0, ["sup", "kid"]))
+        r = self.f.run("--root", "sup", "--session", "sess-0002")
+        self.assertEqual((r.returncode, self.ids(r)), (0, ["sup"]))
 
 
 class Nonce(unittest.TestCase):

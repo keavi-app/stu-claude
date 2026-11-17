@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """stu-tree: which agents under this session are still running, and who owns the agent file.
 
-  stu-tree --root <agent-id> [--session <id>]
-  stu-tree --nonce <nonce>   [--session <id>]     (root = the agent whose prompt carries it)
-  stu-tree                   [--session <id>]     (every agent of the session)
+  stu-tree --root <agent-id> [--session <id>]     (no --session: search every session)
+  stu-tree --nonce <nonce>   [--session <id>]     (root = the agent whose prompt carries it;
+                                                   no --session: search every session)
+  stu-tree                   [--session <id>]     (every agent of the session; defaults to
+                                                   CLAUDE_CODE_SESSION_ID)
 
 Reads `<projects root>/*/<session>/subagents/agent-*.meta.json` and the matching `.jsonl`.
 `ListAgents` does not exist inside a subagent; this is the one way a supervisor or a
@@ -15,8 +17,10 @@ An agent is `finished` only when its meta file says `finished: true`. A status o
 `completed` is never read: a supervisor shows it while it waits on its timer.
 
 Exit 0 if any listed agent (the root included) is live, 1 if none is, 2 on a usage error,
-3 when the session or the root is not found. The session defaults to
-CLAUDE_CODE_SESSION_ID; the projects root to ~/.claude/projects, overridable with
+3 when the session or the root is not found, or when a root or nonce search without --session
+matches several agents. The bare listing's session defaults to CLAUDE_CODE_SESSION_ID (a
+--root or --nonce search ignores it: a coordinator looks up supervisors of other sessions);
+the projects root to ~/.claude/projects, overridable with
 STU_PROJECTS_ROOT (tests).
 
 `find_by_nonce` is shared with ctx.py: the launcher puts a `STU-SUPERVISED: <nonce>` or
@@ -111,6 +115,35 @@ def find_by_nonce(session, nonce):
     return agent_id(hits[0]), hits[0]
 
 
+def all_subagent_dirs():
+    return sorted(d for d in glob.glob(os.path.join(projects_root(), "*", "*", "subagents"))
+                  if os.path.isdir(d))
+
+
+def one_hit(hits, what):
+    """hits is [(subagents dir, agent id)]; exactly one, else NotFound naming the count."""
+    if not hits:
+        raise NotFound("%s not found in any session under %s" % (what, projects_root()))
+    if len(hits) > 1:
+        raise NotFound("ambiguous: %d sessions match %s" % (len(hits), what))
+    return hits[0]
+
+
+def find_root_any_session(aid):
+    """-> (subagents dir, agent id) of the one session folder holding agent `aid`."""
+    return one_hit([(d, aid) for d in all_subagent_dirs()
+                    if os.path.isfile(os.path.join(d, "agent-%s.meta.json" % aid))],
+                   "agent %s" % aid)
+
+
+def find_nonce_any_session(nonce):
+    """-> (subagents dir, agent id) of the one agent, in any session, carrying the nonce line."""
+    if not nonce or not NONCE_RE.match(nonce):
+        raise NotFound("nonce must be 6-80 characters of letters, digits, . _ -")
+    return one_hit([(d, agent_id(p)) for d in all_subagent_dirs() for p in nonce_hits(d, nonce)],
+                   "the nonce line %s" % nonce)
+
+
 def walk(agents, root):
     """The root, then its descendants by parentAgentId, breadth first, ids sorted."""
     order, queue = [], [root]
@@ -137,18 +170,25 @@ def describe(aid, entry, now):
 
 def main(argv):
     p = argparse.ArgumentParser(prog="stu-tree", description=__doc__.split("\n")[0])
-    p.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    p.add_argument("--session", help="pin one session folder (a bare listing defaults to "
+                   "CLAUDE_CODE_SESSION_ID)")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--root", help="agent id whose descendants to list")
     g.add_argument("--nonce", help="the root is the agent whose prompt carries this nonce")
     args = p.parse_args(argv)   # exits 2 on a usage error
     try:
-        sdir = subagents_dir(args.session)
         root = args.root
         if root and root.startswith("agent-"):
             root = root[len("agent-"):]
-        if args.nonce:
-            root = find_by_nonce(args.session, args.nonce)[0]
+        if args.session or not (root or args.nonce):
+            session = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID")
+            sdir = subagents_dir(session)
+            if args.nonce:
+                root = find_by_nonce(session, args.nonce)[0]
+        elif args.nonce:
+            sdir, root = find_nonce_any_session(args.nonce)
+        else:
+            sdir, root = find_root_any_session(root)
         agents = load_agents(sdir) if os.path.isdir(sdir) else {}
         if root and root not in agents:
             raise NotFound("agent %s not found under %s" % (root, sdir))
