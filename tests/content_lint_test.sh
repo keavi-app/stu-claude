@@ -187,6 +187,16 @@ check_set "the fleet skill's Runtime binding names SendMessage only to forbid it
 grep -qxF '## Runtime binding' skills/fleet/SKILL.md \
   && echo "ok   the fleet skill has a Runtime binding section" \
   || { echo "FAIL the fleet skill has a Runtime binding section"; fails=$((fails + 1)); }
+# Supervisor return path and coordinator context (issue 32): the fixed return file is named
+# where a supervisor writes it, and the coordinator measures its context and copies, never retypes.
+missing=$(need skills/run/SKILL.md supervisor-return.txt
+  need agents/supervisor.md supervisor-return.txt
+  need skills/run/handoff-format.md supervisor-return.txt
+  need skills/fleet/SKILL.md supervisor-return.txt)
+check_set "the supervisor return's fixed path is named in the run skill, supervisor, handoff format and fleet skill" "$missing"
+check_set "the fleet skill names stu-ctx for the coordinator's own context" "$(need skills/fleet/SKILL.md 'stu-ctx')"
+none "the fleet skill never retypes a return through a heredoc or echo" \
+  '<<-?[ ]*.?EOF|cat >|echo .*STU-RUN' skills/fleet/SKILL.md
 # Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a
 # `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
 # file defines, so the two cannot drift. The groomer's and designer's lines match in full; the

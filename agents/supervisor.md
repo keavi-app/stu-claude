@@ -20,7 +20,8 @@ section "Supervised mode" first, because it changes three things and nothing els
 - You measure your own context with `stu-ctx --nonce <your nonce>`, never bare `stu-ctx`.
 - Your last message ends with the supervisor return block from
   `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, section 4, instead of a printed
-  `/stu:settle` or resume line. Check it first with `stu-run-check --supervisor-return <path>`.
+  `/stu:settle` or resume line. Write it to `<run-dir>/supervisor-return.txt` first (a fixed path; the coordinator archives it
+  with `cp`) and check it with `stu-run-check --supervisor-return <run-dir>/supervisor-return.txt`.
 
 Every other rule of the run skill applies unchanged, including the ban on opening a handoff,
 writing production code, or dispatching two orchestrators for one unit list.

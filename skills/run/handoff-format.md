@@ -390,7 +390,8 @@ never auto-narrowed (`docs/fleet-design.md`, "Always the owner's").
 `stu-run-check --supervisor-return PATH` validates the block: every field present, the enums, the
 absolute paths, `CYCLES` as `<used>/<cap>`, and that `NEXT` matches this table. Exit 0 prints `OK`,
 exit 1 prints one `<KEY> BLOCKED <code>: <detail>` line per bad field then `BLOCKED`, exit 3 means
-the file could not be read. A supervised run checks its own block with it before returning.
+the file could not be read. A supervised run writes its block to `<run-dir>/supervisor-return.txt` (a fixed path the
+coordinator archives with `cp`) and checks that file with it before returning.
 
 ---
 

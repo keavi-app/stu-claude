@@ -229,10 +229,14 @@ live agent: stop it (operation 5) and retry.
   their own.
 - `lanes: <live>/<cap>`: the lane use. The cap counts lanes, not supervisors.
 
-**A notification that carries no supervisor return block is interim:** one line, no action. A
-supervisor return is the block that ends with `STU-RUN:` through `NEXT:` (`skills/run/handoff-format.md`,
-section 4). When one arrives, write the block to a file in the return directory, then run
-`stu-fleet board record <program path> --run <slug> --return <file>`. A refusal (exit 1 or 13)
+**A notification that carries no supervisor return block is interim:** no action and no reply
+text at all. A supervisor return is the block that ends with `STU-RUN:` through `NEXT:`
+(`skills/run/handoff-format.md`, section 4). The supervisor has already written it to
+`<run-dir>/supervisor-return.txt`. When one arrives, archive that file with
+`cp <run-dir>/supervisor-return.txt <return directory>/supervisor-return.txt`, then run
+`stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
+Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
+message after an event is at most five lines: what changed, then the open asks. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
