@@ -1594,8 +1594,13 @@ def cmd_board(sub, a):
                 print("actuals: unavailable \u2014 %s" % entry["unavailable"])
             append_actuals(a["program"], entry)
         if sub == "relaunch":
-            print("cap: this launch starts at 0/%s; the fleet cycle budget %s bounds it" % (
-                run["cap"], fmt_limit(limits(prog, board, prog["fleet"])["cycle"])))
+            used, limit, _spent = limits(prog, board, prog["fleet"])["cycle"]
+            if limit is None:
+                print("cap: this launch starts at 0/%s; no fleet cycle budget is set (%d used)" % (
+                    run["cap"], used))
+            else:
+                print("cap: this launch starts at 0/%s; the fleet cycle budget %d/%s bounds it" % (
+                    run["cap"], used, limit))
         if nonce:
             print("nonce: %s" % nonce)
         return 0

@@ -119,8 +119,8 @@ missing=$(need skills/run/SKILL.md 'Relay: your background agent' 'never count t
 check_set "nested completions are relayed to the orchestrator" "$missing"
 # Check 5's "Parked only" carve-out (a cycle whose remaining units are all parked is not
 # non-convergence) is named in the run skill and in the handoff format's counter text.
-missing=$(need skills/run/SKILL.md '**Parked only.**' 'with six carve-outs'
-  need skills/run/handoff-format.md '"Parked only"')
+missing=$(need skills/run/SKILL.md '**Parked only.**' 'with six carve-outs' 'as **0** for it'
+  need skills/run/handoff-format.md '"Parked only"' 'resets it to 0')
 check_set "check 5 names the Parked only carve-out" "$missing"
 # A condition-10 stop under a fleet is relaunched with a fresh cap, never an owner ask.
 missing=$(need skills/run/SKILL.md 'the coordinator relaunches with a fresh cap'

@@ -218,7 +218,7 @@ live agent: stop it (operation 5) and retry.
 - `relaunch <slug> — <stop>`: an instruction. Run
   `stu-fleet board relaunch <program path> --run <slug>`; it re-checks the limits under its lock,
   writes `Run state: fleet-relaunch <date>` into the objective (you never write the objective),
-  prints the fresh cap and the budget it runs under (`cap: this launch starts at 0/<cap>; ...`), goes
+  prints the fresh cap and the budget it runs under (`cap: this launch starts at 0/<cap>; the fleet cycle budget <used>/<limit> bounds it`, or `...; no fleet cycle budget is set (<used> used)` when there is none), goes
   live and prints the nonce as its last line. A condition-10 stop needs nothing from the owner while the
   budget allows the relaunch; never ask the owner to raise the cap for it. Then launch a supervisor with that nonce,
   exactly as for `start`, with its own deadline. A refusal (13) goes to the owner as printed.

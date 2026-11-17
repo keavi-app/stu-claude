@@ -644,8 +644,10 @@ Set operations on IDs you already hold; none requires reading anything.
    - **Parked only.** A cycle whose `REMAINING_IDS` minus `PARKED_IDS` is `NONE` (every remaining
      unit is parked, so it stops on condition 5) triggers neither condition: parking on owner
      questions was that cycle's job, not a failure to close. Write `Cycles with no close` and the
-     `REMAINING_IDS was` count unchanged for it, so the cycle after a settle does not inherit it. A cycle that closes a unit still resets
-     them as usual; this carve-out only keeps a park from adding to a streak.
+     `REMAINING_IDS was` count as **0** for it (a reset, not "unchanged": an earlier no-close cycle
+     would otherwise survive the park and the settle and trip trigger 1 one cycle later). Each such
+     cycle already stops the run for the owner on condition 5, so the reset masks nothing. A cycle
+     that closes a unit resets them as usual.
    - **Merged mode, for a unit on a label-handoff row that uses GitHub auto-merge.** A unit in `REMAINING_IDS` because it is labelled
      and waiting on auto-merge yields `CLOSED_IDS: NONE` and unchanged `REMAINING_IDS` each cycle.
      **Neither trigger fires on that basis while every unchanged remaining ID is in the

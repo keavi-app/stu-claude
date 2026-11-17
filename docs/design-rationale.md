@@ -711,7 +711,10 @@ In the first fleet trial one run stopped `4 - non-convergence: no close on two c
 after its first cycle parked every unit on owner questions, which was that cycle's job. The
 counter carried that cycle across the settle, so one grooming cycle later it tripped, and the
 owner reset the counter by hand. Check 5 now has a sixth carve-out, "Parked only": a cycle whose
-remaining units are all parked leaves the counters unchanged. It lives in the run skill, not in
+remaining units are all parked resets both counters to 0. A first version left them unchanged;
+review showed that a no-close cycle, a park-only cycle, a settle and one more no-close cycle still
+tripped trigger 1, the same false stop. Each park-only cycle already stops the run for the owner on
+condition 5, so the reset masks nothing. It lives in the run skill, not in
 `board settled`, because it also covers a plain `/stu:settle` outside a fleet and keeps the
 supervisor the counter's one writer.
 
