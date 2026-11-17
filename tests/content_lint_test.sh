@@ -122,6 +122,10 @@ check_set "nested completions are relayed to the orchestrator" "$missing"
 missing=$(need skills/run/SKILL.md '**Parked only.**' 'with six carve-outs'
   need skills/run/handoff-format.md '"Parked only"')
 check_set "check 5 names the Parked only carve-out" "$missing"
+# A condition-10 stop under a fleet is relaunched with a fresh cap, never an owner ask.
+missing=$(need skills/run/SKILL.md 'the coordinator relaunches with a fresh cap'
+  need skills/fleet/SKILL.md 'cap: this launch starts at 0/<cap>' 'never ask the owner to raise the cap')
+check_set "condition 10 under a fleet relaunches with a fresh cap" "$missing"
 # Cache TTL: only the orchestrator and the supervisor wait long enough to win back 1-hour writes
 # (rationale, "Cache TTL"). The key must be in each one's frontmatter and in no other agent's.
 fm() { awk 'NR==1&&/^---$/{f=1;next} f&&/^---$/{exit} f' "$1"; }

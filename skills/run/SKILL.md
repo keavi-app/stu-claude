@@ -52,7 +52,8 @@ things differ:
    final message says, then copy the scoreboard's `Run state:` line into `RUN-STATE`, map the stop
    with that section's table, check the block with `stu-run-check --supervisor-return <run-dir>/supervisor-return.txt` (write it
    to that fixed path in the run folder first; the coordinator archives that file with `cp`), and return it as the last lines of your message with nothing
-   after.
+   after. For condition 10 the final message says "the coordinator relaunches with a fresh cap",
+   never "raise the cap": the cap is not the owner's to raise there.
 
 ## Startup, in ONE message
 

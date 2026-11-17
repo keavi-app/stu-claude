@@ -714,3 +714,12 @@ owner reset the counter by hand. Check 5 now has a sixth carve-out, "Parked only
 remaining units are all parked leaves the counters unchanged. It lives in the run skill, not in
 `board settled`, because it also covers a plain `/stu:settle` outside a fleet and keeps the
 supervisor the counter's one writer.
+
+## A cap-hit fleet run relaunches without the owner (2026-11-17)
+
+In the first fleet trial two runs stopped on condition 10 (cycle cap exhausted). Each
+supervisor's return said relaunching needed a higher `Cycle cap:`, and the coordinator asked the
+owner to raise it, then corrected itself: the board had said to relaunch, and a relaunch starts at
+`0/<cap>` under the fleet's cycle budget. The rule existed but neither the supervisor's return nor
+`board relaunch` stated it. `board relaunch` now prints the fresh cap and the budget, and the run
+and fleet skills say a condition-10 stop needs nothing from the owner while the budget allows it.
