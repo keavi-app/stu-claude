@@ -272,6 +272,10 @@ for each live supervisor it re-arms one deadline (operation 3) and checks it is 
 tree reads finished (`stu-tree --root <agent id>` finds it in any session), read
 `<run-dir>/supervisor-return.txt` and record it as in section 2.
 
+**When no run is live,** work through the handoff's carried items in order. Dispatch any item
+already decided without asking the owner again. An item marked "raise at that run's settle"
+whose run ends without a settle goes to the owner in your next message.
+
 ## 5. Judgment jobs
 
 A groom, audit or design dispatch happens only from a `judge <slug>` line, after
