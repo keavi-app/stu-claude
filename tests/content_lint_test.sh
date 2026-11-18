@@ -212,6 +212,10 @@ none "the fleet skill never tells the coordinator to paraphrase the owner's word
   'paraphrase (that|the owner|their)' skills/fleet/SKILL.md
 check_set "the fleet skill keeps owner words verbatim and one-to-one" \
   "$(need skills/fleet/SKILL.md 'Owner words, verbatim and one-to-one' 'ask which')"
+none "the fleet skill never sends accept for a design verdict on the owner's behalf" \
+  'sends? the owner.s .accept <n>. as usual' skills/fleet/SKILL.md
+check_set "the fleet skill shows the verdict words beside the draft and never auto-accepts" \
+  "$(need skills/fleet/SKILL.md 'never sends `accept` for the' 'next to the drafted recommendation')"
 check_set "the fleet skill checks a program line on a scratch copy before showing it" \
   "$(need skills/fleet/SKILL.md 'A program line shown to the owner is checked first' 'scratch')"
 # Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a

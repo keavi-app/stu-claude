@@ -169,8 +169,11 @@ live agent: stop it (operation 5) and retry.
   names: the objective path for draft, the draft path and the owner's line verbatim for write.
   When a design job's `board verdict --done` answers a unit parked in that run, add one
   `PRE-ANSWERED:` line per such unit to that run's next `MODE: draft` dispatch. A run whose draft
-  is already recorded is not redrafted for it: say in the `Open for you` list that the verdict
-  answers that item, and send the owner's `accept <n>` as usual:
+  is already recorded is not redrafted for it. The coordinator never sends `accept` for the
+  verdict: `accept` writes the settler's drafted recommendation, which may differ from the verdict.
+  In the `Open for you` ask, show the verdict's own words (quoted from `VERDICT.md`, unchanged)
+  next to the drafted recommendation, and let the owner answer `accept <n>` or
+  `reverse <n> <their words>`:
 
   <!-- dispatch-lines: settler -->
   ```
@@ -259,8 +262,9 @@ text at all. A supervisor return is the block that ends with `STU-RUN:` through 
 then, only if that succeeded, run
 `stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
 Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
-message after an event is at most five lines of what changed, then the `Open for you` list (one line
-per ask). A refusal (exit 1 or 13)
+message after an event is at most five lines of what changed (the cap covers the changes only), then
+the
+`Open for you` list, one line per ask, which is in addition to those five lines. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
