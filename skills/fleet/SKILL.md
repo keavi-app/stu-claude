@@ -205,9 +205,13 @@ live agent: stop it (operation 5) and retry.
   write dispatch like any other; the item comes back unanswered (`pending`), and then you discuss
   it. The discussion ends in a follow-up answer for that run, `<slug>: accept <n>` or
   `<slug>: reverse <n> <their words>`, which also goes through `answer` and a write dispatch.
-  `answer` splits on `;` and newlines and reads `accept|reverse|talk about <number>` anywhere, so
-  strip `;` and newlines from the owner's words and do not let them contain those keywords followed
-  by a number (paraphrase that part).
+- **Owner words, verbatim and one-to-one.** The owner's words go to `answer`, `board verdict` and
+  every dispatch unchanged. A letter choice maps mechanically to that option's own text as written
+  in the brief, with nothing added. `answer` splits on `;` and newlines and reads
+  `accept|reverse|talk about <number>` anywhere: strip only `;` and newlines, and when the words
+  hold one of those keywords followed by a number, send it back for the owner to reword; never
+  paraphrase it. An answer applies only to the question it answers; when a reply could cover more
+  than one question, ask which.
 - A `board settled` refusal (13) for an `add`: give the owner the printed line, which names
   `/stu:settle <objective path>`. After the owner says that settle is done, run
   `stu-fleet board requeue <program path> --run <slug>`.

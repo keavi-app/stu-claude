@@ -208,6 +208,10 @@ none "the fleet skill never retypes a return through a heredoc or echo" \
   '<<-?[ ]*.?EOF|cat >|echo .*STU-RUN' skills/fleet/SKILL.md
 check_set "the fleet skill ends owner messages with one Open for you list" \
   "$(need skills/fleet/SKILL.md 'Open for you')"
+none "the fleet skill never tells the coordinator to paraphrase the owner's words" \
+  'paraphrase (that|the owner|their)' skills/fleet/SKILL.md
+check_set "the fleet skill keeps owner words verbatim and one-to-one" \
+  "$(need skills/fleet/SKILL.md 'Owner words, verbatim and one-to-one' 'ask which')"
 # Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a
 # `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
 # file defines, so the two cannot drift. The groomer's and designer's lines match in full; the
