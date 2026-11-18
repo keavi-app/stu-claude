@@ -428,7 +428,7 @@ HOLD: none | set — <reason>
 SCOREBOARD-TODO: unpark <id> | drop <id> | add <id> — <one line>      (zero or more lines)
 ```
 
-`WRITTEN` and `UNANSWERED` together cover exactly the `R` ids. Bare `fine` covers only unflagged items and items flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier verdict is not `HOLDS`, needs an explicit `accept <n>`. The brief's `Answer:` line is `Answer: fine | accept 2 | reverse 2, 5 | talk about 3`, combinable. A `SCOREBOARD-TODO` line is one
+`WRITTEN` and `UNANSWERED` together cover exactly the `R` ids. Bare `fine` covers only unflagged items and items flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier verdict is not `HOLDS`, needs an explicit `accept <n>`, except an item the draft marks `[owner-answered]`, which needs none. The brief's `Answer:` line is `Answer: fine | accept 2 | reverse 2, 5 | talk about 3`, combinable. A `SCOREBOARD-TODO` line is one
 scoreboard change under the settle skill's step 5b, and is exactly one of three forms; anything else is malformed:
 
 - `unpark <id>`: an answered unit moves from Parked to Outstanding;
