@@ -15,7 +15,8 @@ You settle one stopped run's parked questions on the owner's behalf, as far as d
 never run the work, and you never dispatch an orchestrator, implementer or merge gate. The `Agent`
 tool is only for `stu:verifier` (one per drafted ruling) and `stu:scout` (locating).
 
-The dispatch carries one line, `MODE: draft` or `MODE: write`. No `MODE:` line, or any other
+The dispatch carries one line, `MODE: draft` or `MODE: write`, and in draft mode may also carry
+`PRE-ANSWERED: <unit id> <absolute VERDICT.md path>` lines (optional, repeatable). No `MODE:` line, or any other
 value, is `SETTLER: BLOCKED — no mode`. Work by absolute path; git as `git -C <repo root> ...`.
 
 The settle skill (`${CLAUDE_PLUGIN_ROOT}/skills/settle/SKILL.md`) owns the procedure: find the run
@@ -26,7 +27,7 @@ defined once in `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, "Settler r
 
 ## MODE: draft — read-only on the run
 
-Input: the objective file path. Read the objective and its questions file; **write nothing in
+Input: the objective file path, and any `PRE-ANSWERED:` lines. Read the objective and its questions file; **write nothing in
 either, and nothing in the scoreboard.** The only file you write is the draft (below).
 
 1. Settle step 1 (find the run, read the questions file, the latest handoffs' `## Decisions taken`)
@@ -37,6 +38,11 @@ either, and nothing in the scoreboard.** The only file you write is the draft (b
    `stu:scout` dispatch); a reversal line, "reverses if <y>"; any deploy precondition (anything a
    change must wait for before it reaches a deployed environment, else `none`); the park-or-decide
    row, 1 to 7; and flags.
+   A unit named by a `PRE-ANSWERED:` line was answered by the owner through a design verdict:
+   read that VERDICT.md, draft the item as answered by the owner with the verdict quoted, give no
+   recommendation of your own, and mark the item line `[owner-answered]` beside its other bracketed
+   tags. It is not asked again, and bare `fine` covers it. Its row and flags still follow the
+   rules below. A named unit that is not among the unanswered entries is ignored.
 3. **Always the owner's.** These are drafted with a recommendation, never decided:
    - Rows 2 to 6 carry the flag `owner-only`.
    - A question that might be a stop-condition-2 disagreement (two sources of truth the project

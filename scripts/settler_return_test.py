@@ -73,6 +73,10 @@ SC2 = DRAFTED.replace("flags: owner-only", "flags: owner-only, sc2-candidate").r
 expect("sc2 candidate flagged", SC2, 0)
 expect("sc2 without owner-only", SC2.replace("flags: owner-only, sc2-candidate",
        "flags: sc2-candidate").replace("[owner-only] ", ""), 1, "implies owner-only")
+expect("owner-answered item in the brief", DRAFTED.replace("[owner-only] [verifier: STALE]",
+       "[owner-only] [owner-answered] [verifier: STALE]"), 0)
+expect("owner-answered is not a flag", DRAFTED.replace("flags: owner-only", "flags: owner-only, owner-answered"),
+       1, "unknown flag")
 expect("verifier PARTIAL", DRAFTED.replace("verifier: HOLDS", "verifier: PARTIAL"), 0)
 expect("verifier UNVERIFIED", DRAFTED.replace("verifier: HOLDS", "verifier: UNVERIFIED"), 0)
 expect("brief line lacks flag", DRAFTED.replace(" [owner-only]", ""), 1, "does not show the [owner-only]")

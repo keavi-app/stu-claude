@@ -161,12 +161,15 @@ live agent: stop it (operation 5) and retry.
   are held.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
-  opus). The settler's dispatch line (`agents/settler.md`) is the `MODE:` line, then the input it
-  names: the objective path for draft, the draft path and the owner's line verbatim for write:
+  opus). The settler's dispatch lines (`agents/settler.md`) are the `MODE:` line, then the input it
+  names: the objective path for draft, the draft path and the owner's line verbatim for write.
+  When a design job's `board verdict --done` answers a unit parked in that run, add one
+  `PRE-ANSWERED:` line per such unit to that run's next `MODE: draft` dispatch:
 
   <!-- dispatch-lines: settler -->
   ```
   MODE: draft | write
+  PRE-ANSWERED: <unit id> <absolute VERDICT.md path>
   ```
 
   Several in one message when several runs are in `settle`. A settler dispatch is never

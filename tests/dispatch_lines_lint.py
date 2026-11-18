@@ -3,7 +3,7 @@
 Run from the repo root by tests/content_lint_test.sh."""
 import re
 def keys(lines):
-    return [re.match(r"([A-Z]+):", l).group(1) for l in lines]
+    return [re.match(r"([A-Z-]+):", l).group(1) for l in lines]
 skill = open("skills/fleet/SKILL.md").read()
 def skill_block(seat):
     m = re.search(r"<!-- dispatch-lines: %s -->\s*```\n(.*?)```" % seat, skill, re.S)
@@ -21,7 +21,7 @@ def agent_lines(seat):
     m = re.search(r"The dispatch carries one line, (.*?)\. No `MODE:`", t, re.S)
     if not m:
         return None
-    return [x for x in re.findall(r"`(MODE: [a-z]+)`", m.group(1))]
+    return re.findall(r"`((?:MODE: [a-z]+|PRE-ANSWERED: [^`]*))`", m.group(1))
 for seat, full in (("groomer", True), ("designer", True), ("settler", False)):
     have, want = skill_block(seat), agent_lines(seat)
     if have is None:
