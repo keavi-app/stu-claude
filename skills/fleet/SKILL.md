@@ -153,12 +153,15 @@ live agent: stop it (operation 5) and retry.
   decides every limit change (the cycle cap, the cycle budget, `Stop at:`, any other program edit)
   and looks at why two launches closed no unit. You apply a cap or budget change only on the
   owner's explicit yes, in the same message that records the answer: `stu-fleet board set-cap
-  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13 below the cycles used; the
-  scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
+  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13
+  below the cycles used; the scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
   `stu-fleet board set-budget <program path> --budget <n|none>` rewrites the program's
   `Cycle budget:` (refused 13 below the cycles spent). `Stop at:` and any other program edit are
   not yours to apply. Live supervisors are never stopped for a limit; only starts and relaunches
   are held.
+- **A program line shown to the owner is checked first.** Copy the program to a scratch file, add
+  the line there, and run `stu-fleet program check` on the copy; show the owner the line only
+  after it exits 0. A refusal is fixed or reported, never shown as a line to paste.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
   opus). The settler's dispatch lines (`agents/settler.md`) are the `MODE:` line, then the input it

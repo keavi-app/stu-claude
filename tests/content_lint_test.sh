@@ -212,6 +212,8 @@ none "the fleet skill never tells the coordinator to paraphrase the owner's word
   'paraphrase (that|the owner|their)' skills/fleet/SKILL.md
 check_set "the fleet skill keeps owner words verbatim and one-to-one" \
   "$(need skills/fleet/SKILL.md 'Owner words, verbatim and one-to-one' 'ask which')"
+check_set "the fleet skill checks a program line on a scratch copy before showing it" \
+  "$(need skills/fleet/SKILL.md 'A program line shown to the owner is checked first' 'scratch')"
 # Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a
 # `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
 # file defines, so the two cannot drift. The groomer's and designer's lines match in full; the
