@@ -276,8 +276,9 @@ through `answer` and `board settled` requeues itself.
 ## 3. What you read, and what you do not
 
 You read board lines, supervisor return blocks, settler returns, and `next`, `spend`, `actuals`,
-`brief` and `answer` output. Not diffs, logs, handoffs, reports or the settler's draft files. A fact you need that is not on those goes to a `stu:verifier` (operation
-2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
+`brief` and `answer` output, and a design job's `VERDICT.md` when you quote it to the owner. Not
+diffs, logs, handoffs, reports or the settler's draft files. A fact you need that is not on those
+goes to a `stu:verifier` (operation 2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
 brief, review a diff, merge, or write an objective, scoreboard or the main checkout. The board is
 written only by `stu-fleet`.
 
