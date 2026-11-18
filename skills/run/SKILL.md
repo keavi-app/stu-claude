@@ -52,7 +52,8 @@ things differ:
    final message says, then copy the scoreboard's `Run state:` line into `RUN-STATE`, map the stop
    with that section's table, check the block with `stu-run-check --supervisor-return <run-dir>/supervisor-return.txt` (write it
    to that fixed path in the run folder first; the coordinator archives that file with `cp`), and return it as the last lines of your message with nothing
-   after.
+   after. For condition 10 the final message says "the coordinator relaunches with a fresh cap
+   if the fleet budget allows", never "raise the cap": the cap is not the owner's to raise there.
 
 ## Startup, in ONE message
 
@@ -635,11 +636,18 @@ Set operations on IDs you already hold; none requires reading anything.
 4. `PREMISE_CLAIM` missing or empty -> one repair request ("One repair request, then fail
    closed", below), then **BLOCKED** if still missing or empty.
 5. `CLOSED_IDS: NONE` twice consecutively, or `REMAINING_IDS` unchanged across three cycles ->
-   **NOT_CONVERGING**, with five carve-outs, each covering **both** triggers (a carve-out holding
+   **NOT_CONVERGING**, with six carve-outs, each covering **both** triggers (a carve-out holding
    only the second would be pre-empted by trigger 1's two-cycle bound).
    - **Waiting only.** A cycle whose accepted `WAITING_IDS` is non-empty and whose `REMAINING_IDS`
      is `NONE` triggers neither condition: nothing the run can do is outstanding, and the stop is
      `DONE` into `waiting-on-human`, not a failure to converge.
+   - **Parked only.** A cycle whose `REMAINING_IDS` minus `PARKED_IDS` is `NONE` (every remaining
+     unit is parked, so it stops on condition 5) triggers neither condition: parking on owner
+     questions was that cycle's job, not a failure to close. Write `Cycles with no close` and the
+     `REMAINING_IDS was` count as **0** for it (a reset, not "unchanged": an earlier no-close cycle
+     would otherwise survive the park and the settle and trip trigger 1 one cycle later). Each such
+     cycle already stops the run for the owner on condition 5, so the reset masks nothing. A cycle
+     that closes a unit resets them as usual.
    - **Merged mode, for a unit on a label-handoff row that uses GitHub auto-merge.** A unit in `REMAINING_IDS` because it is labelled
      and waiting on auto-merge yields `CLOSED_IDS: NONE` and unchanged `REMAINING_IDS` each cycle.
      **Neither trigger fires on that basis while every unchanged remaining ID is in the

@@ -1108,6 +1108,20 @@ def test_relaunch():
     check("only the Run state line changed", after, want)
     check("board is live from 0, launches 2", (field(out[0], "state"), field(out[0], "from"), field(out[0], "launches"),
           field(out[0], "cycles")), ("live", "0", "2", "0"))  # the first launch resumed at 4/4
+    check("relaunch states the fresh cap and the budget, before the nonce",
+          out[-2], "cap: this launch starts at 0/4; the fleet cycle budget 0/20 bounds it")
+    # cycles already used count against the budget; with no budget the line claims no bound
+    for budget, want in (("20", "cap: this launch starts at 0/4; the fleet cycle budget 3/20 bounds it"),
+                         ("none", "cap: this launch starts at 0/4; no fleet cycle budget is set (3 used)")):
+        o = objective("rl3", scoreboard=SB.replace("4/4", "1/4"))
+        program([("alpha", o, "none", "none")], header=HEADER + "Cycle budget: %s\n" % budget)
+        pfleet("board", "launch", PROG, "--run", "alpha")
+        s = open(o).read().replace("Cycles used: 1/4", "Cycles used: 4/4")
+        open(o, "w").write(s)
+        pfleet("board", "record", PROG, "--run", "alpha", "--return", run_ret(os.path.join(PDIR, "rl3.txt"), o, cycles="4/4"))
+        rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha", extra={"STU_FLEET_NONCE": NONCE})
+        check("relaunch cap line, budget %s" % budget, (rc, out[-2]),
+              (0, want))
     check("objective lock file is the only extra", sorted(f for f in os.listdir(PDIR) if f.startswith("rl-objective")),
           ["rl-objective.md", "rl-objective.md.lock"])
     rc, out, err = pfleet("board", "relaunch", PROG, "--run", "alpha")
