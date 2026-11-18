@@ -206,6 +206,18 @@ check_set "the supervisor return's fixed path is named in the run skill, supervi
 check_set "the fleet skill names stu-ctx for the coordinator's own context" "$(need skills/fleet/SKILL.md 'stu-ctx')"
 none "the fleet skill never retypes a return through a heredoc or echo" \
   '<<-?[ ]*.?EOF|cat >|echo .*STU-RUN' skills/fleet/SKILL.md
+check_set "the fleet skill ends owner messages with one Open for you list" \
+  "$(need skills/fleet/SKILL.md 'Open for you')"
+none "the fleet skill never tells the coordinator to paraphrase the owner's words" \
+  'paraphrase (that|the owner|their)' skills/fleet/SKILL.md
+check_set "the fleet skill keeps owner words verbatim and one-to-one" \
+  "$(need skills/fleet/SKILL.md 'Owner words, verbatim and one-to-one' 'ask which')"
+none "the fleet skill never sends accept for a design verdict on the owner's behalf" \
+  'sends? the owner.s .accept <n>. as usual' skills/fleet/SKILL.md
+check_set "the fleet skill shows the verdict words beside the draft and never auto-accepts" \
+  "$(need skills/fleet/SKILL.md 'never sends `accept` for the' 'next to the drafted recommendation')"
+check_set "the fleet skill checks a program line on a scratch copy before showing it" \
+  "$(need skills/fleet/SKILL.md 'A program line shown to the owner is checked first' 'scratch')"
 # Dispatch lines: the fleet skill shows each seat's dispatch lines (a fenced block after a
 # `<!-- dispatch-lines: <seat> -->` marker); their keys, in order, must equal the keys the agent
 # file defines, so the two cannot drift. The groomer's and designer's lines match in full; the

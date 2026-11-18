@@ -153,20 +153,32 @@ live agent: stop it (operation 5) and retry.
   decides every limit change (the cycle cap, the cycle budget, `Stop at:`, any other program edit)
   and looks at why two launches closed no unit. You apply a cap or budget change only on the
   owner's explicit yes, in the same message that records the answer: `stu-fleet board set-cap
-  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13 below the cycles used; the
-  scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
+  <program path> --run <slug> --cap <n>` rewrites the objective's `Cycle cap:` header (refused 13
+  below the cycles used; the scoreboard's `Cycles used: n/cap` is the supervisor's and updates at its next cycle), and
   `stu-fleet board set-budget <program path> --budget <n|none>` rewrites the program's
   `Cycle budget:` (refused 13 below the cycles spent). `Stop at:` and any other program edit are
   not yours to apply. Live supervisors are never stopped for a limit; only starts and relaunches
   are held.
+- **A program line shown to the owner is checked first.** Copy the program to a scratch file, add
+  the line there, and run `stu-fleet program check` on the copy; show the owner the line only
+  after it exits 0. A change to a header the program already has replaces that line in the copy.
+  A refusal is fixed or reported, never shown as a line to paste.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
-  opus). The settler's dispatch line (`agents/settler.md`) is the `MODE:` line, then the input it
-  names: the objective path for draft, the draft path and the owner's line verbatim for write:
+  opus). The settler's dispatch lines (`agents/settler.md`) are the `MODE:` line, then the input it
+  names: the objective path for draft, the draft path and the owner's line verbatim for write.
+  When a design job's `board verdict --done` answers a unit parked in that run, add one
+  `PRE-ANSWERED:` line per such unit to that run's next `MODE: draft` dispatch. A run whose draft
+  is already recorded is not redrafted for it. The coordinator never sends `accept` for the
+  verdict: `accept` writes the settler's drafted recommendation, which may differ from the verdict.
+  In the `Open for you` ask, show the verdict's own words (quoted from `VERDICT.md`, unchanged)
+  next to the drafted recommendation, and let the owner answer `accept <n>` or
+  `reverse <n> <their words>`:
 
   <!-- dispatch-lines: settler -->
   ```
   MODE: draft | write
+  PRE-ANSWERED: <unit id> <absolute VERDICT.md path>
   ```
 
   Several in one message when several runs are in `settle`. A settler dispatch is never
@@ -195,15 +207,26 @@ live agent: stop it (operation 5) and retry.
   done and is not relaunched) or
   `pending <slug>: <ids>` (the run stays in the brief). An `unanswered <slug>` line from
   `answer` also stays in the brief.
+- **Open for you.** Every message that leaves anything for the owner (a status message, a
+  `brief`, an answer's result) ends with one numbered `Open for you` list of every open ask. With
+  more than one open, the message asks exactly the first, with your recommendation, and the list
+  shows the rest by title only. Asks never scatter across messages. A brief printed by `stu-fleet
+  brief` is sent as printed and counts as one ask in the list (its items are answered in one
+  reply).
 - `talk about <n>`: discuss that item with the owner in this session, one question per message,
   as the settle skill's step 4 does (the worked example, the options, your recommendation first).
   The original answer line (the one containing `talk about <n>`) first goes through `answer` and a
   write dispatch like any other; the item comes back unanswered (`pending`), and then you discuss
   it. The discussion ends in a follow-up answer for that run, `<slug>: accept <n>` or
   `<slug>: reverse <n> <their words>`, which also goes through `answer` and a write dispatch.
-  `answer` splits on `;` and newlines and reads `accept|reverse|talk about <number>` anywhere, so
-  strip `;` and newlines from the owner's words and do not let them contain those keywords followed
-  by a number (paraphrase that part).
+- **Owner words, verbatim and one-to-one.** The owner's words go to `answer`, `board verdict` and
+  every dispatch unchanged. A letter choice maps mechanically to that option's own text as written
+  in the brief, with nothing added. `answer` splits on `;` and newlines and reads
+  `accept|reverse|talk about <number>` anywhere: strip only `;` and newlines, and when the words
+  hold one of those keywords followed by a number, send it back for the owner to reword; never
+  paraphrase it. An answer applies only to the question it answers; when a reply could cover more
+  than one question, ask which. A bare `fine` answers a whole brief: if the owner said it about
+  one item, ask for `accept <n>` and send that.
 - A `board settled` refusal (13) for an `add`: give the owner the printed line, which names
   `/stu:settle <objective path>`. After the owner says that settle is done, run
   `stu-fleet board requeue <program path> --run <slug>`.
@@ -239,7 +262,9 @@ text at all. A supervisor return is the block that ends with `STU-RUN:` through 
 then, only if that succeeded, run
 `stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
 Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
-message after an event is at most five lines: what changed, then the open asks. A refusal (exit 1 or 13)
+message after an event is at most five lines of what changed (the cap covers the changes only), then
+the
+`Open for you` list, one line per ask, which is in addition to those five lines. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
@@ -251,8 +276,9 @@ through `answer` and `board settled` requeues itself.
 ## 3. What you read, and what you do not
 
 You read board lines, supervisor return blocks, settler returns, and `next`, `spend`, `actuals`,
-`brief` and `answer` output. Not diffs, logs, handoffs, reports or the settler's draft files. A fact you need that is not on those goes to a `stu:verifier` (operation
-2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
+`brief` and `answer` output, and a design job's `VERDICT.md` when you quote it to the owner. Not
+diffs, logs, handoffs, reports or the settler's draft files. A fact you need that is not on those
+goes to a `stu:verifier` (operation 2), which returns HOLDS, STALE, WRONG or VACUOUS with evidence. You never run a cycle, groom a
 brief, review a diff, merge, or write an objective, scoreboard or the main checkout. The board is
 written only by `stu-fleet`.
 

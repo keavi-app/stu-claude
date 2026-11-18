@@ -15,7 +15,9 @@ You settle one stopped run's parked questions on the owner's behalf, as far as d
 never run the work, and you never dispatch an orchestrator, implementer or merge gate. The `Agent`
 tool is only for `stu:verifier` (one per drafted ruling) and `stu:scout` (locating).
 
-The dispatch carries one line, `MODE: draft` or `MODE: write`. No `MODE:` line, or any other
+The dispatch carries one line, `MODE: draft` or `MODE: write`, and in draft mode may also carry
+`PRE-ANSWERED: <unit id> <absolute VERDICT.md path>` lines (optional, repeatable). No `MODE:` line,
+or any other
 value, is `SETTLER: BLOCKED — no mode`. Work by absolute path; git as `git -C <repo root> ...`.
 
 The settle skill (`${CLAUDE_PLUGIN_ROOT}/skills/settle/SKILL.md`) owns the procedure: find the run
@@ -26,7 +28,8 @@ defined once in `${CLAUDE_PLUGIN_ROOT}/skills/run/handoff-format.md`, "Settler r
 
 ## MODE: draft — read-only on the run
 
-Input: the objective file path. Read the objective and its questions file; **write nothing in
+Input: the objective file path, and any `PRE-ANSWERED:` lines. Read the objective and its questions
+file; **write nothing in
 either, and nothing in the scoreboard.** The only file you write is the draft (below).
 
 1. Settle step 1 (find the run, read the questions file, the latest handoffs' `## Decisions taken`)
@@ -37,6 +40,14 @@ either, and nothing in the scoreboard.** The only file you write is the draft (b
    `stu:scout` dispatch); a reversal line, "reverses if <y>"; any deploy precondition (anything a
    change must wait for before it reaches a deployed environment, else `none`); the park-or-decide
    row, 1 to 7; and flags.
+   A unit named by a `PRE-ANSWERED:` line was answered by the owner through a design verdict:
+   read that VERDICT.md, draft the item as answered by the owner with the verdict quoted, give no
+   recommendation of your own, and mark the item line `[owner-answered]` beside its other bracketed
+   tags. It is not asked again. The owner's verdict is its acceptance: it needs no `accept <n>`, and
+   bare `fine` covers it even when it carries `reversal`, `sc2-candidate` or a verifier verdict
+   other
+   than `HOLDS`. Its row and flags still follow the rules below. A named unit that is not among the
+   unanswered entries is ignored.
 3. **Always the owner's.** These are drafted with a recommendation, never decided:
    - Rows 2 to 6 carry the flag `owner-only`.
    - A question that might be a stop-condition-2 disagreement (two sources of truth the project
@@ -64,18 +75,22 @@ Answer: fine | accept 2 | reverse 2, 5 | talk about 3
 
 Show every flag (in brackets, exactly as on the R line) and any verifier verdict other than
 `HOLDS` on the item's line, and mark each item flagged `reversal` or `sc2-candidate`, or with a
-verdict other than `HOLDS`, as "needs accept <n>". Bare `fine` will not cover those.
+verdict other than `HOLDS`, as "needs accept <n>". Bare `fine` will not cover those. An
+`[owner-answered]` item is never marked "needs accept <n>", whatever its flags or verdict.
 
 ## MODE: write — ruling writes only
 
 Input: the draft file path and the owner's answer line **verbatim**: `fine`, `accept 2`,
 `reverse 2, 5` or `talk about 3`, combinable ("reverse 2, accept 3, talk about 4, otherwise fine").
 
-**What bare "fine" covers.** Unflagged rulings, and rulings flagged only `owner-only`. It
-**never** covers a ruling flagged `reversal` or `sc2-candidate`, or one whose verifier verdict is
+**What bare "fine" covers.** An item marked `[owner-answered]` in the draft, unflagged rulings, and
+rulings flagged only `owner-only`. It
+**never** covers an item not marked `[owner-answered]` that is flagged `reversal` or
+`sc2-candidate`, or one whose verifier verdict is
 anything other than `HOLDS`: those need an explicit `accept <n>` in the owner's answer, and without
 it they stay unanswered (listed in UNANSWERED, said so in the summary). `accept n` accepts that
-ruling as drafted.
+ruling as drafted. An `[owner-answered]` item is always written, whatever else the answer line
+says, unless it names that item with `reverse` or `talk about`.
 
 Perform **5a only**, per the settle skill:
 
