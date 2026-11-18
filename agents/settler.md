@@ -41,8 +41,9 @@ either, and nothing in the scoreboard.** The only file you write is the draft (b
    A unit named by a `PRE-ANSWERED:` line was answered by the owner through a design verdict:
    read that VERDICT.md, draft the item as answered by the owner with the verdict quoted, give no
    recommendation of your own, and mark the item line `[owner-answered]` beside its other bracketed
-   tags. It is not asked again, and bare `fine` covers it. Its row and flags still follow the
-   rules below. A named unit that is not among the unanswered entries is ignored.
+   tags. It is not asked again. The owner's verdict is its acceptance: it needs no `accept <n>`, and
+   bare `fine` covers it even when it carries `reversal`, `sc2-candidate` or a verifier verdict other
+   than `HOLDS`. Its row and flags still follow the rules below. A named unit that is not among the unanswered entries is ignored.
 3. **Always the owner's.** These are drafted with a recommendation, never decided:
    - Rows 2 to 6 carry the flag `owner-only`.
    - A question that might be a stop-condition-2 disagreement (two sources of truth the project
@@ -77,8 +78,8 @@ verdict other than `HOLDS`, as "needs accept <n>". Bare `fine` will not cover th
 Input: the draft file path and the owner's answer line **verbatim**: `fine`, `accept 2`,
 `reverse 2, 5` or `talk about 3`, combinable ("reverse 2, accept 3, talk about 4, otherwise fine").
 
-**What bare "fine" covers.** Unflagged rulings, and rulings flagged only `owner-only`. It
-**never** covers a ruling flagged `reversal` or `sc2-candidate`, or one whose verifier verdict is
+**What bare "fine" covers.** An item marked `[owner-answered]` in the draft, unflagged rulings, and rulings flagged only `owner-only`. It
+**never** covers an item not marked `[owner-answered]` that is flagged `reversal` or `sc2-candidate`, or one whose verifier verdict is
 anything other than `HOLDS`: those need an explicit `accept <n>` in the owner's answer, and without
 it they stay unanswered (listed in UNANSWERED, said so in the summary). `accept n` accepts that
 ruling as drafted.

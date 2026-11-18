@@ -161,13 +161,16 @@ live agent: stop it (operation 5) and retry.
   are held.
 - **A program line shown to the owner is checked first.** Copy the program to a scratch file, add
   the line there, and run `stu-fleet program check` on the copy; show the owner the line only
-  after it exits 0. A refusal is fixed or reported, never shown as a line to paste.
+  after it exits 0. A change to a header the program already has replaces that line in the copy.
+  A refusal is fixed or reported, never shown as a line to paste.
 - `settle <slug>` or `settle <slug> owner-only`: dispatch a `stu:settler` (operation 2) with
   `MODE: draft` and the objective path; the model is the judgment-model value (empty means
   opus). The settler's dispatch lines (`agents/settler.md`) are the `MODE:` line, then the input it
   names: the objective path for draft, the draft path and the owner's line verbatim for write.
   When a design job's `board verdict --done` answers a unit parked in that run, add one
-  `PRE-ANSWERED:` line per such unit to that run's next `MODE: draft` dispatch:
+  `PRE-ANSWERED:` line per such unit to that run's next `MODE: draft` dispatch. A run whose draft
+  is already recorded is not redrafted for it: say in the `Open for you` list that the verdict
+  answers that item, and send the owner's `accept <n>` as usual:
 
   <!-- dispatch-lines: settler -->
   ```
@@ -204,7 +207,9 @@ live agent: stop it (operation 5) and retry.
 - **Open for you.** Every message that leaves anything for the owner (a status message, a
   `brief`, an answer's result) ends with one numbered `Open for you` list of every open ask. With
   more than one open, the message asks exactly the first, with your recommendation, and the list
-  shows the rest by title only. Asks never scatter across messages.
+  shows the rest by title only. Asks never scatter across messages. A brief printed by `stu-fleet
+  brief` is sent as printed and counts as one ask in the list (its items are answered in one
+  reply).
 - `talk about <n>`: discuss that item with the owner in this session, one question per message,
   as the settle skill's step 4 does (the worked example, the options, your recommendation first).
   The original answer line (the one containing `talk about <n>`) first goes through `answer` and a
@@ -217,7 +222,8 @@ live agent: stop it (operation 5) and retry.
   `accept|reverse|talk about <number>` anywhere: strip only `;` and newlines, and when the words
   hold one of those keywords followed by a number, send it back for the owner to reword; never
   paraphrase it. An answer applies only to the question it answers; when a reply could cover more
-  than one question, ask which.
+  than one question, ask which. A bare `fine` answers a whole brief: if the owner said it about
+  one item, ask for `accept <n>` and send that.
 - A `board settled` refusal (13) for an `add`: give the owner the printed line, which names
   `/stu:settle <objective path>`. After the owner says that settle is done, run
   `stu-fleet board requeue <program path> --run <slug>`.
@@ -253,7 +259,8 @@ text at all. A supervisor return is the block that ends with `STU-RUN:` through 
 then, only if that succeeded, run
 `stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
 Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
-message after an event is at most five lines: what changed, then the `Open for you` list. A refusal (exit 1 or 13)
+message after an event is at most five lines of what changed, then the `Open for you` list (one line
+per ask). A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
