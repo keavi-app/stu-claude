@@ -726,3 +726,27 @@ owner to raise it, then corrected itself: the board had said to relaunch, and a 
 `0/<cap>` under the fleet's cycle budget. The rule existed but neither the supervisor's return nor
 `board relaunch` stated it. `board relaunch` now prints the fresh cap and the budget, and the run
 and fleet skills say a condition-10 stop needs nothing from the owner while the budget allows it.
+
+## Fleet asks: one list, verbatim words, verdicts into parked runs, checked lines (2026-11-17)
+
+Five incidents from the first fleet trials, one rule each.
+
+The owner had to ask the coordinator to "walk me through them one at a time": asks were scattered
+over status messages and briefs, and only `talk about` carried the one-question rule. Every message
+that leaves something for the owner now ends with one numbered `Open for you` list, asking only the
+first with its recommendation. A coordinator also turned the owner's "A" into its own sentence
+("use the same form as iOS"), which added a premise that was false, and later read one "A" as
+covering two questions and removed a peer's worktree. Owner words now go through unchanged, a
+letter maps to the option's own text, a keyword collision goes back to the owner, and an answer
+applies to one question only; an ambiguous reply is asked about, never read as both.
+
+A design verdict sat on its job while the run's owner-rulings still listed the unit as unanswered,
+and the coordinator hand-wrote an owner-pre-answer file. The coordinator now adds a `PRE-ANSWERED`
+line to the run's next draft dispatch, and the settler drafts that item as owner-answered. The line
+was chosen over a new `stu-fleet preanswer` command because the settler already owns turning owner
+words into rulings. The mark is text on the draft item, not a return flag: no consumer branches on
+it, and a flag would change the settler return contract. To reverse, add `owner-answered` to
+`FLAGS`, the handoff format and `settler_return_test.py`.
+
+A program line the coordinator gave the owner to paste lacked `| feeds: none`, and `program check`
+refused it. It is now shown only after the check passed on a scratch copy that holds it.

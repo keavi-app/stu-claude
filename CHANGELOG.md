@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.24
+
+- The fleet coordinator never messages a supervisor. `board launch` and `board relaunch` refuse (13)
+  while the previous supervisor's tree is still live, with no override. New `board set-cap` and
+  `board set-budget` change a run's cycle cap or the program's cycle budget under the board locks,
+  refused below what is already used, and only on the owner's explicit yes. `start` asks the cap
+  question before launch when fewer cycles remain than units outstanding.
+- New `stu-deadline`, a wall-clock timer. Liveness deadlines use it instead of `sleep`, so a
+  sleeping laptop no longer stretches one.
+- The fleet coordinator measures its own context with `stu-ctx` and hands off at 120k. A supervisor
+  writes its return to a fixed path that the coordinator archives with `cp`, never retyping it.
+  `stu-tree --root` and `--nonce` find a supervisor in any session, and fail on none or several.
+  With no run live, the coordinator works its carried items.
+- Fix: a cycle that only parked questions no longer trips the non-convergence guard. `board
+  relaunch` states the fresh cycle cap and budget it gives, and the supervised stop condition 10
+  wording is corrected.
+- The fleet coordinator ends every message that leaves something for the owner with one numbered
+  `Open for you` list, asking only the first item (with its recommendation) and listing the rest
+  by title.
+- The coordinator passes the owner's words to `answer`, `board verdict` and every dispatch
+  unchanged. A letter choice maps to the option's own text, a keyword collision goes back to the
+  owner to reword, and an answer applies only to the question it answers; an ambiguous reply is
+  asked about.
+- A design verdict that answers a unit parked in a run now reaches that run: the coordinator adds
+  `PRE-ANSWERED: <unit id> <VERDICT.md path>` to the next settler draft dispatch, and the settler
+  drafts that item as answered by the owner, marked `[owner-answered]`.
+- The coordinator shows a program line only after `stu-fleet program check` passed on a scratch copy
+  holding it.
+- Fix: `ci_wait_test` clears `STU_CONFIG`, so an exported config cannot leak into the test.
+
 ## 0.2.23
 
 - An unanswered questions-file entry on park-or-decide row 2-6 now holds its unit: it stays in
