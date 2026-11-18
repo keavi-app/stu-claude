@@ -195,6 +195,10 @@ live agent: stop it (operation 5) and retry.
   done and is not relaunched) or
   `pending <slug>: <ids>` (the run stays in the brief). An `unanswered <slug>` line from
   `answer` also stays in the brief.
+- **Open for you.** Every message that leaves anything for the owner (a status message, a
+  `brief`, an answer's result) ends with one numbered `Open for you` list of every open ask. With
+  more than one open, the message asks exactly the first, with your recommendation, and the list
+  shows the rest by title only. Asks never scatter across messages.
 - `talk about <n>`: discuss that item with the owner in this session, one question per message,
   as the settle skill's step 4 does (the worked example, the options, your recommendation first).
   The original answer line (the one containing `talk about <n>`) first goes through `answer` and a
@@ -239,7 +243,7 @@ text at all. A supervisor return is the block that ends with `STU-RUN:` through 
 then, only if that succeeded, run
 `stu-fleet board record <program path> --run <slug> --return <return directory>/supervisor-return.txt`.
 Never retype a return or settler block (no heredoc, no echo of one): copy the file. A status
-message after an event is at most five lines: what changed, then the open asks. A refusal (exit 1 or 13)
+message after an event is at most five lines: what changed, then the `Open for you` list. A refusal (exit 1 or 13)
 goes to the owner as it is; do not edit the board to get past it. Then run `next`, which now
 shows the board state `record` set. If `record` or `idle` prints `actuals: unavailable — <reason>`,
 report it once in the wave report; it is never a stop and the record still succeeded.
