@@ -71,7 +71,8 @@ Answer: fine | accept 2 | reverse 2, 5 | talk about 3
 
 Show every flag (in brackets, exactly as on the R line) and any verifier verdict other than
 `HOLDS` on the item's line, and mark each item flagged `reversal` or `sc2-candidate`, or with a
-verdict other than `HOLDS`, as "needs accept <n>". Bare `fine` will not cover those.
+verdict other than `HOLDS`, as "needs accept <n>". Bare `fine` will not cover those. An
+`[owner-answered]` item is never marked "needs accept <n>", whatever its flags or verdict.
 
 ## MODE: write — ruling writes only
 
@@ -82,7 +83,8 @@ Input: the draft file path and the owner's answer line **verbatim**: `fine`, `ac
 **never** covers an item not marked `[owner-answered]` that is flagged `reversal` or `sc2-candidate`, or one whose verifier verdict is
 anything other than `HOLDS`: those need an explicit `accept <n>` in the owner's answer, and without
 it they stay unanswered (listed in UNANSWERED, said so in the summary). `accept n` accepts that
-ruling as drafted.
+ruling as drafted. An `[owner-answered]` item is always written, whatever else the answer line
+says, unless it names that item with `reverse` or `talk about`.
 
 Perform **5a only**, per the settle skill:
 
