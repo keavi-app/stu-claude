@@ -193,7 +193,8 @@ through step 4 itself. The interactive one-question-at-a-time path above stays t
 2. Show the owner its `BRIEF:` block as it is. The owner answers in a line: `fine`, `accept 2`,
    `reverse 2, 5` or `talk about 3`, combinable. Bare `fine` covers only unflagged items and items
    flagged only `owner-only`; an item flagged `reversal` or `sc2-candidate`, or whose verifier
-   verdict is not `HOLDS`, is marked in the brief as needing an explicit `accept <n>`, except an `[owner-answered]` item
+   verdict is not `HOLDS`, is marked in the brief as needing an explicit `accept <n>`, except an
+   `[owner-answered]` item
    (a design verdict the owner already gave), which needs none and is always written.
 3. Dispatch `stu:settler` with `MODE: write`, the draft path from the return, and the owner's line
    verbatim. It performs step 5a only, and an item that needs an explicit `accept <n>`
