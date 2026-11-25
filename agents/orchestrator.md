@@ -464,7 +464,7 @@ verdict says; a `FAIL` there is a finding about the base branch's CI health, rou
 `RUN_HOME/ledger-inbox/`, never a reason to withhold the ID.
 
 **A refused gate is not a failed gate.** A gate `FAIL` whose `REASON` begins `fleet-hold:` or
-`fleet-lock:` means the fleet's merge hold is set or another PR holds the fleet lock (`merge-gate.md`,
+`fleet-lock:` means the fleet's merge hold is set, another PR holds the fleet lock, or the gate's own lock was revoked before it acted (`merge-gate.md`,
 "Fleet hold and lock"). The unit stays in `REMAINING_IDS`: not parked, not `CLOSED_IDS`, no finding,
 no escalation, and it does not count toward non-convergence (run skill, check 5). Dispatch its gate
 again on a later cycle, never again in the same cycle, and never relay a saved gate file for it

@@ -112,7 +112,7 @@ gates CI or the daemon's pre-check (if it does, no CI evidence can exist before 
 CI row moves to "Confirming a landed merge").
 
 **The built-in merge steps use `MERGE_METHOD`** (`squash`, `merge` or `rebase`) as the method for
-`stu-forge merge-at` and `stu-forge arm`.
+`stu-fleet lock merge-at` and `stu-fleet lock arm`, which pass it to the forge verb.
 
 ## New step zero: verify the seat before anything else, even before "First"
 
@@ -511,9 +511,9 @@ of the dispatch.
   Leave out `--label` when `CI_MERGE_LABEL` is empty. Re-running the gate on the PR that already
   holds the lock re-enters it.
 - **`MERGE_LOCK` is `off`:** `stu-fleet hold status`. Exit 0 means no hold; exit 10 means a hold
-  is set. **With the lock off there is a window no hold can close:** you read "no hold", a peer
-  sets one, and you then label or merge anyway, and no armed PR is recorded for the hold to name.
-  Only the lock closes it; a program that needs a hold to stop armed PRs keeps the lock on.
+  is set. **With the lock off a PR armed before the hold is recorded nowhere,** so the hold names
+  nothing to disarm and that PR may still land. A program that needs a hold to stop armed PRs keeps
+  the lock on.
 - **A direct-push dispatch (no PR to lock) with `MERGE_LOCK` `on`:** `stu-fleet hold status`, then
   `stu-fleet lock status`. A hold (exit 10) refuses as below. Any holder (a first line other than
   `LOCK none`) refuses with `REASON: fleet-lock: held by <slug>#<pr>` taken from that line: a push
@@ -529,8 +529,19 @@ that the holder could not be checked on the forge). The orchestrator treats thos
 exit (the state file or run home is unusable) is `GATE: FAIL`, `REASON: stu-fleet error: <its
 stderr line>`, with no `fleet-` prefix.
 
+**The label and the merge themselves run through `stu-fleet lock arm` and `stu-fleet lock
+merge-at`, never the bare `stu-forge` verbs.** Each re-reads the hold and the lock and runs the
+forge verb in one locked step, so a hold set (and a revoke-only pass that released your lock) after
+the check above still refuses. Add `--no-lock` only when `MERGE_LOCK` is `off`; the hold is
+re-read either way. A `REFUSED ` line (exit 10 or 11, `fleet-lock: no longer held by ...` included)
+is the refusal above: nothing was written to the forge, and you release the lock as below. Any
+other nonzero exit is not a refusal: handle its `ERROR` line as the mode's step says, and with no
+`ERROR` line it is the `stu-fleet error` above. `ERROR forge outcome unknown` means the write
+may have reached the forge: in label-handoff mode revoke your own claim like any other `ERROR`; in
+direct mode `FAIL` and leave the lock held, so the next dispatch on this PR sees whether it merged.
+
 A lock you took is released when the dispatch ends without a merge in flight: if the label step
-or `merge-at` fails afterwards, run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG>` before
+or `merge-at` fails afterwards (an unknown outcome in direct mode excepted), run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG>` before
 you return. A lock whose PR is labelled and waiting stays held until the landing is confirmed
 ("Confirming a landed merge") or observed by a later gate or coordinator.
 
@@ -580,10 +591,10 @@ someone else's claim, and the next dispatch revokes it.
    this row's actor, enables auto-merge bound to the SHA:
 
    ```
-   stu-forge arm --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD> --label <CI_MERGE_LABEL>
+   stu-fleet lock arm --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD> --label <CI_MERGE_LABEL>
    ```
 
-   Add `--no-auto` unless the `merge-mode` section names GitHub native auto-merge as the actor.
+   Add `--no-lock` when `MERGE_LOCK` is `off`, and `--no-auto` unless the `merge-mode` section names GitHub native auto-merge as the actor.
    Its terminal line must be `OK`; an `ERROR <class> step=label|auto ...` means revoke your own
    claim ("Revoke a claim") and `FAIL`, naming the line. GitHub merges on green, untouched. That
    is where the actual merge happens — never here, and never by you running a merge command.
@@ -616,8 +627,10 @@ The orchestrator does not. Three steps, in order, none optional:
 2. **Merge it yourself, atomically. Do not apply any merge-authorising label.**
 
    ```
-   stu-forge merge-at --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD>
+   stu-fleet lock merge-at --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD>
    ```
+
+   Add `--no-lock` when `MERGE_LOCK` is `off`.
 
    `MERGED <sha>` then `OK` is a merge; `ERROR moved-head` means the head is no longer that SHA
    and nothing merged: `FAIL`. The verb refuses unless the head is exactly that SHA, the only form

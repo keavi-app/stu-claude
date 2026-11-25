@@ -9,6 +9,10 @@
   stu-fleet lock release --pr N [--slug OWNER/REPO] [--landed]
                                         release it (idempotent); --landed records a landing
   stu-fleet lock status                 the holder, if any
+  stu-fleet lock arm --slug OWNER/REPO --pr N --sha SHA --method M [--label NAME] [--no-auto] [--no-lock]
+  stu-fleet lock merge-at --slug OWNER/REPO --pr N --sha SHA --method M [--no-lock]
+                                        run that stu-forge verb in the same locked step that
+                                        re-reads the hold and the lock (--no-lock: the hold only)
 
   stu-fleet program check PROGRAM       parse and validate a fleet program file
   stu-fleet board show PROGRAM          print the board (a queued row for every run with none); under a
@@ -239,7 +243,14 @@ labels, so a fresh lock with no label yet is not abandoned). The forge being unr
 refusal, never an assumption. Then it refuses if the hold is set, then if another PR still
 holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR).
 
-The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
+`lock arm` and `lock merge-at` refuse (10) if the hold is set, and (11) unless this PR at this SHA
+still holds the lock, then run the stu-forge verb before the flock is dropped. So `hold set` either
+comes first and the verb never runs, or waits and returns after the verb did; a lock released in
+between (a revoke) also refuses. The verb's output is printed as it came; exit 0 only when it
+ended in OK, 3 otherwise. A verb past 90 seconds is killed and reported as
+`ERROR forge outcome unknown ...`: its write may still have reached the forge.
+
+The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW, STU_FLEET_ACT_TIMEOUT,
 STU_FLEET_LABEL_GRACE, STU_FLEET_MAX_LANES and STU_FLEET_NONCE are TEST-ONLY hooks (state file
 path, stand-in forge command, clock, grace, lane cap used when the program has no `Max live
 lanes:`, a fixed launch nonce; STU_PROJECTS_ROOT, agent_tree's, points actuals at a fixture); nothing
@@ -262,6 +273,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import stat
@@ -430,6 +442,32 @@ def forge_state(slug, pr):
     return got["STATE"], labels, got.get("AUTO_MERGE") != "off"
 
 
+def forge_act(argv, lock_fd):
+    """Run one stu-forge write, printing its output. -> 0 only if it ended in OK, else EXIT_ERROR.
+
+    The child shares the flock (lock_fd), so killing this process does not drop it mid-write.
+    """
+    verb, cmd = argv[0], os.environ.get("STU_FLEET_FORGE")
+    argv = ([cmd] if cmd else [sys.executable, os.path.join(HERE, "stu_forge.py")]) + argv
+    limit = float(os.environ.get("STU_FLEET_ACT_TIMEOUT", "90"))
+    try:
+        p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             stdin=subprocess.DEVNULL, pass_fds=(lock_fd,), start_new_session=True)
+    except OSError as e:
+        raise Fail(EXIT_ERROR, "cannot run stu-forge: %s" % e)
+    try:
+        out, err = p.communicate(timeout=limit)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)  # the group, so no gh outlives the flock
+        p.communicate()
+        print("ERROR forge outcome unknown, stu-forge %s timed out" % verb)
+        return EXIT_ERROR
+    sys.stdout.write(out)
+    sys.stderr.write(err)
+    lines = out.splitlines()
+    return 0 if p.returncode == 0 and lines and lines[-1] == "OK" else EXIT_ERROR
+
+
 def holder_gone(lock):
     """Observe the lock holder. -> (gone?, why) where why is merged|closed|label-gone|None."""
     state, labels, auto_on = forge_state(lock["slug"], lock["pr"])
@@ -553,6 +591,24 @@ def cmd_lock(sub, a):
             print("LOCK released %s" % ref(lock))
             return 0
     need(a, "slug", "pr", "sha")
+    if sub in ("arm", "merge-at"):
+        need(a, "method")
+        with Locked(state_path()) as st:
+            doc, lock = st.doc, st.doc["lock"]
+            if doc["hold"] is not None:
+                return refuse(EXIT_HOLD, "fleet-hold: %s" % doc["hold"]["reason"])
+            if not a.get("no-lock"):
+                if lock and (lock["slug"] != a["slug"] or str(lock["pr"]) != a["pr"]):
+                    return refuse(EXIT_LOCKED, "fleet-lock: held by %s" % ref(lock))
+                if not lock or lock.get("sha") != a["sha"]:
+                    return refuse(EXIT_LOCKED, "fleet-lock: no longer held by %s at %s" % (ref(a), a["sha"]))
+            argv = [sub]
+            for k in ("slug", "pr", "sha", "method", "label"):
+                if a.get(k):
+                    argv += ["--" + k, a[k]]
+            if a.get("no-auto"):
+                argv.append("--no-auto")
+            return forge_act(argv, st.fh.fileno())
     with Locked(state_path()) as st:
         doc, lock = st.doc, st.doc["lock"]
         same = lock and lock["slug"] == a["slug"] and str(lock["pr"]) == a["pr"]
@@ -2412,6 +2468,8 @@ SPEC = {
     ("lock", "take"): (("slug", "pr", "sha", "label"), ()),
     ("lock", "release"): (("pr", "slug"), ("landed",)),
     ("lock", "status"): ((), ()),
+    ("lock", "arm"): (("slug", "pr", "sha", "method", "label"), ("no-auto", "no-lock")),
+    ("lock", "merge-at"): (("slug", "pr", "sha", "method"), ("no-lock",)),
 }
 # commands whose first argument after the subcommand is the program file
 PROGRAM_SPEC = {
@@ -2435,7 +2493,7 @@ PROGRAM_SPEC = {
     ("actuals", None): ((), ()),
     ("next", None): ((), ()),
 }
-USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
+USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status|arm|merge-at [flags] | "
          "program check P | board show|launch|record|requeue|idle|relaunch|judgment|judged|verdict|draft|settled|set-cap|set-budget P [flags] | spend P | actuals P | next P | "
          "brief P | answer P --line TEXT")
 

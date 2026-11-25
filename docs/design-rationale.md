@@ -750,3 +750,22 @@ it, and a flag would change the settler return contract. To reverse, add `owner-
 
 A program line the coordinator gave the owner to paste lacked `| feeds: none`, and `program check`
 refused it. It is now shown only after the check passed on a scratch copy that holds it.
+
+## A hold and its revoke could both finish before the gate armed (2026-11-25)
+
+`lock take` ordered the hold against the lock, not against the label. Replaying the documented
+commands with the lock on, through the fake forge, gave: take, `hold set` (names the PR), disarm
+(nothing to clear yet), `claim-state` clean, `lock release`, then `arm` succeeds. The PR was armed
+under a hold with no lock, and `hold status` said `DISARM none`, so nobody would look again. Direct
+mode had the same gap before `merge-at`, where the result is a merge.
+
+The forge write now runs inside the flock, after re-reading the hold and the holder. The alternative
+was to re-read the hold after arming and disarm. That leaves the PR armed in between, does nothing
+for a direct merge, and is a step an agent can skip. The lock is required unless `--no-lock` is
+passed, so a forgotten flag refuses, and the content lint bans the bare verbs in agent text.
+
+What stays open: a verb killed at the timeout may have reached the forge (its line says so, and the
+gate revokes or leaves the lock held); a PR labelled before a hold with the lock off is still
+unrecorded; a direct push is not covered; and a revoke run with no hold set can still race an arm,
+since only the hold or the lost lock refuses it. A revoke's own sweep is unlocked: it is safe under
+a hold because no new arm can start.

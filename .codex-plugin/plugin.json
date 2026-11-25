@@ -1,6 +1,6 @@
 {
   "name": "stu",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "description": "Let it stew. Autonomous Codex runs with a blind supervisor, checked unit scoreboard, exact-commit independent review, a separate merge gate, and parked questions.",
   "author": { "name": "Keavi LLC", "url": "https://keavi.app" },
   "homepage": "https://keavi.app",

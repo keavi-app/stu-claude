@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -250,6 +251,146 @@ def test_real_forge_through_fake_gh():
                        capture_output=True, text=True, env=env)
     check("real stu-forge: merged holder released", (p.returncode, p.stdout.splitlines()[:1]),
           (0, ["LOCK released %s#1 (merged)" % SLUG]))
+
+
+def gh_env(name, merge=None):
+    """-> (run, writes): the real stu-forge over fake gh, PR 5 open and disarmed."""
+    d = os.path.join(TMP, "act-" + name)
+    os.makedirs(os.path.join(d, "bin"))
+    os.symlink(FAKE_GH, os.path.join(d, "bin", "gh"))
+    fixtures = {"pr edit 5": {"rc": 0, "stdout": ""}, "pr merge 5": merge or {"rc": 0, "stdout": ""},
+                  "pr view 5": {"rc": 0, "json": {"labels": [], "autoMergeRequest": None,
+                                                   "headRefName": "b"}}}
+    with open(os.path.join(d, "fx"), "w") as f:
+        json.dump(fixtures, f)
+    env = dict(os.environ)
+    env.pop("STU_FLEET_FORGE", None)
+    env.update({"HOME": d, "STU_FLEET_FILE": STATE, "STU_FLEET_NOW": str(T0),
+                "PATH": os.path.join(d, "bin") + os.pathsep + os.environ["PATH"],
+                "FAKE_GH_FIXTURES": os.path.join(d, "fx"), "FAKE_GH_STATE": os.path.join(d, "st"),
+                "FAKE_GH_LOG": os.path.join(d, "log")})
+    open(env["FAKE_GH_LOG"], "w").close()
+
+    def run(tool, *args):
+        p = subprocess.run([os.path.join(ROOT, "bin", tool)] + list(args), capture_output=True,
+                           text=True, env=env)
+        return p.returncode, p.stdout.splitlines()
+
+    def writes():
+        with open(env["FAKE_GH_LOG"]) as f:
+            return [l for l in f.read().splitlines()
+                    if "--add-label" in l or "--match-head-commit" in l]
+    return run, writes
+
+
+PR5 = ("--slug", SLUG, "--pr", "5")
+ACT = PR5 + ("--sha", SHA, "--method", "squash")
+VERBS = (("arm", ("--label", "merge-ok")), ("merge-at", ()))
+
+
+def test_act_after_hold_and_revoke_refuses():
+    for verb, more in VERBS:
+        # the lock on: take, hold set, the whole revoke-only pass, then the gate acts
+        reset()
+        run, writes = gh_env("race-" + verb)
+        check("%s: take" % verb, run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA)))[0], 0)
+        check("%s: hold names it" % verb, run("stu-fleet", "hold", "set", "--reason", "freeze")[1][1],
+              "DISARM %s#5 %s" % (SLUG, SHA))
+        check("%s: hold alone refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more)),
+              (10, ["REFUSED fleet-hold: freeze"]))
+        check("%s: disarm" % verb, run("stu-forge", "disarm", "--label", "merge-ok", *PR5)[0], 0)
+        check("%s: release" % verb, run("stu-fleet", "lock", "release", *PR5)[0], 0)
+        check("%s: refused after the revoke" % verb, run("stu-fleet", "lock", verb, *(ACT + more)),
+              (10, ["REFUSED fleet-hold: freeze"]))
+        check("%s: lock off refuses too" % verb,
+              run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))[0], 10)
+        # the hold cleared again: the revoked lock still refuses
+        run("stu-fleet", "hold", "clear")
+        check("%s: revoked lock refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more)),
+              (11, ["REFUSED fleet-lock: no longer held by %s#5 at %s" % (SLUG, SHA)]))
+        run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA2)))
+        check("%s: lock at another sha refuses" % verb,
+              run("stu-fleet", "lock", verb, *(ACT + more))[0], 11)
+        run("stu-fleet", "lock", "release", *PR5)
+        run("stu-fleet", "lock", "take", "--slug", SLUG, "--pr", "6", "--sha", SHA)
+        check("%s: another holder refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more)),
+              (11, ["REFUSED fleet-lock: held by %s#6" % SLUG]))
+        with open(STATE, "w") as f:
+            f.write("{not json")
+        check("%s: unreadable state refuses" % verb,
+              run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))[0], 3)
+        check("%s: no refusal wrote to the forge" % verb, writes(), [])
+
+
+def test_act_runs_the_verb():
+    for verb, more in VERBS:
+        for lock in (True, False):
+            reset()
+            run, writes = gh_env("ok-%s-%s" % (verb, lock))
+            flags = () if lock else ("--no-lock",)
+            if lock:
+                run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA)))
+            rc, out = run("stu-fleet", "lock", verb, *(ACT + more + flags))
+            check("%s lock=%s acts" % (verb, lock), (rc, out[-1]), (0, "OK"))
+            check("%s lock=%s binds the sha" % (verb, lock), writes()[-1].endswith(
+                "--match-head-commit " + SHA), True)
+        reset()
+        run, _ = gh_env("err-" + verb, {"rc": 1, "stderr": "boom"})
+        rc, out = run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))
+        check("%s failure passes through" % verb, (rc, out[-1].startswith("ERROR forge")), (3, True))
+    run, writes = gh_env("noauto")
+    reset()
+    check("--no-auto labels only", (run("stu-fleet", "lock", "arm", "--label", "merge-ok", "--no-auto",
+                                        "--no-lock", *ACT)[1], len(writes())),
+          (["ARMED label", "OK"], 1))
+    check("act needs --method", fleet("lock", "arm", "--sha", SHA, *PR5)[0], 2)
+    check("merge-at takes no label", fleet("lock", "merge-at", "--label", "x", *ACT)[0], 2)
+
+
+def test_hold_waits_for_an_act_in_flight():
+    """`hold set` cannot return while the forge write is running, so its DISARM is complete."""
+    reset()
+    started, go, done = (os.path.join(TMP, x) for x in ("act-started", "act-go", "act-done"))
+    slow = os.path.join(TMP, "slow-forge")
+    with open(slow, "w") as f:
+        f.write("#!/bin/sh\n: > '%s'\ni=0\nwhile [ ! -e '%s' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n"
+                ": > '%s'\necho OK\n" % (started, go, done))
+    os.chmod(slow, 0o755)
+    take(5)
+    env = dict(os.environ)
+    env.update({"STU_FLEET_FILE": STATE, "STU_FLEET_FORGE": slow})
+    for kill in (False, True):  # a killed gate does not drop the flock under a running write
+        for p in (started, go, done):
+            if os.path.exists(p):
+                os.remove(p)
+        act = subprocess.Popen([sys.executable, os.path.join(HERE, "stu_fleet.py"), "lock", "arm",
+                                "--label", "merge-ok"] + list(ACT),
+                               env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(300):
+            if os.path.exists(started):
+                break
+            time.sleep(0.1)
+        check("write started", os.path.exists(started), True)
+        if kill:
+            act.kill()
+            act.wait()
+        hold = subprocess.Popen([BIN, "hold", "set", "--reason", "freeze"], env=env,
+                                stdout=subprocess.PIPE, text=True)
+        time.sleep(1)
+        check("hold waits (killed=%s)" % kill, (hold.poll(), os.path.exists(done)), (None, False))
+        open(go, "w").close()
+        out = hold.communicate(timeout=60)[0].splitlines()
+        check("then names the armed PR", (os.path.exists(done), out[1:]),
+              (True, ["DISARM %s#5 %s" % (SLUG, SHA)]))
+        act.wait()
+        fleet("hold", "clear")
+    os.remove(go)
+    rc, out, _ = fleet("lock", "arm", *(ACT + ("--label", "merge-ok")),
+                       extra={"STU_FLEET_FORGE": slow, "STU_FLEET_ACT_TIMEOUT": "1"})
+    check("a hung write is an error, outcome unknown, lock kept", (rc, out, state()["lock"]["pr"]),
+          (3, ["ERROR forge outcome unknown, stu-forge arm timed out"], 5))
+    check("a hung write drops the flock", fleet("hold", "set", "--reason", "x")[0], 0)
+    reset()
 
 
 def test_fail_closed_on_bad_state():
@@ -1882,7 +2023,8 @@ def test_set_cap_and_budget():
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
-          test_real_forge_through_fake_gh, test_fail_closed_on_bad_state, test_usage,
+          test_real_forge_through_fake_gh, test_act_after_hold_and_revoke_refuses,
+          test_act_runs_the_verb, test_hold_waits_for_an_act_in_flight, test_fail_closed_on_bad_state, test_usage,
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,

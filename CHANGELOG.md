@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.25
+
+- Fix: a merge gate could label or merge a PR under a merge hold, even with the merge lock on, when
+  the hold was set and its revoke-only pass finished between the gate taking the lock and acting.
+  The gate now acts through the new `stu-fleet lock arm` and `stu-fleet lock merge-at`, which re-read
+  the hold and the lock and run the forge write in one locked step. `stu-fleet hold set` now waits
+  for a write in progress (up to 90 seconds). With the lock off, the hold is re-read the same way.
+
 ## 0.2.24
 
 - The fleet coordinator never messages a supervisor. `board launch` and `board relaunch` refuse (13)

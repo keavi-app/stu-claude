@@ -27,6 +27,8 @@ none "no unprefixed /fix-campaign" '(^|[^a-z])/fix-campaign([^/]|$)' skills agen
 none "no python3 run_claims/ctx invocation" 'python3 .*(run_claims|ctx)\.py' skills agents
 none "a command the owner copies carries no Next: prefix (triple-click takes the whole line)" \
   'Next: /stu:' skills agents README.md
+none "the gate arms and merges through stu-fleet lock, which re-reads the hold (never bare stu-forge)" \
+  'stu-forge (arm|merge-at)' skills agents codex
 none "no PROJECT-SPECIFIC blocks (answers live in the stu config)" 'PROJECT-SPECIFIC' skills agents
 if grep -q 'No pre-gate CI wait where the merge label also gates CI' agents/orchestrator.md
 then echo "ok   orchestrator states the label-gates-CI exception"

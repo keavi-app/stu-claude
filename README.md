@@ -118,7 +118,7 @@ A `PreToolUse` hook is the publish guard's tool-call half; see Publishing safely
 | `stu-tree` | Lists a subagent's live descendants and exits 0 when any is running. |
 | `stu-ci-wait` | One background call, one line: waits for a PR's CI verdict instead of polling. |
 | `stu-approve` | `stu-approve <id> <sha>`: records the owner's approval of one commit for a before-push checkpoint. Human-only. |
-| `stu-fleet` | The merge hold and the merge lock, one file under the run home: `hold set|clear|status`, `lock take|release|status`; plus the fleet program, board, `spend`, `actuals`, `next`, and the settle loop (`board draft|settled`, `brief`, `answer`). Gates read it before they label or merge. |
+| `stu-fleet` | The merge hold and the merge lock, one file under the run home: `hold set|clear|status`, `lock take|release|status|arm|merge-at`; plus the fleet program, board, `spend`, `actuals`, `next`, and the settle loop (`board draft|settled`, `brief`, `answer`). Gates read it before they label or merge. |
 | `stu-forge` | Forge facts for the run kit (pull requests, labels, tags, checks) with a fail-closed output contract: result lines, then one `OK` or `ERROR <class> <detail>` line. |
 | `stu-pre-push` | The publish guard's git `pre-push` hook: `--install` writes it, `--check` prints `INSTALLED` or `MISSING`. |
 | `stu-run-check` | The supervisor's mechanical checks on one orchestrator return; `--approved` lists the approved awaiting units; `--supervisor-return` validates a supervised run's return block. |
