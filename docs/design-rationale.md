@@ -773,9 +773,19 @@ killed gate took the 90-second timeout with it while its child kept the flock, s
 forever. The wait is now bounded and fails without changing anything. Dropping the flock instead would
 let a hold be recorded, and swept, ahead of a write still in flight.
 
+A second review killed `stu-forge` alone: its `gh` does not inherit the flock, so the flock dropped,
+the gate released its lock, and the write then landed under a hold that named nothing. A killed
+command that printed nothing had the same end. A child that dies without its terminal line now has
+its whole group killed and its outcome reported unknown. The lock is also marked as writing on disk
+before the write, since a gate that was killed cannot report anything: until an outcome is known, the
+gate's own release keeps the lock. A lock taken by an older stu has no token, so on re-entry its PR
+counts as possibly armed. `gh` still does not inherit the flock: that needs a descriptor passed through
+every `stu-forge` call, and the mark already keeps the PR named for a hold's revoke.
+
 What stays open: a hung write whose gate was killed keeps holds from being set until someone stops
-it, and stopping only `stu-forge` leaves its `gh` running; a verb killed at the timeout may have reached the forge (its line says so, and the
-gate revokes or leaves the lock held); a PR labelled before a hold with the lock off is still
+it. If the gate and its `stu-forge` are both killed, `gh` can finish after a hold's revoke has
+swept. A killed write may already have reached the forge and land after the sweep. An `ERROR` from a
+`gh` that lost its connection is taken as definite. With the lock off there is no mark. A PR labelled before a hold with the lock off is still
 unrecorded; a direct push is not covered; and a revoke run with no hold set can still race an arm,
 since only the hold or the lost lock refuses it. A revoke's own sweep is unlocked: it is safe under
 a hold because no new arm can start.

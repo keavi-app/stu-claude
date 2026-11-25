@@ -537,17 +537,20 @@ merge-at`, never the bare `stu-forge` verbs.** Each re-reads the hold and the lo
 forge verb in one locked step, so a hold set (and a revoke-only pass that released your lock) after
 the check above still refuses. With `MERGE_LOCK` `on` pass `--token
 <token>` from your own `take`; with it `off` pass `--no-lock` instead. The hold is re-read either way. A `REFUSED ` line (exit 10 or 11, `fleet-lock: no longer held by ...` included)
-is the refusal above: nothing was written to the forge, and you release your own lock as below. Any
-other nonzero exit is not a refusal: handle its `ERROR` line as the mode's step says, and with no
-`ERROR` line it is the `stu-fleet error` above. `ERROR forge outcome unknown` means the write
-may have reached the forge: in label-handoff mode revoke your own claim like any other `ERROR`; in
-direct mode `FAIL` and leave the lock held, so the next dispatch on this PR sees whether it merged.
+is the refusal above: nothing was written to the forge, and you release your own lock as below. An
+`ERROR` line other than `forge outcome unknown` is handled as the mode's step says. **Any other end
+without `OK`** (`ERROR forge outcome unknown`, only a stderr line, nothing printed, a killed or timed-out
+command) **means the write may have reached the forge**: in label-handoff mode revoke your own claim;
+in direct mode `FAIL` and release nothing, so the next dispatch on this PR sees whether it merged.
+Run every `stu-fleet lock` command with a command timeout of at least 240 seconds (`timeout:
+240000`): the wait for the lock (100) and the write (90) together outlast the usual 120.
 
 A lock you took is released when the dispatch ends without a merge in flight: if the label step
 or `merge-at` fails afterwards (an unknown outcome in direct mode excepted), run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG> --token <token>` before
 you return. Always with your token here: without it you could release the lock a later gate on this
-PR took. `LOCK kept` (exit 0) means the lock, or the last forge write under it, is another
-gate's: leave it. A lock whose PR is labelled and waiting stays held until the landing is confirmed
+PR took. `LOCK kept` (exit 0) means the lock or the last forge write under it is another
+gate's, or a write under it has no known outcome: leave it, and put its `NEXT` line in `REASON`
+(after any refusal text, which stays first). A lock whose PR is labelled and waiting stays held until the landing is confirmed
 ("Confirming a landed merge") or observed by a later gate or coordinator.
 
 ### Report-only mode

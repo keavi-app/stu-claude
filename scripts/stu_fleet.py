@@ -251,13 +251,17 @@ this PR at this SHA under --token, then run the stu-forge verb before the flock 
 comes first and the verb never runs, or waits and returns after the verb did; a lock released in
 between (a revoke) also refuses. The verb's output is printed as it came; exit 0 only when it
 ended in OK, 3 otherwise. A verb past 90 seconds is killed and reported as
-`ERROR forge outcome unknown ...`: its write may still have reached the forge.
+`ERROR forge outcome unknown ...`, and so is one that died without its terminal line: its write
+may still have reached the forge. The lock is marked as writing before the verb starts and unmarked
+only once its outcome is known.
 `release --token` leaves alone a lock with another token, and one whose last forge write was started
-under another token (that PR may be armed). Without --token it releases by PR: for a
+under another token (that PR may be armed), and one marked as writing. It prints what to do next:
+acting again under a new take settles it, and a revoke releases it. Without --token it releases by PR: for a
 revoke, or a PR seen merged or closed, where whoever holds it is done.
 
 Every locked step waits at most 100 seconds for the flock, then fails (3) having changed nothing. A
-killed gate's forge write keeps the flock; the error names its process group.
+killed gate's forge write keeps the flock; the error names its process group if `ps` still shows
+that write in it.
 
 The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
 STU_FLEET_ACT_TIMEOUT, STU_FLEET_LOCK_WAIT,
@@ -392,6 +396,23 @@ def save(path, doc):
     atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+def verified_group(note):
+    """The process group in a lock-file note, only if it still runs that very forge write."""
+    group, _, call = note.strip().partition(" ")
+    if not call:
+        return None
+    try:
+        out = subprocess.run(["ps", "-A", "-ww", "-o", "pgid=,command="], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for ln in out.splitlines():
+        g, _, cmd = ln.strip().partition(" ")
+        if g == group and cmd.endswith(call):
+            return group
+    return None
+
+
 class Locked:
     """Exclusive flock on <state>.lock for the with-block; .doc is the loaded state."""
 
@@ -429,15 +450,15 @@ class Locked:
                     break
             time.sleep(0.1)
         self.fh.seek(0)
-        group = self.fh.read().strip()
+        group = verified_group(self.fh.read())
         raise Fail(EXIT_ERROR, "%s.lock is still held; NOTHING WAS CHANGED (a hold was not set). "
-                   "Retry.%s" % (self.path, (
-                       " If it stays held, a forge write is hung in process group %s: stop it with "
-                       "`kill -9 -- -%s`, treat its PR as possibly armed, and retry" % (group, group))
-                       if group else ""))
+                   "Retry. If it stays held, %s" % (self.path, (
+                       "a forge write is hung in process group %s: stop it with `kill -9 -- -%s`, "
+                       "treat its PR as possibly armed, and retry" % (group, group))
+                       if group else "find the holder with `lsof %s.lock`" % self.path))
 
     def note(self, text):
-        """Write the running forge write's process group into the lock file, for wait()'s error."""
+        """Write the running forge write's group and call into the lock file, for wait()'s error."""
         self.fh.truncate(0)
         self.fh.write(text)
         self.fh.flush()
@@ -482,11 +503,12 @@ def forge_state(slug, pr):
 
 
 def forge_act(argv, st):
-    """Run one stu-forge write, printing its output. -> 0 only if it ended in OK, else EXIT_ERROR.
+    """Run one stu-forge write, printing its output. -> (0 only if it ended in OK, else EXIT_ERROR;
+    whether the outcome is known).
 
     The child shares the flock, so killing this process does not drop it mid-write.
     """
-    verb, cmd = argv[0], os.environ.get("STU_FLEET_FORGE")
+    verb, call, cmd = argv[0], " ".join(argv), os.environ.get("STU_FLEET_FORGE")
     argv = ([cmd] if cmd else [sys.executable, os.path.join(HERE, "stu_forge.py")]) + argv
     limit = float(os.environ.get("STU_FLEET_ACT_TIMEOUT", "90"))
     try:
@@ -495,20 +517,32 @@ def forge_act(argv, st):
     except OSError as e:
         raise Fail(EXIT_ERROR, "cannot run stu-forge: %s" % e)
     try:
-        st.note(str(p.pid))
+        st.note("%d %s" % (p.pid, call))
     except OSError:
         pass  # only the hung-write error loses its process group
+    why = "died"
     try:
         out, err = p.communicate(timeout=limit)
     except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)  # the group, so no gh outlives the flock
+        out, err, why = "", "", "timed out"
+    lines = out.splitlines() or [""]
+    ok = p.returncode == 0 and lines[-1] == "OK"
+    known = ok or (p.returncode == EXIT_ERROR and lines[-1].startswith("ERROR "))
+    if not known:  # the whole group, so no gh outlives the flock
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass  # nothing left in it
         p.communicate()
-        print("ERROR forge outcome unknown, stu-forge %s timed out" % verb)
-        return EXIT_ERROR
+    try:
+        st.note("")
+    except OSError:
+        pass
     sys.stdout.write(out)
     sys.stderr.write(err)
-    lines = out.splitlines()
-    return 0 if p.returncode == 0 and lines and lines[-1] == "OK" else EXIT_ERROR
+    if not known:
+        print("ERROR forge outcome unknown, stu-forge %s %s" % (verb, why))
+    return (0 if ok else EXIT_ERROR), known
 
 
 def holder_gone(lock):
@@ -611,6 +645,10 @@ def refuse(code, text):
     return code
 
 
+RELEASE_NEXT = ("NEXT re-gate that PR (a finished arm or merge-at settles it), or dispatch revoke-only for "
+                "it, which releases the lock without --token")
+
+
 def cmd_lock(sub, a):
     check_ids(a)
     if sub == "status":
@@ -630,6 +668,11 @@ def cmd_lock(sub, a):
             if a.get("token") and (lock.get("token") != a["token"]
                                    or lock.get("acted", a["token"]) != a["token"]):
                 print("LOCK kept %s (another gate's)" % ref(lock))
+                print(RELEASE_NEXT)
+                return 0
+            if a.get("token") and lock.get("writing"):
+                print("LOCK kept %s (a forge write under it has no known outcome)" % ref(lock))
+                print(RELEASE_NEXT)
                 return 0
             if a.get("landed") and record_landing(st.doc, lock):
                 print("LANDED-DURING-HOLD %s" % ref(lock))
@@ -651,7 +694,7 @@ def cmd_lock(sub, a):
                     return refuse(EXIT_LOCKED, "fleet-lock: held by %s" % ref(lock))
                 if not lock or lock.get("sha") != a["sha"] or lock.get("token") != a["token"]:
                     return refuse(EXIT_LOCKED, "fleet-lock: no longer held by %s at %s" % (ref(a), a["sha"]))
-                lock["acted"] = a["token"]
+                lock["acted"], lock["writing"] = a["token"], True  # on disk before the write starts
                 st.save()
             argv = [sub]
             for k in ("slug", "pr", "sha", "method", "label"):
@@ -659,7 +702,14 @@ def cmd_lock(sub, a):
                     argv += ["--" + k, a[k]]
             if a.get("no-auto"):
                 argv.append("--no-auto")
-            return forge_act(argv, st)
+            code, known = forge_act(argv, st)
+            if known and not a.get("no-lock"):
+                del lock["writing"]
+                try:
+                    st.save()
+                except OSError:
+                    pass  # still marked as writing: only stricter
+            return code
     with Locked(state_path()) as st:
         doc, lock = st.doc, st.doc["lock"]
         same = lock and lock["slug"] == a["slug"] and str(lock["pr"]) == a["pr"]
@@ -685,8 +735,11 @@ def cmd_lock(sub, a):
                        "taken_at": lock["taken_at"] if same else stamp()}
         if same:
             doc["lock"]["updated_at"] = stamp()
-            if "acted" in lock:
-                doc["lock"]["acted"] = lock["acted"]
+            if "token" not in lock:
+                doc["lock"]["acted"] = "unknown"  # an older stu took it, and may have armed the PR
+            for k in ("acted", "writing"):
+                if k in lock:
+                    doc["lock"][k] = lock[k]
         doc["lock"]["token"] = new_nonce()
         st.save()
         print("TOKEN %s" % doc["lock"]["token"])
