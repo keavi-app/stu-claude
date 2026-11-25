@@ -6,7 +6,9 @@
   the hold was set and its revoke-only pass finished between the gate taking the lock and acting.
   The gate now acts through the new `stu-fleet lock arm` and `stu-fleet lock merge-at`, which re-read
   the hold and the lock and run the forge write in one locked step. `stu-fleet hold set` now waits
-  for a write in progress (up to 90 seconds). With the lock off, the hold is re-read the same way.
+  for a write in progress, at most 100 seconds; then it fails, says the hold was not set, and names the
+  hung process group to stop. `lock take` prints a token that acting and a gate's own release need,
+  so an overtaken gate cannot act on, or release, the lock a later gate took on the same PR. With the lock off, the hold is re-read the same way.
 
 ## 0.2.24
 

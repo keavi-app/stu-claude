@@ -764,7 +764,17 @@ was to re-read the hold after arming and disarm. That leaves the PR armed in bet
 for a direct merge, and is a step an agent can skip. The lock is required unless `--no-lock` is
 passed, so a forgotten flag refuses, and the content lint bans the bare verbs in agent text.
 
-What stays open: a verb killed at the timeout may have reached the forge (its line says so, and the
+Review of that change found two gaps. A gate whose lock a revoke had released would, on its refusal,
+release by PR number, and so free a lock a later gate had taken on the same PR; with both gates at one
+SHA it could even act under that lock. Slug, PR and SHA do not identify a gate, so each take makes a
+token. The lock also records which token last started a forge write: a re-entering gate refused by a
+hold must not release a lock whose PR an earlier gate armed, since the hold then names nothing. And a
+killed gate took the 90-second timeout with it while its child kept the flock, so `hold set` could wait
+forever. The wait is now bounded and fails without changing anything. Dropping the flock instead would
+let a hold be recorded, and swept, ahead of a write still in flight.
+
+What stays open: a hung write whose gate was killed keeps holds from being set until someone stops
+it, and stopping only `stu-forge` leaves its `gh` running; a verb killed at the timeout may have reached the forge (its line says so, and the
 gate revokes or leaves the lock held); a PR labelled before a hold with the lock off is still
 unrecorded; a direct push is not covered; and a revoke run with no hold set can still race an arm,
 since only the hold or the lost lock refuses it. A revoke's own sweep is unlocked: it is safe under

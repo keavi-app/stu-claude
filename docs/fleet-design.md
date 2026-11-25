@@ -410,7 +410,8 @@ from disk at the gate, so they do not depend on a message reaching each layer.
   it closes the race between reading the hold and labelling: a hold set after the lock is taken
   finds that PR recorded as the holder. The label or merge itself runs inside a second locked step
   (`stu-fleet lock arm`, `lock merge-at`) that re-reads the hold and the holder, so a hold and its
-  revoke that both finish between the take and the label refuse it.
+  revoke that both finish between the take and the label refuse it. `lock take` gives a new token
+  each time; acting and a gate's own release need it, so two gates on one PR are never confused.
 - **Disarm on hold.** Refusing new labels does not stop a PR already armed: under label-handoff
   the gate labels and an auto-merge actor merges later. Setting the hold returns the lock
   holder, if any, as the one PR to disarm. Disarming is not reimplemented in `stu-fleet`: the
