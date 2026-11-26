@@ -11,6 +11,9 @@
   so an overtaken gate cannot act on, or release, the lock a later gate took on the same PR. A
   gate cannot release its lock while the outcome of its forge write is unknown (a killed or timed-out
   command); re-gating or a revoke-only dispatch on that PR settles it. With the lock off, the hold is re-read the same way.
+  Known gaps, in `docs/design-rationale.md`: any forge `ERROR` (including a dropped connection after
+  the write reached the forge) counts as a definite failure and lets the lock go, and the label-gone
+  grace can free a lock while a write whose gate and `stu-forge` were both killed is still running.
 
 ## 0.2.24
 

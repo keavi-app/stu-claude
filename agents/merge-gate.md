@@ -541,12 +541,14 @@ is the refusal above: nothing was written to the forge, and you release your own
 `ERROR` line other than `forge outcome unknown` is handled as the mode's step says. **Any other end
 without `OK`** (`ERROR forge outcome unknown`, only a stderr line, nothing printed, a killed or timed-out
 command) **means the write may have reached the forge**: in label-handoff mode revoke your own claim;
-in direct mode `FAIL` and release nothing, so the next dispatch on this PR sees whether it merged.
+in direct mode `FAIL` and still run the release below with your token: it frees the lock only when
+no write under it is unsettled, and otherwise prints `LOCK kept` and a `NEXT` line for `REASON`, so the
+next dispatch on this PR sees whether it merged.
 Run every `stu-fleet lock` command with a command timeout of at least 240 seconds (`timeout:
 240000`): the wait for the lock (100) and the write (90) together outlast the usual 120.
 
 A lock you took is released when the dispatch ends without a merge in flight: if the label step
-or `merge-at` fails afterwards (an unknown outcome in direct mode excepted), run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG> --token <token>` before
+or `merge-at` fails afterwards (an unknown outcome in direct mode included), run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG> --token <token>` before
 you return. Always with your token here: without it you could release the lock a later gate on this
 PR took. `LOCK kept` (exit 0) means the lock or the last forge write under it is another
 gate's, or a write under it has no known outcome: leave it, and put its `NEXT` line in `REASON`

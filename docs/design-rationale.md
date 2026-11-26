@@ -780,12 +780,19 @@ its whole group killed and its outcome reported unknown. The lock is also marked
 before the write, since a gate that was killed cannot report anything: until an outcome is known, the
 gate's own release keeps the lock. A lock taken by an older stu has no token, so on re-entry its PR
 counts as possibly armed. `gh` still does not inherit the flock: that needs a descriptor passed through
-every `stu-forge` call, and the mark already keeps the PR named for a hold's revoke.
+every `stu-forge` call. The mark does not cover every path: see below.
 
 What stays open: a hung write whose gate was killed keeps holds from being set until someone stops
 it. If the gate and its `stu-forge` are both killed, `gh` can finish after a hold's revoke has
-swept. A killed write may already have reached the forge and land after the sweep. An `ERROR` from a
-`gh` that lost its connection is taken as definite. With the lock off there is no mark. A PR labelled before a hold with the lock off is still
+swept. A killed write may already have reached the forge and land after the sweep. Any `ERROR` line
+from `stu-forge` is taken as definite and clears the mark, though a lost connection, a 504 or a killed
+`gh` can come after the write reached the forge; a later `ERROR` that never reached the forge (a usage
+error under the same token) also clears an earlier unknown write's mark. In direct mode the gate then
+releases with a merge possibly in flight. `stu-forge` would have to tell a definite refusal from an
+ambiguous failure, or the lock stay held until the forge is read back; neither is built. The lock's
+label-gone grace ignores the mark and ages from the first take, so a later `take` can free a lock
+whose write is still running when both the gate and its `stu-forge` were killed. An independent review
+reproduced each of these; they are accepted for now because `main` already released in those cases. With the lock off there is no mark. A PR labelled before a hold with the lock off is still
 unrecorded; a direct push is not covered; and a revoke run with no hold set can still race an arm,
 since only the hold or the lost lock refuses it. A revoke's own sweep is unlocked: it is safe under
 a hold because no new arm can start.
