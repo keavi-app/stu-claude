@@ -5,13 +5,16 @@ The forge is a stand-in script (STU_FLEET_FORGE) except for one case that runs t
 stu-forge against the shared fake `gh`. Nothing touches the network or the real run home.
 Run: python3 scripts/stu_fleet_test.py
 """
+import fcntl
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -72,9 +75,9 @@ def fleet(*args, now=T0, extra=None):
     return p.returncode, p.stdout.splitlines(), p.stderr
 
 
-def take(n, slug=SLUG, sha=SHA, label="merge-ok", now=T0):
+def take(n, slug=SLUG, sha=SHA, label="merge-ok", now=T0, token="t-fixed"):
     return fleet("lock", "take", "--slug", slug, "--pr", str(n), "--sha", sha,
-                 "--label", label, now=now)
+                 "--label", label, now=now, extra={"STU_FLEET_NONCE": token})
 
 
 def state():
@@ -93,10 +96,10 @@ def test_lock_take_basics():
     reset()
     pr(1)
     pr(2)
-    check("take", take(1)[:2], (0, ["LOCK held %s#1 %s" % (SLUG, SHA)]))
+    check("take", take(1)[:2], (0, ["TOKEN t-fixed", "LOCK held %s#1 %s" % (SLUG, SHA)]))
     check("status shows holder", fleet("lock", "status")[1][0].startswith("LOCK %s#1" % SLUG), True)
     check("re-entrant, new sha", take(1, sha=SHA2, now=T0 + 60)[:2],
-          (0, ["LOCK held %s#1 %s" % (SLUG, SHA2)]))
+          (0, ["TOKEN t-fixed", "LOCK held %s#1 %s" % (SLUG, SHA2)]))
     st = state()["lock"]
     check("re-entry updates sha, keeps taken_at", (st["sha"], st["taken_at"]),
           (SHA2, "2023-11-14T22:13:20Z"))
@@ -250,6 +253,322 @@ def test_real_forge_through_fake_gh():
                        capture_output=True, text=True, env=env)
     check("real stu-forge: merged holder released", (p.returncode, p.stdout.splitlines()[:1]),
           (0, ["LOCK released %s#1 (merged)" % SLUG]))
+
+
+def gh_env(name, merge=None):
+    """-> (run, writes): the real stu-forge over fake gh, PR 5 open and disarmed."""
+    d = os.path.join(TMP, "act-" + name)
+    os.makedirs(os.path.join(d, "bin"))
+    os.symlink(FAKE_GH, os.path.join(d, "bin", "gh"))
+    fixtures = {"pr edit 5": {"rc": 0, "stdout": ""}, "pr merge 5": merge or {"rc": 0, "stdout": ""},
+                  "pr view 5": {"rc": 0, "json": {"labels": [], "autoMergeRequest": None,
+                                                   "headRefName": "b"}}}
+    with open(os.path.join(d, "fx"), "w") as f:
+        json.dump(fixtures, f)
+    env = dict(os.environ)
+    env.pop("STU_FLEET_FORGE", None)
+    env.update({"HOME": d, "STU_FLEET_FILE": STATE, "STU_FLEET_NOW": str(T0),
+                "PATH": os.path.join(d, "bin") + os.pathsep + os.environ["PATH"],
+                "FAKE_GH_FIXTURES": os.path.join(d, "fx"), "FAKE_GH_STATE": os.path.join(d, "st"),
+                "FAKE_GH_LOG": os.path.join(d, "log"), "STU_FLEET_NONCE": "t-fixed"})
+    open(env["FAKE_GH_LOG"], "w").close()
+
+    def run(tool, *args):
+        p = subprocess.run([os.path.join(ROOT, "bin", tool)] + list(args), capture_output=True,
+                           text=True, env=env)
+        return p.returncode, p.stdout.splitlines()
+
+    def writes():
+        with open(env["FAKE_GH_LOG"]) as f:
+            return [l for l in f.read().splitlines()
+                    if "--add-label" in l or "--match-head-commit" in l]
+    return run, writes
+
+
+PR5 = ("--slug", SLUG, "--pr", "5")
+ACT = PR5 + ("--sha", SHA, "--method", "squash")
+NEXT = ("NEXT re-gate that PR (a finished arm or merge-at settles it), or dispatch revoke-only for it, "
+        "which releases the lock without --token")
+UNKNOWN = ["LOCK kept %s#5 (a forge write under it has no known outcome)" % SLUG, NEXT]
+TOK = ("--token", "t-fixed")
+VERBS = (("arm", ("--label", "merge-ok")), ("merge-at", ()))
+
+
+def test_act_after_hold_and_revoke_refuses():
+    for verb, more in VERBS:
+        # the lock on: take, hold set, the whole revoke-only pass, then the gate acts
+        reset()
+        run, writes = gh_env("race-" + verb)
+        check("%s: take" % verb, run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA)))[0], 0)
+        check("%s: hold names it" % verb, run("stu-fleet", "hold", "set", "--reason", "freeze")[1][1],
+              "DISARM %s#5 %s" % (SLUG, SHA))
+        check("%s: hold alone refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more + TOK)),
+              (10, ["REFUSED fleet-hold: freeze"]))
+        check("%s: disarm" % verb, run("stu-forge", "disarm", "--label", "merge-ok", *PR5)[0], 0)
+        check("%s: release" % verb, run("stu-fleet", "lock", "release", *PR5)[0], 0)
+        check("%s: refused after the revoke" % verb, run("stu-fleet", "lock", verb, *(ACT + more + TOK)),
+              (10, ["REFUSED fleet-hold: freeze"]))
+        check("%s: lock off refuses too" % verb,
+              run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))[0], 10)
+        # the hold cleared again: the revoked lock still refuses
+        run("stu-fleet", "hold", "clear")
+        check("%s: revoked lock refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more + TOK)),
+              (11, ["REFUSED fleet-lock: no longer held by %s#5 at %s" % (SLUG, SHA)]))
+        run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA2)))
+        check("%s: lock at another sha refuses" % verb,
+              run("stu-fleet", "lock", verb, *(ACT + more + TOK))[0], 11)
+        run("stu-fleet", "lock", "release", *PR5)
+        run("stu-fleet", "lock", "take", "--slug", SLUG, "--pr", "6", "--sha", SHA)
+        check("%s: another holder refuses" % verb, run("stu-fleet", "lock", verb, *(ACT + more + TOK)),
+              (11, ["REFUSED fleet-lock: held by %s#6" % SLUG]))
+        with open(STATE, "w") as f:
+            f.write("{not json")
+        check("%s: unreadable state refuses" % verb,
+              run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))[0], 3)
+        check("%s: no refusal wrote to the forge" % verb, writes(), [])
+
+
+def test_act_runs_the_verb():
+    for verb, more in VERBS:
+        for lock in (True, False):
+            reset()
+            run, writes = gh_env("ok-%s-%s" % (verb, lock))
+            flags = TOK if lock else ("--no-lock",)
+            if lock:
+                run("stu-fleet", "lock", "take", *(PR5 + ("--sha", SHA)))
+            rc, out = run("stu-fleet", "lock", verb, *(ACT + more + flags))
+            check("%s lock=%s acts" % (verb, lock), (rc, out[-1]), (0, "OK"))
+            check("%s lock=%s binds the sha" % (verb, lock), writes()[-1].endswith(
+                "--match-head-commit " + SHA), True)
+        reset()
+        run, _ = gh_env("err-" + verb, {"rc": 1, "stderr": "boom"})
+        rc, out = run("stu-fleet", "lock", verb, "--no-lock", *(ACT + more))
+        check("%s failure passes through" % verb, (rc, out[-1].startswith("ERROR forge")), (3, True))
+    run, writes = gh_env("noauto")
+    reset()
+    check("--no-auto labels only", (run("stu-fleet", "lock", "arm", "--label", "merge-ok", "--no-auto",
+                                        "--no-lock", *ACT)[1], len(writes())),
+          (["ARMED label", "OK"], 1))
+    check("act needs --method", fleet("lock", "arm", "--sha", SHA, "--no-lock", *PR5)[0], 2)
+    check("merge-at takes no label", fleet("lock", "merge-at", "--label", "x", *(ACT + TOK))[0], 2)
+
+
+def test_hold_waits_for_an_act_in_flight():
+    """`hold set` cannot return while the forge write is running, so its DISARM is complete."""
+    reset()
+    started, go, done = (os.path.join(TMP, x) for x in ("act-started", "act-go", "act-done"))
+    slow = os.path.join(TMP, "slow-forge")
+    with open(slow, "w") as f:
+        f.write("#!/bin/sh\n: > '%s'\ni=0\nwhile [ ! -e '%s' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n"
+                ": > '%s'\necho OK\n" % (started, go, done))
+    os.chmod(slow, 0o755)
+    take(5)
+    env = dict(os.environ)
+    env.update({"STU_FLEET_FILE": STATE, "STU_FLEET_FORGE": slow})
+    for kill in (False, True):  # a killed gate does not drop the flock under a running write
+        for p in (started, go, done):
+            if os.path.exists(p):
+                os.remove(p)
+        act = subprocess.Popen([sys.executable, os.path.join(HERE, "stu_fleet.py"), "lock", "arm",
+                                "--label", "merge-ok"] + list(ACT + TOK),
+                               env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(300):
+            if os.path.exists(started):
+                break
+            time.sleep(0.1)
+        check("write started", os.path.exists(started), True)
+        if kill:
+            act.kill()
+            act.wait()
+        hold = subprocess.Popen([BIN, "hold", "set", "--reason", "freeze"], env=env,
+                                stdout=subprocess.PIPE, text=True)
+        time.sleep(1)
+        check("hold waits (killed=%s)" % kill, (hold.poll(), os.path.exists(done)), (None, False))
+        open(go, "w").close()
+        out = hold.communicate(timeout=60)[0].splitlines()
+        check("then names the armed PR", (os.path.exists(done), out[1:]),
+              (True, ["DISARM %s#5 %s" % (SLUG, SHA)]))
+        act.wait()
+        fleet("hold", "clear")
+    os.remove(go)
+    rc, out, _ = fleet("lock", "arm", *(ACT + TOK + ("--label", "merge-ok")),
+                       extra={"STU_FLEET_FORGE": slow, "STU_FLEET_ACT_TIMEOUT": "1"})
+    check("a hung write is an error, outcome unknown, lock kept", (rc, out, state()["lock"]["pr"]),
+          (3, ["ERROR forge outcome unknown, stu-forge arm timed out"], 5))
+    check("a hung write drops the flock", fleet("hold", "set", "--reason", "x")[0], 0)
+    reset()
+    # a gate killed over a hung write: the flock stays, so hold set gives up and says so
+    for p in (started, done):
+        if os.path.exists(p):
+            os.remove(p)
+    take(5)
+    act = subprocess.Popen([sys.executable, os.path.join(HERE, "stu_fleet.py"), "lock", "arm",
+                            "--label", "merge-ok"] + list(ACT + TOK),
+                           env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(300):
+        if os.path.exists(started) and open(STATE + ".lock").read():
+            break
+        time.sleep(0.1)
+    act.kill()
+    act.wait()
+    group = open(STATE + ".lock").read().split(" ")[0]
+    try:
+        p = subprocess.run([BIN, "hold", "set", "--reason", "x"], capture_output=True, text=True,
+                           env=dict(env, STU_FLEET_LOCK_WAIT="1"), timeout=20)
+        got = (p.returncode, p.stdout, "NOTHING WAS CHANGED" in p.stderr,
+               bool(group) and "kill -9 -- -%s`" % group in p.stderr)
+    except subprocess.TimeoutExpired:
+        got = "hold set never returned"
+    check("a hung write bounds the wait", got, (3, "", True, True))
+    check("nothing changed, the write untouched",
+          (state()["hold"], state()["lock"]["pr"], os.path.exists(done)), (None, 5, False))
+    if group:
+        os.killpg(int(group), signal.SIGKILL)
+    check("after the kill the hold names the PR", fleet("hold", "set", "--reason", "x")[:2],
+          (0, ["HOLD set x", "DISARM %s#5 %s" % (SLUG, SHA)]))
+    # release after the killed command: the gate's own token cannot free it
+    check("killed command: own release keeps the lock",
+          fleet("lock", "release", *(PR5 + TOK))[:2], (0, UNKNOWN))
+    # way out 1: a revoke-only pass; way out 2: the next gate acts with a known outcome
+    check("killed command: a revoke releases it",
+          (fleet("lock", "release", *PR5)[0], state()["lock"]), (0, None))
+    reset()
+
+
+def test_unknown_outcome_and_ways_out():
+    """stu-forge dies alone while its gh runs: gh is stopped before the flock drops."""
+    for verb, more in VERBS:
+        reset()
+        run, _ = gh_env("orphan-" + verb)
+        d = os.path.join(TMP, "act-orphan-" + verb)
+        ghpid, wrote = os.path.join(d, "ghpid"), os.path.join(d, "wrote")
+        gh = os.path.join(d, "bin", "gh")
+        os.remove(gh)
+        with open(gh, "w") as f:
+            f.write("#!/bin/sh\necho $PPID > '%s.t'; mv '%s.t' '%s'\nsleep 4\n: > '%s'\n" % (
+                ghpid, ghpid, ghpid, wrote))
+        os.chmod(gh, 0o755)
+        env = dict(os.environ)
+        env.pop("STU_FLEET_FORGE", None)
+        env.update({"HOME": d, "STU_FLEET_FILE": STATE, "STU_FLEET_NONCE": "t-fixed",
+                    "PATH": os.path.join(d, "bin") + os.pathsep + os.environ["PATH"]})
+        take(5)
+        act = subprocess.Popen([BIN, "lock", verb] + list(ACT + more + TOK), env=env,
+                               stdout=subprocess.PIPE, text=True)
+        for _ in range(300):
+            if os.path.exists(ghpid):
+                break
+            time.sleep(0.1)
+        os.kill(int(open(ghpid).read()), signal.SIGKILL)
+        out = act.communicate(timeout=60)[0].splitlines()
+        check("%s: stu-forge killed alone" % verb, (act.returncode, out),
+              (3, ["ERROR forge outcome unknown, stu-forge %s died" % verb]))
+        check("%s: own release keeps the lock" % verb,
+              fleet("lock", "release", *(PR5 + TOK))[:2], (0, UNKNOWN))
+        check("%s: a hold still names it" % verb, fleet("hold", "set", "--reason", "x")[1][1:],
+              ["DISARM %s#5 %s" % (SLUG, SHA)])
+        time.sleep(5)
+        check("%s: gh did not finish its write" % verb, os.path.exists(wrote), False)
+        # the way out: re-gate. A refused re-entry keeps it, a finished act settles it
+        fleet("hold", "clear")
+        take(5, token="tB")
+        check("%s: re-entry keeps the mark" % verb, (
+            fleet("lock", "release", "--token", "tB", *PR5)[1][0].startswith("LOCK kept"),
+            state()["lock"]["writing"]), (True, True))
+        run, _ = gh_env("settle-" + verb, {"rc": 1, "stderr": "boom"})
+        check("%s: a definite ERROR settles it" % verb, (
+            run("stu-fleet", "lock", verb, "--token", "tB", *(ACT + more))[0],
+            fleet("lock", "release", "--token", "tB", *PR5)[1], state()["lock"]),
+            (3, ["LOCK released %s#5" % SLUG], None))
+    reset()
+
+
+def test_tokenless_lock_reentry():
+    for way in ("act", "revoke", "grace"):
+        reset()
+        pr(5, labels="")
+        pr(6)
+        take(5)
+        doc = state()
+        del doc["lock"]["token"]  # as an older stu wrote it
+        with open(STATE, "w") as f:
+            json.dump(doc, f)
+        fleet("hold", "clear")
+        take(5, token="tB")
+        check("tokenless re-entry: maybe armed, so kept",
+              fleet("lock", "release", "--token", "tB", *PR5)[1],
+              ["LOCK kept %s#5 (another gate's)" % SLUG, NEXT])
+        if way == "act":
+            run, _ = gh_env("old", {"rc": 1, "stderr": "boom"})
+            run("stu-fleet", "lock", "merge-at", "--token", "tB", *ACT)
+            fleet("lock", "release", "--token", "tB", *PR5)
+        elif way == "revoke":
+            fleet("lock", "release", *PR5)
+        if way == "grace":  # label gone, nothing else done: another PR gets in after the grace
+            check("way out: grace", take(6, now=T0 + 1000)[0], 0)
+        else:
+            check("way out: %s" % way, state()["lock"], None)
+    reset()
+
+
+def test_group_note():
+    reset()
+    run, _ = gh_env("note")
+    take(5)
+    run("stu-fleet", "lock", "merge-at", *(ACT + TOK))
+    check("the note is cleared when the act ends", open(STATE + ".lock").read(), "")
+    # a note whose group is alive but runs something else is never offered for a kill
+    other = subprocess.Popen(["sleep", "60"], start_new_session=True)
+    with open(STATE + ".lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        held.write("%d merge-at --slug %s --pr 5" % (other.pid, SLUG))
+        held.flush()
+        rc, _, err = fleet("hold", "set", "--reason", "x", extra={"STU_FLEET_LOCK_WAIT": "0.5"})
+    check("stale group: no kill, the holder is findable", (rc, "kill" in err, "lsof" in err),
+          (3, False, True))
+    other.kill()
+    other.wait()
+    reset()
+
+
+def test_token_tells_gates_apart():
+    for verb, more in VERBS:
+        for sha in (SHA, SHA2):  # gate B at the same SHA as A, and at another
+            reset()
+            run, writes = gh_env("tok-%s-%s" % (verb, sha[0]))
+            take(5, token="tA")
+            fleet("hold", "set", "--reason", "x")
+            fleet("lock", "release", *PR5)
+            fleet("hold", "clear")
+            take(5, sha=sha, token="tB")
+            check("%s: the overtaken gate refuses" % verb,
+                  run("stu-fleet", "lock", verb, "--token", "tA", *(ACT + more)),
+                  (11, ["REFUSED fleet-lock: no longer held by %s#5 at %s" % (SLUG, SHA)]))
+            check("%s: nothing written" % verb, writes(), [])
+            check("%s: its release keeps the successor's lock" % verb,
+                  (fleet("lock", "release", "--token", "tA", *PR5)[:2], state()["lock"]["token"]),
+                  ((0, ["LOCK kept %s#5 (another gate's)" % SLUG, NEXT]), "tB"))
+            check("%s: the owner's release works" % verb,
+                  (fleet("lock", "release", "--token", "tB", *PR5)[0], state()["lock"]), (0, None))
+    # re-entry: the older token loses; a lock whose PR the older gate armed is not released by it
+    reset()
+    run, _ = gh_env("reenter")
+    take(5, token="tA")
+    check("A arms", run("stu-fleet", "lock", "arm", "--label", "m", "--token", "tA", *ACT)[0], 0)
+    take(5, token="tB")
+    check("re-entry keeps the older arm's record",
+          (fleet("lock", "release", "--token", "tB", *PR5)[1], state()["lock"]["acted"]),
+          (["LOCK kept %s#5 (another gate's)" % SLUG, NEXT], "tA"))
+    check("a hold still names it", fleet("hold", "set", "--reason", "x")[1][1],
+          "DISARM %s#5 %s" % (SLUG, SHA))
+    check("a revoke releases without a token",
+          (fleet("lock", "release", *PR5)[0], state()["lock"]), (0, None))
+    reset()
+    toks = [fleet("lock", "take", "--sha", SHA, *PR5)[1][0] for _ in range(2)]
+    check("every take makes a new token", toks[0] != toks[1], True)
+    check("neither --token nor --no-lock", fleet("lock", "arm", "--label", "m", *ACT)[0], 2)
+    check("both", fleet("lock", "arm", "--label", "m", "--no-lock", *(ACT + TOK))[0], 2)
+    reset()
 
 
 def test_fail_closed_on_bad_state():
@@ -1882,7 +2201,9 @@ def test_set_cap_and_budget():
 for t in (test_no_file_means_no_hold, test_lock_take_basics, test_hold_refuses_take,
           test_hold_returns_holder_and_records_landing, test_release_landed_during_hold,
           test_stale_holder_released_on_the_forge, test_forge_unreachable_refuses,
-          test_real_forge_through_fake_gh, test_fail_closed_on_bad_state, test_usage,
+          test_real_forge_through_fake_gh, test_act_after_hold_and_revoke_refuses,
+          test_act_runs_the_verb, test_hold_waits_for_an_act_in_flight, test_token_tells_gates_apart,
+          test_unknown_outcome_and_ways_out, test_tokenless_lock_reentry, test_group_note, test_fail_closed_on_bad_state, test_usage,
           test_concurrent_takes_serialise, test_resume_count, test_program_check, test_board,
           test_board_continue_and_negative, test_board_errors_and_preservation, test_launch_only_from_queued, test_spend,
           test_next, test_review_fixes, test_fleet_usage, test_declared_lanes, test_closed_count,

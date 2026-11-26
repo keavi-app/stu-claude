@@ -6,9 +6,14 @@
   stu-fleet hold status                 exit 10 while the hold is set, else 0
   stu-fleet lock take --slug OWNER/REPO --pr N --sha SHA [--label NAME]
                                         take the lock in one locked step
-  stu-fleet lock release --pr N [--slug OWNER/REPO] [--landed]
-                                        release it (idempotent); --landed records a landing
+  stu-fleet lock release --pr N [--slug OWNER/REPO] [--landed] [--token T]
+                                        release it (idempotent); --landed records a landing;
+                                        --token releases only the lock that take gave T for
   stu-fleet lock status                 the holder, if any
+  stu-fleet lock arm --slug OWNER/REPO --pr N --sha SHA --method M [--label NAME] [--no-auto] --token T|--no-lock
+  stu-fleet lock merge-at --slug OWNER/REPO --pr N --sha SHA --method M --token T|--no-lock
+                                        run that stu-forge verb in the same locked step that
+                                        re-reads the hold and the lock (--no-lock: the hold only)
 
   stu-fleet program check PROGRAM       parse and validate a fleet program file
   stu-fleet board show PROGRAM          print the board (a queued row for every run with none); under a
@@ -237,9 +242,29 @@ the forge (`stu-forge pr-state`) and released when its PR is merged or closed, o
 merge label is gone, its auto-merge is off, and the lock is older than a grace period (a gate takes the lock before it
 labels, so a fresh lock with no label yet is not abandoned). The forge being unreachable is a
 refusal, never an assumption. Then it refuses if the hold is set, then if another PR still
-holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR).
+holds the lock; otherwise it records slug, PR, sha and time (re-entrant for the same slug+PR) and prints
+`TOKEN <t>` before its `LOCK held` line. Every take, a re-entry too, makes a new token, so an older
+gate on the same PR (even at the same SHA) no longer owns the lock.
+
+`lock arm` and `lock merge-at` refuse (10) if the hold is set, and (11) unless the lock is still
+this PR at this SHA under --token, then run the stu-forge verb before the flock is dropped. So `hold set` either
+comes first and the verb never runs, or waits and returns after the verb did; a lock released in
+between (a revoke) also refuses. The verb's output is printed as it came; exit 0 only when it
+ended in OK, 3 otherwise. A verb past 90 seconds is killed and reported as
+`ERROR forge outcome unknown ...`, and so is one that died without its terminal line: its write
+may still have reached the forge. The lock is marked as writing before the verb starts and unmarked
+only once its outcome is known.
+`release --token` leaves alone a lock with another token, and one whose last forge write was started
+under another token (that PR may be armed), and one marked as writing. It prints what to do next:
+acting again under a new take settles it, and a revoke releases it. Without --token it releases by PR: for a
+revoke, or a PR seen merged or closed, where whoever holds it is done.
+
+Every locked step waits at most 100 seconds for the flock, then fails (3) having changed nothing. A
+killed gate's forge write keeps the flock; the error names its process group if `ps` still shows
+that write in it.
 
 The environment variables STU_FLEET_FILE, STU_FLEET_FORGE, STU_FLEET_NOW,
+STU_FLEET_ACT_TIMEOUT, STU_FLEET_LOCK_WAIT,
 STU_FLEET_LABEL_GRACE, STU_FLEET_MAX_LANES and STU_FLEET_NONCE are TEST-ONLY hooks (state file
 path, stand-in forge command, clock, grace, lane cap used when the program has no `Max live
 lanes:`, a fixed launch nonce; STU_PROJECTS_ROOT, agent_tree's, points actuals at a fixture); nothing
@@ -262,6 +287,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import stat
@@ -370,6 +396,23 @@ def save(path, doc):
     atomic_write(path, json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+def verified_group(note):
+    """The process group in a lock-file note, only if it still runs that very forge write."""
+    group, _, call = note.strip().partition(" ")
+    if not call:
+        return None
+    try:
+        out = subprocess.run(["ps", "-A", "-ww", "-o", "pgid=,command="], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for ln in out.splitlines():
+        g, _, cmd = ln.strip().partition(" ")
+        if g == group and cmd.endswith(call):
+            return group
+    return None
+
+
 class Locked:
     """Exclusive flock on <state>.lock for the with-block; .doc is the loaded state."""
 
@@ -380,16 +423,45 @@ class Locked:
         d = os.path.dirname(self.path) or "."
         try:
             os.makedirs(d, exist_ok=True)
-            self.fh = open(self.path + ".lock", "a")
-            fcntl.flock(self.fh, fcntl.LOCK_EX)
+            self.fh = open(self.path + ".lock", "a+")
         except OSError as e:
             raise Fail(EXIT_ERROR, "cannot lock %s: %s" % (self.path, e))
         try:
+            self.wait()
+            self.note("")
             self.doc = load(self.path)
+        except OSError as e:
+            self.fh.close()
+            raise Fail(EXIT_ERROR, "cannot lock %s: %s" % (self.path, e))
         except BaseException:
             self.fh.close()
             raise
         return self
+
+    def wait(self):
+        """Bounded: a hung forge write whose gate was killed keeps the flock, and must not be
+        overtaken, so give up loudly instead of waiting on it forever."""
+        end = time.monotonic() + float(os.environ.get("STU_FLEET_LOCK_WAIT", "100"))
+        while True:
+            try:
+                return fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                if time.monotonic() >= end:
+                    break
+            time.sleep(0.1)
+        self.fh.seek(0)
+        group = verified_group(self.fh.read())
+        raise Fail(EXIT_ERROR, "%s.lock is still held; NOTHING WAS CHANGED (a hold was not set). "
+                   "Retry. If it stays held, %s" % (self.path, (
+                       "a forge write is hung in process group %s: stop it with `kill -9 -- -%s`, "
+                       "treat its PR as possibly armed, and retry" % (group, group))
+                       if group else "find the holder with `lsof %s.lock`" % self.path))
+
+    def note(self, text):
+        """Write the running forge write's group and call into the lock file, for wait()'s error."""
+        self.fh.truncate(0)
+        self.fh.write(text)
+        self.fh.flush()
 
     def save(self):
         save(self.path, self.doc)
@@ -428,6 +500,49 @@ def forge_state(slug, pr):
         raise Fail(EXIT_FORGE, "forge unreachable (no PR state)")
     labels = [] if got.get("LABELS", "-") == "-" else got["LABELS"].split(",")
     return got["STATE"], labels, got.get("AUTO_MERGE") != "off"
+
+
+def forge_act(argv, st):
+    """Run one stu-forge write, printing its output. -> (0 only if it ended in OK, else EXIT_ERROR;
+    whether the outcome is known).
+
+    The child shares the flock, so killing this process does not drop it mid-write.
+    """
+    verb, call, cmd = argv[0], " ".join(argv), os.environ.get("STU_FLEET_FORGE")
+    argv = ([cmd] if cmd else [sys.executable, os.path.join(HERE, "stu_forge.py")]) + argv
+    limit = float(os.environ.get("STU_FLEET_ACT_TIMEOUT", "90"))
+    try:
+        p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             stdin=subprocess.DEVNULL, pass_fds=(st.fh.fileno(),), start_new_session=True)
+    except OSError as e:
+        raise Fail(EXIT_ERROR, "cannot run stu-forge: %s" % e)
+    try:
+        st.note("%d %s" % (p.pid, call))
+    except OSError:
+        pass  # only the hung-write error loses its process group
+    why = "died"
+    try:
+        out, err = p.communicate(timeout=limit)
+    except subprocess.TimeoutExpired:
+        out, err, why = "", "", "timed out"
+    lines = out.splitlines() or [""]
+    ok = p.returncode == 0 and lines[-1] == "OK"
+    known = ok or (p.returncode == EXIT_ERROR and lines[-1].startswith("ERROR "))
+    if not known:  # the whole group, so no gh outlives the flock
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass  # nothing left in it
+        p.communicate()
+    try:
+        st.note("")
+    except OSError:
+        pass
+    sys.stdout.write(out)
+    sys.stderr.write(err)
+    if not known:
+        print("ERROR forge outcome unknown, stu-forge %s %s" % (verb, why))
+    return (0 if ok else EXIT_ERROR), known
 
 
 def holder_gone(lock):
@@ -530,6 +645,10 @@ def refuse(code, text):
     return code
 
 
+RELEASE_NEXT = ("NEXT re-gate that PR (a finished arm or merge-at settles it), or dispatch revoke-only for "
+                "it, which releases the lock without --token")
+
+
 def cmd_lock(sub, a):
     check_ids(a)
     if sub == "status":
@@ -546,6 +665,15 @@ def cmd_lock(sub, a):
                     (a.get("slug") and lock["slug"] != a["slug"]):
                 print("LOCK not held for PR %s" % a["pr"])
                 return 0
+            if a.get("token") and (lock.get("token") != a["token"]
+                                   or lock.get("acted", a["token"]) != a["token"]):
+                print("LOCK kept %s (another gate's)" % ref(lock))
+                print(RELEASE_NEXT)
+                return 0
+            if a.get("token") and lock.get("writing"):
+                print("LOCK kept %s (a forge write under it has no known outcome)" % ref(lock))
+                print(RELEASE_NEXT)
+                return 0
             if a.get("landed") and record_landing(st.doc, lock):
                 print("LANDED-DURING-HOLD %s" % ref(lock))
             st.doc["lock"] = None
@@ -553,6 +681,35 @@ def cmd_lock(sub, a):
             print("LOCK released %s" % ref(lock))
             return 0
     need(a, "slug", "pr", "sha")
+    if sub in ("arm", "merge-at"):
+        need(a, "method")
+        if bool(a.get("token")) == bool(a.get("no-lock")):
+            raise Fail(EXIT_USAGE, "give one of --token or --no-lock")
+        with Locked(state_path()) as st:
+            doc, lock = st.doc, st.doc["lock"]
+            if doc["hold"] is not None:
+                return refuse(EXIT_HOLD, "fleet-hold: %s" % doc["hold"]["reason"])
+            if not a.get("no-lock"):
+                if lock and (lock["slug"] != a["slug"] or str(lock["pr"]) != a["pr"]):
+                    return refuse(EXIT_LOCKED, "fleet-lock: held by %s" % ref(lock))
+                if not lock or lock.get("sha") != a["sha"] or lock.get("token") != a["token"]:
+                    return refuse(EXIT_LOCKED, "fleet-lock: no longer held by %s at %s" % (ref(a), a["sha"]))
+                lock["acted"], lock["writing"] = a["token"], True  # on disk before the write starts
+                st.save()
+            argv = [sub]
+            for k in ("slug", "pr", "sha", "method", "label"):
+                if a.get(k):
+                    argv += ["--" + k, a[k]]
+            if a.get("no-auto"):
+                argv.append("--no-auto")
+            code, known = forge_act(argv, st)
+            if known and not a.get("no-lock"):
+                del lock["writing"]
+                try:
+                    st.save()
+                except OSError:
+                    pass  # still marked as writing: only stricter
+            return code
     with Locked(state_path()) as st:
         doc, lock = st.doc, st.doc["lock"]
         same = lock and lock["slug"] == a["slug"] and str(lock["pr"]) == a["pr"]
@@ -578,7 +735,14 @@ def cmd_lock(sub, a):
                        "taken_at": lock["taken_at"] if same else stamp()}
         if same:
             doc["lock"]["updated_at"] = stamp()
+            if "token" not in lock:
+                doc["lock"]["acted"] = "unknown"  # an older stu took it, and may have armed the PR
+            for k in ("acted", "writing"):
+                if k in lock:
+                    doc["lock"][k] = lock[k]
+        doc["lock"]["token"] = new_nonce()
         st.save()
+        print("TOKEN %s" % doc["lock"]["token"])
         print("LOCK held %s %s" % (ref(doc["lock"]), a["sha"]))
         return 0
 
@@ -2410,8 +2574,10 @@ SPEC = {
     ("hold", "clear"): ((), ()),
     ("hold", "status"): ((), ()),
     ("lock", "take"): (("slug", "pr", "sha", "label"), ()),
-    ("lock", "release"): (("pr", "slug"), ("landed",)),
+    ("lock", "release"): (("pr", "slug", "token"), ("landed",)),
     ("lock", "status"): ((), ()),
+    ("lock", "arm"): (("slug", "pr", "sha", "method", "label", "token"), ("no-auto", "no-lock")),
+    ("lock", "merge-at"): (("slug", "pr", "sha", "method", "token"), ("no-lock",)),
 }
 # commands whose first argument after the subcommand is the program file
 PROGRAM_SPEC = {
@@ -2435,7 +2601,7 @@ PROGRAM_SPEC = {
     ("actuals", None): ((), ()),
     ("next", None): ((), ()),
 }
-USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status [flags] | "
+USAGE = ("usage: stu-fleet hold set|clear|status | lock take|release|status|arm|merge-at [flags] | "
          "program check P | board show|launch|record|requeue|idle|relaunch|judgment|judged|verdict|draft|settled|set-cap|set-budget P [flags] | spend P | actuals P | next P | "
          "brief P | answer P --line TEXT")
 

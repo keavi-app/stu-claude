@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.25
+
+- Fix: a merge gate could label or merge a PR under a merge hold, even with the merge lock on, when
+  the hold was set and its revoke-only pass finished between the gate taking the lock and acting.
+  The gate now acts through the new `stu-fleet lock arm` and `stu-fleet lock merge-at`, which re-read
+  the hold and the lock and run the forge write in one locked step. `stu-fleet hold set` now waits
+  for a write in progress, at most 100 seconds; then it fails, says the hold was not set, and how
+  to find the write that is holding it. `lock take` prints a token that acting and a gate's own release need,
+  so an overtaken gate cannot act on, or release, the lock a later gate took on the same PR. A
+  gate cannot release its lock while the outcome of its forge write is unknown (a killed or timed-out
+  command); re-gating or a revoke-only dispatch on that PR settles it. With the lock off, the hold is re-read the same way.
+  Known gaps, in `docs/design-rationale.md`: any forge `ERROR` (including a dropped connection after
+  the write reached the forge) counts as a definite failure and lets the lock go, and the label-gone
+  grace can free a lock while a write whose gate and `stu-forge` were both killed is still running.
+
 ## 0.2.24
 
 - The fleet coordinator never messages a supervisor. `board launch` and `board relaunch` refuse (13)

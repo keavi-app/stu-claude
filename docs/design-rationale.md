@@ -750,3 +750,49 @@ it, and a flag would change the settler return contract. To reverse, add `owner-
 
 A program line the coordinator gave the owner to paste lacked `| feeds: none`, and `program check`
 refused it. It is now shown only after the check passed on a scratch copy that holds it.
+
+## A hold and its revoke could both finish before the gate armed (2026-11-25)
+
+`lock take` ordered the hold against the lock, not against the label. Replaying the documented
+commands with the lock on, through the fake forge, gave: take, `hold set` (names the PR), disarm
+(nothing to clear yet), `claim-state` clean, `lock release`, then `arm` succeeds. The PR was armed
+under a hold with no lock, and `hold status` said `DISARM none`, so nobody would look again. Direct
+mode had the same gap before `merge-at`, where the result is a merge.
+
+The forge write now runs inside the flock, after re-reading the hold and the holder. The alternative
+was to re-read the hold after arming and disarm. That leaves the PR armed in between, does nothing
+for a direct merge, and is a step an agent can skip. The lock is required unless `--no-lock` is
+passed, so a forgotten flag refuses, and the content lint bans the bare verbs in agent text.
+
+Review of that change found two gaps. A gate whose lock a revoke had released would, on its refusal,
+release by PR number, and so free a lock a later gate had taken on the same PR; with both gates at one
+SHA it could even act under that lock. Slug, PR and SHA do not identify a gate, so each take makes a
+token. The lock also records which token last started a forge write: a re-entering gate refused by a
+hold must not release a lock whose PR an earlier gate armed, since the hold then names nothing. And a
+killed gate took the 90-second timeout with it while its child kept the flock, so `hold set` could wait
+forever. The wait is now bounded and fails without changing anything. Dropping the flock instead would
+let a hold be recorded, and swept, ahead of a write still in flight.
+
+A second review killed `stu-forge` alone: its `gh` does not inherit the flock, so the flock dropped,
+the gate released its lock, and the write then landed under a hold that named nothing. A killed
+command that printed nothing had the same end. A child that dies without its terminal line now has
+its whole group killed and its outcome reported unknown. The lock is also marked as writing on disk
+before the write, since a gate that was killed cannot report anything: until an outcome is known, the
+gate's own release keeps the lock. A lock taken by an older stu has no token, so on re-entry its PR
+counts as possibly armed. `gh` still does not inherit the flock: that needs a descriptor passed through
+every `stu-forge` call. The mark does not cover every path: see below.
+
+What stays open: a hung write whose gate was killed keeps holds from being set until someone stops
+it. If the gate and its `stu-forge` are both killed, `gh` can finish after a hold's revoke has
+swept. A killed write may already have reached the forge and land after the sweep. Any `ERROR` line
+from `stu-forge` is taken as definite and clears the mark, though a lost connection, a 504 or a killed
+`gh` can come after the write reached the forge; a later `ERROR` that never reached the forge (a usage
+error under the same token) also clears an earlier unknown write's mark. In direct mode the gate then
+releases with a merge possibly in flight. `stu-forge` would have to tell a definite refusal from an
+ambiguous failure, or the lock stay held until the forge is read back; neither is built. The lock's
+label-gone grace ignores the mark and ages from the first take, so a later `take` can free a lock
+whose write is still running when both the gate and its `stu-forge` were killed. An independent review
+reproduced each of these; they are accepted for now because `main` already released in those cases. With the lock off there is no mark. A PR labelled before a hold with the lock off is still
+unrecorded; a direct push is not covered; and a revoke run with no hold set can still race an arm,
+since only the hold or the lost lock refuses it. A revoke's own sweep is unlocked: it is safe under
+a hold because no new arm can start.

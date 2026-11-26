@@ -112,7 +112,7 @@ gates CI or the daemon's pre-check (if it does, no CI evidence can exist before 
 CI row moves to "Confirming a landed merge").
 
 **The built-in merge steps use `MERGE_METHOD`** (`squash`, `merge` or `rebase`) as the method for
-`stu-forge merge-at` and `stu-forge arm`.
+`stu-fleet lock merge-at` and `stu-fleet lock arm`, which pass it to the forge verb.
 
 ## New step zero: verify the seat before anything else, even before "First"
 
@@ -297,7 +297,9 @@ evaluation) on its own.
 4. **Release the fleet lock for this PR** when `MERGE_LOCK` is `on`: `stu-fleet lock release --pr
    <pr> --slug <REPO_SLUG>`. A revoked claim is no longer between label and landing; leaving the
    lock on it would block every other gate until someone observed it. Exit 0 whether or not this
-   PR held the lock; a nonzero exit is a `FAIL` naming `stu-fleet`.
+   PR held the lock; a nonzero exit is a `FAIL` naming `stu-fleet`. When you are revoking your own
+   claim after your own `stu-fleet lock arm` failed, add `--token <token>`. Every other revoke has
+   cleared the PR whoever armed it, and releases without one.
 
 Step 3 verifies absence after steps 1 and 2, never in place of them.
 
@@ -509,11 +511,12 @@ of the dispatch.
   ```
 
   Leave out `--label` when `CI_MERGE_LABEL` is empty. Re-running the gate on the PR that already
-  holds the lock re-enters it.
+  holds the lock re-enters it. Keep the value of its `TOKEN <token>` line: it is what makes the lock
+  yours, and every take, a re-entry too, replaces it.
 - **`MERGE_LOCK` is `off`:** `stu-fleet hold status`. Exit 0 means no hold; exit 10 means a hold
-  is set. **With the lock off there is a window no hold can close:** you read "no hold", a peer
-  sets one, and you then label or merge anyway, and no armed PR is recorded for the hold to name.
-  Only the lock closes it; a program that needs a hold to stop armed PRs keeps the lock on.
+  is set. **With the lock off a PR armed before the hold is recorded nowhere,** so the hold names
+  nothing to disarm and that PR may still land. A program that needs a hold to stop armed PRs keeps
+  the lock on.
 - **A direct-push dispatch (no PR to lock) with `MERGE_LOCK` `on`:** `stu-fleet hold status`, then
   `stu-fleet lock status`. A hold (exit 10) refuses as below. Any holder (a first line other than
   `LOCK none`) refuses with `REASON: fleet-lock: held by <slug>#<pr>` taken from that line: a push
@@ -529,9 +532,27 @@ that the holder could not be checked on the forge). The orchestrator treats thos
 exit (the state file or run home is unusable) is `GATE: FAIL`, `REASON: stu-fleet error: <its
 stderr line>`, with no `fleet-` prefix.
 
+**The label and the merge themselves run through `stu-fleet lock arm` and `stu-fleet lock
+merge-at`, never the bare `stu-forge` verbs.** Each re-reads the hold and the lock and runs the
+forge verb in one locked step, so a hold set (and a revoke-only pass that released your lock) after
+the check above still refuses. With `MERGE_LOCK` `on` pass `--token
+<token>` from your own `take`; with it `off` pass `--no-lock` instead. The hold is re-read either way. A `REFUSED ` line (exit 10 or 11, `fleet-lock: no longer held by ...` included)
+is the refusal above: nothing was written to the forge, and you release your own lock as below. An
+`ERROR` line other than `forge outcome unknown` is handled as the mode's step says. **Any other end
+without `OK`** (`ERROR forge outcome unknown`, only a stderr line, nothing printed, a killed or timed-out
+command) **means the write may have reached the forge**: in label-handoff mode revoke your own claim;
+in direct mode `FAIL` and still run the release below with your token: it frees the lock only when
+no write under it is unsettled, and otherwise prints `LOCK kept` and a `NEXT` line for `REASON`, so the
+next dispatch on this PR sees whether it merged.
+Run every `stu-fleet lock` command with a command timeout of at least 240 seconds (`timeout:
+240000`): the wait for the lock (100) and the write (90) together outlast the usual 120.
+
 A lock you took is released when the dispatch ends without a merge in flight: if the label step
-or `merge-at` fails afterwards, run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG>` before
-you return. A lock whose PR is labelled and waiting stays held until the landing is confirmed
+or `merge-at` fails afterwards (an unknown outcome in direct mode included), run `stu-fleet lock release --pr <pr> --slug <REPO_SLUG> --token <token>` before
+you return. Always with your token here: without it you could release the lock a later gate on this
+PR took. `LOCK kept` (exit 0) means the lock or the last forge write under it is another
+gate's, or a write under it has no known outcome: leave it, and put its `NEXT` line in `REASON`
+(after any refusal text, which stays first). A lock whose PR is labelled and waiting stays held until the landing is confirmed
 ("Confirming a landed merge") or observed by a later gate or coordinator.
 
 ### Report-only mode
@@ -580,10 +601,10 @@ someone else's claim, and the next dispatch revokes it.
    this row's actor, enables auto-merge bound to the SHA:
 
    ```
-   stu-forge arm --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD> --label <CI_MERGE_LABEL>
+   stu-fleet lock arm --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD> --label <CI_MERGE_LABEL>
    ```
 
-   Add `--no-auto` unless the `merge-mode` section names GitHub native auto-merge as the actor.
+   Add `--token <token>` (`--no-lock` when `MERGE_LOCK` is `off`), and `--no-auto` unless the `merge-mode` section names GitHub native auto-merge as the actor.
    Its terminal line must be `OK`; an `ERROR <class> step=label|auto ...` means revoke your own
    claim ("Revoke a claim") and `FAIL`, naming the line. GitHub merges on green, untouched. That
    is where the actual merge happens — never here, and never by you running a merge command.
@@ -616,8 +637,10 @@ The orchestrator does not. Three steps, in order, none optional:
 2. **Merge it yourself, atomically. Do not apply any merge-authorising label.**
 
    ```
-   stu-forge merge-at --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD>
+   stu-fleet lock merge-at --slug <REPO_SLUG> --pr <pr> --sha <sha> --method <MERGE_METHOD>
    ```
+
+   Add `--token <token>` (`--no-lock` when `MERGE_LOCK` is `off`).
 
    `MERGED <sha>` then `OK` is a merge; `ERROR moved-head` means the head is no longer that SHA
    and nothing merged: `FAIL`. The verb refuses unless the head is exactly that SHA, the only form
